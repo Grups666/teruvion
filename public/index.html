@@ -1167,7 +1167,11 @@
               id: manifest.id,
               name: manifest.name || manifest.id,
               version: manifest.version || '',
-              description: manifest.description || ''
+              description: manifest.description || '',
+              manifestUrl: manifest.manifestUrl || '',
+              basePath: manifest.basePath || '',
+              entry: manifest.entry || './index.js',
+              className: manifest.className || ''
             });
           }
           this.updateModuleList();
@@ -1651,7 +1655,7 @@
           const loaded = this.moduleLoader.isLoaded(m.id);
           return `<div class="module-item ${loaded ? 'loaded' : ''}" data-id="${m.id}">
             <span class="module-name">${m.name}</span>
-            ${loaded ? '<button class="module-remove-btn" title="Unload module" aria-label="Unload module">x</button>' : ''}
+            ${loaded ? '<button class="module-remove-btn" title="Remove module" aria-label="Remove module">x</button>' : ''}
           </div>`;
         }).join('');
         el.querySelectorAll('.module-item').forEach(item => {
@@ -1660,9 +1664,10 @@
           if (removeBtn) {
             removeBtn.onclick = (event) => {
               event.stopPropagation();
-              this.unloadModule(item.dataset.id);
-              this.updateModuleList();
-              this.draw();
+              if (this.removeModule(item.dataset.id)) {
+                this.updateModuleList();
+                this.draw();
+              }
             };
           }
         });
@@ -1693,6 +1698,20 @@
           document.getElementById('inspectorPanel').classList.remove('visible');
         }
         this.toast('Module unloaded');
+      },
+
+      removeModule(id) {
+        const moduleRef = this.modules.find(m => m.id === id);
+        const name = moduleRef?.name || id;
+        if (!window.confirm(`Remove module "${name}"? This will unload it and remove it from the module list.`)) return false;
+
+        if (this.moduleLoader.isLoaded(id)) {
+          this.unloadModule(id);
+        }
+        this.modules = this.modules.filter(m => m.id !== id);
+        if (this.selectedLayer?.moduleId === id) this.selectedLayer = null;
+        this.toast(`Module removed: ${name}`);
+        return true;
       },
 
       async fetchModuleManifest(moduleRef) {
