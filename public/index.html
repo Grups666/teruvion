@@ -143,6 +143,19 @@
       .module-item:hover, .layer-item:hover { background: #e2e8f0; }
       .module-item.loaded { background: #dbeafe; }
       .module-item.loaded .module-name { color: #1d4ed8; font-weight: 500; }
+      .module-remove-btn {
+        margin-left: auto;
+        width: 20px;
+        height: 20px;
+        border: none;
+        border-radius: 3px;
+        background: transparent;
+        color: #64748b;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 20px;
+      }
+      .module-remove-btn:hover { background: #bfdbfe; color: #1e293b; }
       .layer-checkbox {
         width: 14px;
         height: 14px;
@@ -637,8 +650,6 @@
     const App = {
       canvas: null,
       ctx: null,
-      renderBuffer: null,
-      renderBufferCtx: null,
       layerManager: null,
       renderScheduler: null,
       renderer: null,
@@ -659,6 +670,8 @@
       // Viewport state
       viewport: { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0 },
       dragging: false,
+      draggingActive: false,
+      suppressClick: false,
       dragStart: null,
       hoverPending: false,
       latestHoverPoint: null,
@@ -739,7 +752,7 @@
         // Mouse events
         this.canvas.addEventListener('mousedown', (e) => {
           this.dragging = true;
-          this.renderScheduler.beginInteraction();
+          this.draggingActive = false;
           const { x, y } = this.getCanvasCoords(e);
           this.dragStart = { x, y, ox: this.viewport.offsetX, oy: this.viewport.offsetY };
           this.canvas.style.cursor = 'grabbing';
@@ -748,7 +761,9 @@
         window.addEventListener('mouseup', () => {
           if (this.dragging) {
             this.dragging = false;
-            this.renderScheduler.endInteraction();
+            this.suppressClick = this.draggingActive;
+            if (this.draggingActive) this.renderScheduler.endInteraction();
+            this.draggingActive = false;
             this.canvas.style.cursor = 'grab';
           }
         });
@@ -759,6 +774,12 @@
           document.getElementById('statusCoords').textContent = `${lon.toFixed(1)} deg, ${lat.toFixed(1)} deg`;
 
           if (this.dragging) {
+            const moved = Math.abs(x - this.dragStart.x) + Math.abs(y - this.dragStart.y);
+            if (!this.draggingActive && moved > 5) {
+              this.draggingActive = true;
+              this.renderScheduler.beginInteraction();
+            }
+            if (!this.draggingActive) return;
             this.viewport.offsetX = this.dragStart.ox + (x - this.dragStart.x);
             this.viewport.offsetY = this.dragStart.oy + (y - this.dragStart.y);
             this.clampOffset();
@@ -770,7 +791,10 @@
 
         this.canvas.addEventListener('click', (e) => {
           const { x, y } = this.getCanvasCoords(e);
-          if (this.dragStart && Math.abs(x - this.dragStart.x) + Math.abs(y - this.dragStart.y) > 5) return;
+          if (this.suppressClick) {
+            this.suppressClick = false;
+            return;
+          }
           const hit = this.hitTest(x, y);
           if (hit) {
             this.selectedFeature = hit.feature;
@@ -1317,11 +1341,6 @@
         this.canvas.style.height = rect.height + 'px';
 
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        this.renderBuffer = document.createElement('canvas');
-        this.renderBuffer.width = this.canvas.width;
-        this.renderBuffer.height = this.canvas.height;
-        this.renderBufferCtx = this.renderBuffer.getContext('2d');
-        this.renderBufferCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         this.clampOffset();
         this.draw();
       },
@@ -1357,8 +1376,7 @@
       },
 
       drawNow(renderState = {}) {
-        const { viewport } = this;
-        const ctx = this.renderBufferCtx || this.ctx;
+        const { ctx, viewport } = this;
         const { width, height } = viewport;
         viewport.interacting = !!renderState.interacting;
 
@@ -1399,14 +1417,6 @@
           }
         }
         viewport.interacting = false;
-
-        if (this.renderBufferCtx) {
-          this.ctx.save();
-          this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-          this.ctx.drawImage(this.renderBuffer, 0, 0);
-          this.ctx.restore();
-        }
       },
 
       renderBasemap(ctx, viewport) {
@@ -1641,25 +1651,26 @@
           const loaded = this.moduleLoader.isLoaded(m.id);
           return `<div class="module-item ${loaded ? 'loaded' : ''}" data-id="${m.id}">
             <span class="module-name">${m.name}</span>
+            ${loaded ? '<button class="module-remove-btn" title="Unload module" aria-label="Unload module">x</button>' : ''}
           </div>`;
         }).join('');
         el.querySelectorAll('.module-item').forEach(item => {
           item.onclick = () => this.toggleModule(item.dataset.id);
+          const removeBtn = item.querySelector('.module-remove-btn');
+          if (removeBtn) {
+            removeBtn.onclick = (event) => {
+              event.stopPropagation();
+              this.unloadModule(item.dataset.id);
+              this.updateModuleList();
+              this.draw();
+            };
+          }
         });
       },
 
       async toggleModule(id) {
         if (this.moduleLoader.isLoaded(id)) {
-          const module = this.moduleLoader.get(id);
-          module?.onUnload?.();
-          if (module?.getLayerIds) {
-            module.getLayerIds().forEach(lid => this.layerManager.removeLayer(lid));
-          }
-          this.moduleLoader.modules.delete(id);
-          if (this.selectedLayer?.moduleId === id) {
-            document.getElementById('inspectorPanel').classList.remove('visible');
-          }
-          this.toast('Module unloaded');
+          this.unloadModule(id);
         } else {
           try {
             const manifest = await this.fetchModuleManifest(this.modules.find(m => m.id === id) || id);
@@ -1669,6 +1680,19 @@
         }
         this.updateModuleList();
         this.draw();
+      },
+
+      unloadModule(id) {
+        const module = this.moduleLoader.get(id);
+        module?.onUnload?.();
+        if (module?.getLayerIds) {
+          module.getLayerIds().forEach(lid => this.layerManager.removeLayer(lid));
+        }
+        this.moduleLoader.modules.delete(id);
+        if (this.selectedLayer?.moduleId === id) {
+          document.getElementById('inspectorPanel').classList.remove('visible');
+        }
+        this.toast('Module unloaded');
       },
 
       async fetchModuleManifest(moduleRef) {
