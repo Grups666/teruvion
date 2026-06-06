@@ -152,7 +152,6 @@
         background: transparent;
         color: #64748b;
         cursor: pointer;
-        font-size: 12px;
       }
       .module-remove-btn:hover { background: #bfdbfe; color: #1e293b; }
       .module-remove-btn,
@@ -165,7 +164,42 @@
         line-height: 1;
         font-family: inherit;
         font-weight: 500;
+        font-size: 0;
         padding: 0;
+        position: relative;
+      }
+      .module-remove-btn::before,
+      .module-remove-btn::after,
+      .layer-btn::before,
+      .layer-btn::after,
+      .import-close::before,
+      .import-close::after,
+      .inspector-close::before,
+      .inspector-close::after {
+        content: "";
+        position: absolute;
+        width: 10px;
+        height: 1.5px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+      .import-close::before,
+      .import-close::after,
+      .inspector-close::before,
+      .inspector-close::after {
+        width: 12px;
+      }
+      .module-remove-btn::before,
+      .layer-btn::before,
+      .import-close::before,
+      .inspector-close::before {
+        transform: rotate(45deg);
+      }
+      .module-remove-btn::after,
+      .layer-btn::after,
+      .import-close::after,
+      .inspector-close::after {
+        transform: rotate(-45deg);
       }
       .layer-checkbox {
         width: 14px;
@@ -239,7 +273,7 @@
         width: 20px; height: 20px;
         border: none; background: transparent;
         cursor: pointer; border-radius: 3px;
-        font-size: 12px; color: #64748b;
+        color: #64748b;
       }
       .layer-btn:hover { background: #cbd5e1; color: #1e293b; }
 
@@ -277,7 +311,7 @@
         width: 28px; height: 28px;
         border: none; background: transparent;
         cursor: pointer; border-radius: 4px;
-        font-size: 16px; color: #64748b;
+        color: #64748b;
       }
       .import-close:hover { background: #e2e8f0; }
       .import-body {
@@ -518,7 +552,7 @@
         width: 24px; height: 24px;
         border: none; background: transparent;
         cursor: pointer; border-radius: 4px;
-        font-size: 16px; color: #64748b;
+        color: #64748b;
       }
       .inspector-close:hover { background: #e2e8f0; }
       .inspector-body { flex: 1; overflow-y: auto; padding: 16px; }
@@ -605,7 +639,7 @@
     <div class="inspector-panel" id="inspectorPanel">
       <div class="inspector-header">
         <span class="inspector-title" id="inspectorTitle">Inspector</span>
-        <button class="inspector-close" id="btnCloseInspector">x</button>
+        <button class="inspector-close" id="btnCloseInspector" aria-label="Close inspector" title="Close inspector"></button>
       </div>
       <div class="inspector-body" id="inspectorBody"></div>
     </div>
@@ -618,7 +652,7 @@
       <div class="import-dialog">
         <div class="import-header">
           <span class="import-title">Import Data</span>
-          <button class="import-close" id="btnCloseImport">x</button>
+          <button class="import-close" id="btnCloseImport" aria-label="Close import dialog" title="Close import dialog"></button>
         </div>
         <div class="import-body">
           <div class="import-section">
@@ -668,7 +702,7 @@
       <div class="import-dialog confirm-dialog">
         <div class="import-header">
           <span class="import-title" id="confirmTitle">Confirm</span>
-          <button class="import-close" id="btnCloseConfirm">x</button>
+          <button class="import-close" id="btnCloseConfirm" aria-label="Close confirmation dialog" title="Close confirmation dialog"></button>
         </div>
         <div class="import-body">
           <div class="confirm-message" id="confirmMessage"></div>
@@ -1705,7 +1739,7 @@
           const loaded = this.moduleLoader.isLoaded(m.id);
           return `<div class="module-item ${loaded ? 'loaded' : ''}" data-id="${m.id}">
             <span class="module-name">${m.name}</span>
-            ${loaded ? '<button class="module-remove-btn" title="Remove module" aria-label="Remove module">x</button>' : ''}
+            ${loaded ? '<button class="module-remove-btn" title="Remove module" aria-label="Remove module"></button>' : ''}
           </div>`;
         }).join('');
         el.querySelectorAll('.module-item').forEach(item => {
@@ -1906,7 +1940,7 @@
             <div class="layer-item" data-id="${l.id}">
               <input type="checkbox" class="layer-checkbox" ${l.visible ? 'checked' : ''}>
               <span class="layer-name">${l.name}</span>
-              <div class="layer-actions"><button class="layer-btn layer-remove">x</button></div>
+              <div class="layer-actions"><button class="layer-btn layer-remove" title="Remove layer" aria-label="Remove layer"></button></div>
             </div>
           `;
         });
