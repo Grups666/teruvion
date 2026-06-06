@@ -388,6 +388,23 @@
         background: #94a3b8;
         cursor: not-allowed;
       }
+      .import-btn-danger {
+        background: #dc2626;
+        border: none;
+        color: #fff;
+      }
+      .import-btn-danger:hover { background: #b91c1c; }
+      .confirm-message {
+        color: #334155;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      .confirm-detail {
+        margin-top: 10px;
+        color: #64748b;
+        font-size: 12px;
+        line-height: 1.45;
+      }
 
       /* Map Controls */
       .map-controls {
@@ -634,6 +651,24 @@
       </div>
     </div>
 
+    <!-- Confirm Modal -->
+    <div class="import-modal" id="confirmModal">
+      <div class="import-dialog" style="width:420px">
+        <div class="import-header">
+          <span class="import-title" id="confirmTitle">Confirm</span>
+          <button class="import-close" id="btnCloseConfirm">x</button>
+        </div>
+        <div class="import-body">
+          <div class="confirm-message" id="confirmMessage"></div>
+          <div class="confirm-detail" id="confirmDetail"></div>
+        </div>
+        <div class="import-footer">
+          <button class="import-btn import-btn-cancel" id="btnCancelConfirm">Cancel</button>
+          <button class="import-btn import-btn-danger" id="btnConfirmAction">Remove</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Scripts -->
     <script src="./assets/basin-data.js"></script>
     <script src="./assets/land-50m.js"></script>
@@ -665,6 +700,7 @@
       currentImportSource: 'csv',
       remoteImportRequestId: 0,
       remoteImportTimer: null,
+      pendingConfirm: null,
       staticModules: [],
 
       // Viewport state
@@ -969,6 +1005,10 @@
             this.handleImportUrlInput(importUrlInput.value);
           }, 250);
         };
+
+        document.getElementById('btnCloseConfirm').onclick = () => this.resolveConfirm(false);
+        document.getElementById('btnCancelConfirm').onclick = () => this.resolveConfirm(false);
+        document.getElementById('btnConfirmAction').onclick = () => this.resolveConfirm(true);
       },
 
       resetImportForm() {
@@ -1660,9 +1700,9 @@
           item.onclick = () => this.toggleModule(item.dataset.id);
           const removeBtn = item.querySelector('.module-remove-btn');
           if (removeBtn) {
-            removeBtn.onclick = (event) => {
+            removeBtn.onclick = async (event) => {
               event.stopPropagation();
-              if (this.removeModule(item.dataset.id)) {
+              if (await this.removeModule(item.dataset.id)) {
                 this.updateModuleList();
                 this.draw();
               }
@@ -1698,10 +1738,16 @@
         this.toast('Module unloaded');
       },
 
-      removeModule(id) {
+      async removeModule(id) {
         const moduleRef = this.modules.find(m => m.id === id);
         const name = moduleRef?.name || id;
-        if (!window.confirm(`Remove module "${name}"? This will unload it and remove it from the module list.`)) return false;
+        const confirmed = await this.showConfirm({
+          title: 'Remove Module',
+          message: `Remove module "${name}"?`,
+          detail: 'This will unload the module, clear its map styling and legend, and remove it from the module list.',
+          actionText: 'Remove'
+        });
+        if (!confirmed) return false;
 
         if (this.moduleLoader.isLoaded(id)) {
           this.unloadModule(id);
@@ -1710,6 +1756,26 @@
         if (this.selectedLayer?.moduleId === id) this.selectedLayer = null;
         this.toast(`Module removed: ${name}`);
         return true;
+      },
+
+      showConfirm({ title, message, detail = '', actionText = 'Confirm' }) {
+        if (this.pendingConfirm) this.resolveConfirm(false);
+        document.getElementById('confirmTitle').textContent = title || 'Confirm';
+        document.getElementById('confirmMessage').textContent = message || '';
+        document.getElementById('confirmDetail').textContent = detail || '';
+        document.getElementById('btnConfirmAction').textContent = actionText;
+        document.getElementById('confirmModal').classList.add('visible');
+
+        return new Promise((resolve) => {
+          this.pendingConfirm = resolve;
+        });
+      },
+
+      resolveConfirm(value) {
+        document.getElementById('confirmModal').classList.remove('visible');
+        const resolve = this.pendingConfirm;
+        this.pendingConfirm = null;
+        if (resolve) resolve(value);
       },
 
       async fetchModuleManifest(moduleRef) {
