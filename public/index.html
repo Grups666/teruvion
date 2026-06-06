@@ -232,6 +232,8 @@
       .import-modal.visible { display: flex; }
       .import-dialog {
         width: 480px;
+        display: flex;
+        flex-direction: column;
         max-height: 80vh;
         background: #fff;
         border-radius: 8px;
@@ -256,7 +258,8 @@
       .import-body {
         padding: 20px;
         overflow-y: auto;
-        max-height: calc(80vh - 60px);
+        flex: 1;
+        min-height: 0;
       }
       .import-section { margin-bottom: 20px; }
       .import-section-title {
@@ -347,6 +350,8 @@
         display: flex;
         justify-content: flex-end;
         gap: 8px;
+        flex-shrink: 0;
+        background: #fff;
       }
       .import-btn {
         padding: 8px 16px;
@@ -647,17 +652,7 @@
       currentImportSource: 'csv',
       remoteImportRequestId: 0,
       remoteImportTimer: null,
-      staticModules: [
-        {
-          id: 'water-imbalance',
-          name: 'Water Imbalance',
-          version: '0.1.1',
-          description: 'Three-variable basin water imbalance classification',
-          importKind: 'module-manifest',
-          manifestUrl: 'https://grups666.github.io/Hydro-Imbalance/modules/water-imbalance/module.json',
-          defaultLoad: false
-        }
-      ],
+      staticModules: [],
 
       // Viewport state
       viewport: { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0 },
@@ -1597,7 +1592,7 @@
           const res = await fetch('/api/modules');
           if (!res.ok) throw new Error(`Module API unavailable: ${res.status}`);
           const payload = await res.json();
-          this.modules = payload.modules?.length ? payload.modules : this.staticModules;
+          this.modules = payload.modules || this.staticModules;
         } catch (e) {
           this.modules = this.staticModules;
         }

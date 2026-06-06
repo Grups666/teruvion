@@ -8,7 +8,7 @@ Domain repositories provide modules. A module can be loaded from a local folder,
 
 Open the interactive frontend here:
 
-[https://grups666.github.io/Tereon/](https://grups666.github.io/Tereon/)
+[https://grups666.github.io/tereon/](https://grups666.github.io/tereon/)
 
 Open Tereon, choose `+ Add Module`, select `URL`, and paste a compatible module manifest or repository URL.
 

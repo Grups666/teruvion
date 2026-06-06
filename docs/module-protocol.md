@@ -4,12 +4,12 @@ Tereon modules are loaded through a manifest.
 
 ```json
 {
-  "id": "water-imbalance",
-  "name": "Water Imbalance",
-  "version": "0.1.1",
+  "id": "example-module",
+  "name": "Example Module",
+  "version": "0.1.0",
   "entry": "./index.js",
-  "className": "WaterImbalanceModule",
-  "basePath": "https://example.github.io/module-repo/modules/water-imbalance/",
+  "className": "ExampleModule",
+  "basePath": "https://example.github.io/module-repo/modules/example-module/",
   "datasets": []
 }
 ```
