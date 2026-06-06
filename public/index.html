@@ -152,10 +152,21 @@
         background: transparent;
         color: #64748b;
         cursor: pointer;
-        font-size: 14px;
-        line-height: 20px;
+        font-size: 12px;
       }
       .module-remove-btn:hover { background: #bfdbfe; color: #1e293b; }
+      .module-remove-btn,
+      .layer-btn,
+      .import-close,
+      .inspector-close {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        font-family: inherit;
+        font-weight: 500;
+        padding: 0;
+      }
       .layer-checkbox {
         width: 14px;
         height: 14px;
@@ -228,7 +239,7 @@
         width: 20px; height: 20px;
         border: none; background: transparent;
         cursor: pointer; border-radius: 3px;
-        font-size: 14px; color: #64748b;
+        font-size: 12px; color: #64748b;
       }
       .layer-btn:hover { background: #cbd5e1; color: #1e293b; }
 
@@ -253,6 +264,7 @@
         box-shadow: 0 8px 32px rgba(0,0,0,0.2);
         overflow: hidden;
       }
+      .confirm-dialog { width: 420px; }
       .import-header {
         padding: 16px 20px;
         border-bottom: 1px solid #e2e8f0;
@@ -265,7 +277,7 @@
         width: 28px; height: 28px;
         border: none; background: transparent;
         cursor: pointer; border-radius: 4px;
-        font-size: 18px; color: #64748b;
+        font-size: 16px; color: #64748b;
       }
       .import-close:hover { background: #e2e8f0; }
       .import-body {
@@ -458,7 +470,7 @@
         content: "";
         position: absolute;
         left: 1px;
-        top: 5px;
+        top: 1px;
         width: 12px;
         height: 12px;
         background: #111827;
@@ -506,7 +518,7 @@
         width: 24px; height: 24px;
         border: none; background: transparent;
         cursor: pointer; border-radius: 4px;
-        font-size: 18px; color: #64748b;
+        font-size: 16px; color: #64748b;
       }
       .inspector-close:hover { background: #e2e8f0; }
       .inspector-body { flex: 1; overflow-y: auto; padding: 16px; }
@@ -653,7 +665,7 @@
 
     <!-- Confirm Modal -->
     <div class="import-modal" id="confirmModal">
-      <div class="import-dialog" style="width:420px">
+      <div class="import-dialog confirm-dialog">
         <div class="import-header">
           <span class="import-title" id="confirmTitle">Confirm</span>
           <button class="import-close" id="btnCloseConfirm">x</button>
