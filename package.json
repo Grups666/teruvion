@@ -1,0 +1,20 @@
+{
+  "name": "tereon",
+  "version": "0.0.1",
+  "description": "A pluggable geospatial research foundation for map-based scientific modules.",
+  "main": "src/server/server.js",
+  "scripts": {
+    "start": "node src/server/server.js",
+    "check": "node --check src/server/server.js && node --check public/foundation/core/event-bus.js && node --check public/foundation/core/module-loader.js && node --check public/foundation/map/coordinate-system.js && node --check public/foundation/map/layer-manager.js && node --check public/foundation/map/render-scheduler.js && node --check public/foundation/performance/geometry-index.js && node --check public/foundation/ui/utilities.js",
+    "test": "npm run check"
+  },
+  "keywords": [
+    "geospatial",
+    "research",
+    "modules",
+    "visualization"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
