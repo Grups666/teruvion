@@ -299,6 +299,26 @@
         font-size: 13px;
       }
       .import-dropzone:hover { border-color: #cbd5e1; background: #f8fafc; }
+      .import-url-box { display: none; }
+      .import-url-input {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 9px 10px;
+        font-size: 12px;
+        color: #1e293b;
+      }
+      .import-url-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+      }
+      .import-url-help {
+        margin-top: 7px;
+        color: #64748b;
+        font-size: 11px;
+        line-height: 1.5;
+      }
       .import-preview {
         border: 1px solid #e2e8f0;
         border-radius: 4px;
@@ -559,11 +579,17 @@
             <div class="source-tabs">
               <button class="source-tab active" data-source="csv">CSV</button>
               <button class="source-tab" data-source="module">Module Manifest</button>
-              <button class="source-tab disabled" data-source="url">URL</button>
+              <button class="source-tab" data-source="url">URL</button>
             </div>
             <div class="import-dropzone" id="importDropzone">
               Drag file here or click to browse<br>
               <span id="importSupportText" style="color:#94a3b8;font-size:11px">Supports: CSV</span>
+            </div>
+            <div class="import-url-box" id="importUrlBox">
+              <input class="import-url-input" id="importUrlInput" type="url" placeholder="Paste module.json URL or GitHub repository URL">
+              <div class="import-url-help">
+                Examples: GitHub Pages module.json, raw GitHub module.json, GitHub blob URL, or a repository URL containing a module manifest.
+              </div>
             </div>
             <input type="file" id="importFile" accept=".csv" style="display:none">
           </div>
@@ -619,6 +645,8 @@
       hoveredFeatureId: null,
       hoveredLayer: null,
       currentImportSource: 'csv',
+      remoteImportRequestId: 0,
+      remoteImportTimer: null,
       staticModules: [
         {
           id: 'water-imbalance',
@@ -627,7 +655,7 @@
           description: 'Three-variable basin water imbalance classification',
           importKind: 'module-manifest',
           manifestUrl: 'https://grups666.github.io/Hydro-Imbalance/modules/water-imbalance/module.json',
-          defaultLoad: true
+          defaultLoad: false
         }
       ],
 
@@ -856,6 +884,8 @@
         // Import modal
         const importModal = document.getElementById('importModal');
         const importDropzone = document.getElementById('importDropzone');
+        const importUrlBox = document.getElementById('importUrlBox');
+        const importUrlInput = document.getElementById('importUrlInput');
         const importFileInput = document.getElementById('importFile');
         const importSupportText = document.getElementById('importSupportText');
 
@@ -881,9 +911,9 @@
             tab.classList.add('active');
             this.currentImportSource = tab.dataset.source;
             importFileInput.accept = this.currentImportSource === 'module' ? '.json' : '.csv';
-            importSupportText.textContent = this.currentImportSource === 'module'
-              ? 'Supports: module.json manifest'
-              : 'Supports: CSV';
+            importSupportText.textContent = this.getImportSupportText();
+            importDropzone.style.display = this.currentImportSource === 'url' ? 'none' : 'block';
+            importUrlBox.style.display = this.currentImportSource === 'url' ? 'block' : 'none';
             this.resetImportForm();
           };
         });
@@ -911,14 +941,29 @@
           const file = e.dataTransfer.files[0];
           if (file) this.handleImportFile(file);
         };
+
+        importUrlInput.oninput = () => {
+          clearTimeout(this.remoteImportTimer);
+          this.remoteImportTimer = setTimeout(() => {
+            this.handleImportUrlInput(importUrlInput.value);
+          }, 250);
+        };
       },
 
       resetImportForm() {
+        this.remoteImportRequestId++;
+        clearTimeout(this.remoteImportTimer);
         document.getElementById('importFile').value = '';
+        document.getElementById('importUrlInput').value = '';
+        this.clearImportPreview();
+        this.importData = null;
+      },
+
+      clearImportPreview() {
         document.getElementById('previewSection').style.display = 'none';
         document.getElementById('mappingSection').style.display = 'none';
         document.getElementById('btnSubmitImport').classList.add('disabled');
-        this.importData = null;
+        document.getElementById('btnSubmitImport').onclick = null;
       },
 
       toggleSidebar() {
@@ -926,6 +971,12 @@
       },
 
       importData: null,
+
+      getImportSupportText() {
+        if (this.currentImportSource === 'module') return 'Supports: module.json manifest';
+        if (this.currentImportSource === 'url') return 'Supports: module URL or GitHub repo URL';
+        return 'Supports: CSV';
+      },
 
       handleImportFile(file) {
         if (this.currentImportSource === 'module') {
@@ -952,34 +1003,135 @@
             return;
           }
 
-          this.importData = { manifest };
-          document.getElementById('previewSection').style.display = 'block';
-          document.getElementById('previewHead').innerHTML = '<tr><th>Field</th><th>Value</th></tr>';
-          document.getElementById('previewBody').innerHTML = [
-            ['id', manifest.id],
-            ['name', manifest.name || ''],
-            ['version', manifest.version || ''],
-            ['entry', manifest.entry],
-            ['className', manifest.className],
-            ['knowledgeGraph', manifest.knowledgeGraph || '']
-          ].map(([k, v]) => `<tr><td>${this.escape(k)}</td><td>${this.escape(v)}</td></tr>`).join('');
-
-          document.getElementById('mappingSection').style.display = 'block';
-          document.getElementById('fieldMapping').innerHTML = `
-            <p style="font-size:12px;color:#64748b;line-height:1.5">
-              The module will be loaded through its manifest. Relative entry and data paths resolve from /modules/${this.escape(manifest.id)}/.
-            </p>
-          `;
-          document.getElementById('btnSubmitImport').classList.remove('disabled');
-          document.getElementById('btnSubmitImport').onclick = async () => {
-            await this.importModuleManifest(manifest);
-            document.getElementById('importModal').classList.remove('visible');
-            this.resetImportForm();
-          };
+          this.prepareModuleManifestImport(manifest);
         } catch (e) {
           console.error(e);
           this.toast('Failed to parse module manifest');
         }
+      },
+
+      async handleImportUrlInput(value) {
+        const rawUrl = value.trim();
+        const requestId = ++this.remoteImportRequestId;
+        this.clearImportPreview();
+        this.importData = null;
+        if (!rawUrl) return;
+
+        try {
+          const manifest = await this.fetchRemoteManifest(rawUrl);
+          if (requestId !== this.remoteImportRequestId) return;
+          this.prepareModuleManifestImport(manifest);
+        } catch (e) {
+          if (requestId !== this.remoteImportRequestId) return;
+          document.getElementById('previewSection').style.display = 'block';
+          document.getElementById('previewHead').innerHTML = '<tr><th>Status</th><th>Details</th></tr>';
+          document.getElementById('previewBody').innerHTML = `
+            <tr>
+              <td>Not ready</td>
+              <td>${this.escape(e.message)}</td>
+            </tr>
+          `;
+        }
+      },
+
+      async fetchRemoteManifest(rawUrl) {
+        const candidates = this.getManifestUrlCandidates(rawUrl);
+        const errors = [];
+
+        for (const candidate of candidates) {
+          try {
+            const response = await fetch(candidate, { cache: 'no-cache' });
+            if (!response.ok) {
+              errors.push(`${candidate} returned ${response.status}`);
+              continue;
+            }
+
+            const manifest = await response.json();
+            if (!manifest.id || !manifest.entry || !manifest.className) {
+              errors.push(`${candidate} is missing id, entry, or className`);
+              continue;
+            }
+
+            return {
+              ...manifest,
+              basePath: manifest.basePath || new URL('.', response.url).href,
+              manifestUrl: response.url
+            };
+          } catch (e) {
+            errors.push(`${candidate} failed: ${e.message}`);
+          }
+        }
+
+        throw new Error(errors[0] || 'No module manifest candidate could be loaded');
+      },
+
+      getManifestUrlCandidates(rawUrl) {
+        let url;
+        try {
+          url = new URL(rawUrl);
+        } catch {
+          throw new Error('Enter a valid http(s) URL');
+        }
+
+        if (!/^https?:$/.test(url.protocol)) {
+          throw new Error('Only http(s) URLs are supported');
+        }
+
+        const candidates = [];
+        const add = (candidate) => {
+          if (candidate && !candidates.includes(candidate)) candidates.push(candidate);
+        };
+
+        add(url.href);
+
+        if (url.hostname === 'github.com') {
+          const parts = url.pathname.split('/').filter(Boolean);
+          const [owner, repo] = parts;
+
+          if (owner && repo && parts[2] === 'blob' && parts[3]) {
+            const branch = parts[3];
+            const path = parts.slice(4).join('/');
+            add(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`);
+          }
+
+          if (owner && repo && parts.length <= 2) {
+            const repoSlug = repo.replace(/\.git$/i, '');
+            add(`https://${owner}.github.io/${repoSlug}/module.json`);
+            add(`https://${owner}.github.io/${repoSlug}/modules/${repoSlug}/module.json`);
+            add(`https://raw.githubusercontent.com/${owner}/${repoSlug}/main/module.json`);
+          }
+        }
+
+        return candidates;
+      },
+
+      prepareModuleManifestImport(manifest) {
+        this.importData = { manifest };
+        document.getElementById('previewSection').style.display = 'block';
+        document.getElementById('previewHead').innerHTML = '<tr><th>Field</th><th>Value</th></tr>';
+        document.getElementById('previewBody').innerHTML = [
+          ['id', manifest.id],
+          ['name', manifest.name || ''],
+          ['version', manifest.version || ''],
+          ['entry', manifest.entry],
+          ['className', manifest.className],
+          ['manifestUrl', manifest.manifestUrl || ''],
+          ['basePath', manifest.basePath || `./modules/${manifest.id}/`],
+          ['knowledgeGraph', manifest.knowledgeGraph || '']
+        ].map(([k, v]) => `<tr><td>${this.escape(k)}</td><td>${this.escape(v)}</td></tr>`).join('');
+
+        document.getElementById('mappingSection').style.display = 'block';
+        document.getElementById('fieldMapping').innerHTML = `
+          <p style="font-size:12px;color:#64748b;line-height:1.5">
+            The module will be loaded through this manifest. Relative entry, dataset, and asset paths resolve from the manifest base path.
+          </p>
+        `;
+        document.getElementById('btnSubmitImport').classList.remove('disabled');
+        document.getElementById('btnSubmitImport').onclick = async () => {
+          await this.importModuleManifest(manifest);
+          document.getElementById('importModal').classList.remove('visible');
+          this.resetImportForm();
+        };
       },
 
       async importModuleManifest(manifest) {
@@ -1062,7 +1214,7 @@
             const latCol = document.getElementById('mapLat').value;
             const lonCol = document.getElementById('mapLon').value;
             this.importCSVModule(latCol, lonCol);
-            importModal.classList.remove('visible');
+            document.getElementById('importModal').classList.remove('visible');
             this.resetImportForm();
           };
 

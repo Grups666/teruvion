@@ -16,6 +16,22 @@ Tereon modules are loaded through a manifest.
 
 Relative paths in a remote manifest resolve from the manifest URL directory. A module may also define `assetVersion` to force browser cache refresh for its entry script.
 
+## Remote Import
+
+The Tereon frontend can import a module from:
+
+- A direct `module.json` URL.
+- A GitHub `blob/.../module.json` URL.
+- A GitHub repository URL when the manifest can be inferred from common Pages or raw GitHub locations.
+
+For GitHub Pages, the recommended layout is:
+
+```text
+https://owner.github.io/repo/modules/module-id/module.json
+```
+
+The domain repository can remain headless. It only needs to publish the manifest, entry script, and any referenced data files.
+
 ## Runtime Contract
 
 A module class receives `(app, manifest)` and may implement:
