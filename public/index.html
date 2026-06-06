@@ -1427,7 +1427,6 @@
         const landRings = window.LAND_50M || [];
         const base = this.getBaseScale();
         const { width, height, offsetX, offsetY } = viewport;
-        const lightweight = !!viewport.interacting;
 
         const leftLon = (-width / 2 - offsetX) / base;
         const rightLon = (width / 2 - offsetX) / base;
@@ -1451,13 +1450,12 @@
               else path.lineTo(x, y);
             }
             ctx.fill(path);
-            if (!lightweight) ctx.stroke(path);
+            ctx.stroke(path);
           }
         }
       },
 
       renderBasinOutlines(ctx, viewport) {
-        if (viewport.interacting) return;
         const basins = window.BASIN_DATA?.basins || [];
         const base = this.getBaseScale();
         const { width, height, offsetX, offsetY } = viewport;
