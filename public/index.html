@@ -637,6 +637,8 @@
     const App = {
       canvas: null,
       ctx: null,
+      renderBuffer: null,
+      renderBufferCtx: null,
       layerManager: null,
       renderScheduler: null,
       renderer: null,
@@ -1057,7 +1059,10 @@
           }
         }
 
-        throw new Error(errors[0] || 'No module manifest candidate could be loaded');
+        throw new Error(errors.length
+          ? `No module manifest could be loaded. Tried ${errors.length} URL(s): ${errors.join(' | ')}`
+          : 'No module manifest candidate could be loaded'
+        );
       },
 
       getManifestUrlCandidates(rawUrl) {
@@ -1077,8 +1082,6 @@
           if (candidate && !candidates.includes(candidate)) candidates.push(candidate);
         };
 
-        add(url.href);
-
         if (url.hostname === 'github.com') {
           const parts = url.pathname.split('/').filter(Boolean);
           const [owner, repo] = parts;
@@ -1087,6 +1090,7 @@
             const branch = parts[3];
             const path = parts.slice(4).join('/');
             add(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`);
+            return candidates;
           }
 
           if (owner && repo && parts.length <= 2) {
@@ -1094,9 +1098,11 @@
             add(`https://${owner}.github.io/${repoSlug}/module.json`);
             add(`https://${owner}.github.io/${repoSlug}/modules/${repoSlug}/module.json`);
             add(`https://raw.githubusercontent.com/${owner}/${repoSlug}/main/module.json`);
+            return candidates;
           }
         }
 
+        add(url.href);
         return candidates;
       },
 
@@ -1311,6 +1317,11 @@
         this.canvas.style.height = rect.height + 'px';
 
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.renderBuffer = document.createElement('canvas');
+        this.renderBuffer.width = this.canvas.width;
+        this.renderBuffer.height = this.canvas.height;
+        this.renderBufferCtx = this.renderBuffer.getContext('2d');
+        this.renderBufferCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
         this.clampOffset();
         this.draw();
       },
@@ -1346,7 +1357,8 @@
       },
 
       drawNow(renderState = {}) {
-        const { ctx, viewport } = this;
+        const { viewport } = this;
+        const ctx = this.renderBufferCtx || this.ctx;
         const { width, height } = viewport;
         viewport.interacting = !!renderState.interacting;
 
@@ -1387,6 +1399,14 @@
           }
         }
         viewport.interacting = false;
+
+        if (this.renderBufferCtx) {
+          this.ctx.save();
+          this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+          this.ctx.drawImage(this.renderBuffer, 0, 0);
+          this.ctx.restore();
+        }
       },
 
       renderBasemap(ctx, viewport) {
