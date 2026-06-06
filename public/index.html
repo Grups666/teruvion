@@ -247,6 +247,28 @@
         padding: 8px 12px;
       }
       .layer-sublayer:hover { background: #f1f5f9; }
+      .map-display-options {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 4px 0 6px;
+      }
+      .map-display-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        color: #334155;
+      }
+      .map-display-option:hover { background: #f1f5f9; }
+      .map-display-option input {
+        width: 13px;
+        height: 13px;
+        accent-color: #64748b;
+      }
+      .map-display-label { font-size: 12px; }
 
       /* Add Module button - dashed border style */
       .add-module-btn {
@@ -522,6 +544,17 @@
         gap: 16px;
         z-index: 10;
       }
+      .map-attribution {
+        display: none;
+      }
+      .map-attribution.visible {
+        display: inline;
+      }
+      .map-attribution a {
+        color: inherit;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
 
       /* Inspector Panel */
       .inspector-panel {
@@ -633,6 +666,7 @@
     <div class="map-status">
       <span id="statusFeatures">0 layers</span>
       <span id="statusCoords">--</span>
+      <span class="map-attribution" id="statusAttribution"></span>
     </div>
 
     <!-- Inspector -->
@@ -718,6 +752,7 @@
     <!-- Scripts -->
     <script src="./assets/basin-data.js"></script>
     <script src="./assets/land-50m.js"></script>
+    <script src="./assets/country-boundaries-110m.js"></script>
 
     <script src="./foundation/core/event-bus.js"></script>
     <script src="./foundation/core/module-loader.js"></script>
@@ -748,6 +783,40 @@
       remoteImportTimer: null,
       pendingConfirm: null,
       staticModules: [],
+      mapStyle: 'light',
+      terrainTileCache: new Map(),
+      terrainTileCacheLimit: 384,
+      terrainTileUrl: 'https://server.arcgisonline.com/arcgis/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}',
+      mapStyles: {
+        light: {
+          label: 'Light',
+          background: ['#f7fafc', '#eef6f8', '#e7f0f4'],
+          grid: 'rgba(112, 128, 144, 0.15)',
+          landFill: 'rgba(255, 255, 255, 0.92)',
+          landStroke: 'rgba(72, 84, 96, 0.3)',
+          basinStroke: 'rgba(72, 84, 96, 0.15)',
+          countryStroke: 'rgba(51, 65, 85, 0.38)'
+        },
+        dark: {
+          label: 'Dark',
+          background: ['#08111f', '#0f1e2f', '#132638'],
+          grid: 'rgba(148, 163, 184, 0.16)',
+          landFill: 'rgba(30, 41, 59, 0.96)',
+          landStroke: 'rgba(148, 163, 184, 0.38)',
+          basinStroke: 'rgba(148, 163, 184, 0.22)',
+          countryStroke: 'rgba(203, 213, 225, 0.42)'
+        },
+        terrain: {
+          label: 'Terrain',
+          background: ['#dcecf2', '#d7e8ed', '#d5e3e8'],
+          grid: 'rgba(71, 85, 105, 0.12)',
+          landFill: null,
+          landStroke: 'rgba(30, 41, 59, 0.28)',
+          basinStroke: 'rgba(30, 41, 59, 0.18)',
+          countryStroke: 'rgba(15, 23, 42, 0.36)',
+          attribution: 'Terrain: Esri, USGS, NOAA'
+        }
+      },
 
       // Viewport state
       viewport: { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0 },
@@ -781,14 +850,25 @@
           }
         });
 
-        // Add basemap
+        // Add basemap display layer
         this.layerManager.addLayer({
           id: 'basemap',
-          name: 'Outlines',
+          name: 'Base Map',
           type: 'basemap',
           visible: true,
           interactive: false,
           renderer: (ctx, layer, vp) => this.renderBasemap(ctx, vp)
+        });
+
+        this.layerManager.addLayer({
+          id: 'outlines-countries',
+          name: 'Countries',
+          type: 'vector',
+          visible: false,
+          interactive: false,
+          moduleId: 'foundation',
+          groupPath: ['outlines', 'countries'],
+          renderer: (ctx, layer, vp) => this.renderCountryOutlines(ctx, vp)
         });
 
         // Add basin layer under Outlines > Basins. This single third-level layer owns
@@ -808,6 +888,7 @@
         // Setup interactions
         this.setupCanvasEvents();
         this.setupUI();
+        this.updateMapAttribution();
         this.updateLegendList();
 
         // Fetch and show modules
@@ -1465,21 +1546,46 @@
         this.renderScheduler?.request(reason);
       },
 
+      getCurrentMapStyle() {
+        return this.mapStyles[this.mapStyle] || this.mapStyles.light;
+      },
+
+      setMapStyle(styleId) {
+        if (!this.mapStyles[styleId] || this.mapStyle === styleId) return;
+        this.mapStyle = styleId;
+        this.updateMapAttribution();
+        this.requestDraw("map-style");
+      },
+
+      updateMapAttribution() {
+        const el = document.getElementById('statusAttribution');
+        if (!el) return;
+        const attribution = this.getCurrentMapStyle().attribution;
+        if (!attribution) {
+          el.classList.remove('visible');
+          el.innerHTML = '';
+          return;
+        }
+        el.classList.add('visible');
+        el.innerHTML = `${this.escape(attribution)} · <a href="https://www.esri.com/en-us/legal/terms/data-attributions" target="_blank" rel="noopener">Attribution</a>`;
+      },
+
       drawNow(renderState = {}) {
         const { ctx, viewport } = this;
         const { width, height } = viewport;
         viewport.interacting = !!renderState.interacting;
+        const mapStyle = this.getCurrentMapStyle();
 
         // Background
         const grad = ctx.createLinearGradient(0, 0, 0, height);
-        grad.addColorStop(0, '#f7fafc');
-        grad.addColorStop(0.58, '#eef6f8');
-        grad.addColorStop(1, '#e7f0f4');
+        grad.addColorStop(0, mapStyle.background[0]);
+        grad.addColorStop(0.58, mapStyle.background[1]);
+        grad.addColorStop(1, mapStyle.background[2]);
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, width, height);
 
         // Grid
-        ctx.strokeStyle = 'rgba(112, 128, 144, 0.15)';
+        ctx.strokeStyle = mapStyle.grid;
         ctx.lineWidth = 1;
         const base = this.getBaseScale();
         const leftLon = (-width / 2 - viewport.offsetX) / base;
@@ -1513,14 +1619,19 @@
         const landRings = window.LAND_50M || [];
         const base = this.getBaseScale();
         const { width, height, offsetX, offsetY } = viewport;
+        const style = this.getCurrentMapStyle();
+
+        if (this.mapStyle === 'terrain') {
+          this.renderTerrainTiles(ctx, viewport);
+        }
 
         const leftLon = (-width / 2 - offsetX) / base;
         const rightLon = (width / 2 - offsetX) / base;
         const firstSeg = Math.floor(leftLon / 360);
         const lastSeg = Math.ceil(rightLon / 360);
 
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-        ctx.strokeStyle = 'rgba(72, 84, 96, 0.3)';
+        ctx.fillStyle = style.landFill || 'transparent';
+        ctx.strokeStyle = style.landStroke;
         ctx.lineWidth = 0.5;
 
         for (let seg = firstSeg; seg <= lastSeg; seg++) {
@@ -1532,11 +1643,121 @@
               const [lon, lat] = ring[i];
               const x = width / 2 + (lon + lonOffset) * base + offsetX;
               const y = height / 2 - lat * base + offsetY;
-              if (i === 0) path.moveTo(x, y);
-              else path.lineTo(x, y);
-            }
-            ctx.fill(path);
+                if (i === 0) path.moveTo(x, y);
+                else path.lineTo(x, y);
+              }
+            if (style.landFill) ctx.fill(path);
             ctx.stroke(path);
+          }
+        }
+      },
+
+      renderTerrainTiles(ctx, viewport) {
+        const z = this.getTerrainZoom();
+        const n = 2 ** z;
+        const base = this.getBaseScale();
+        const { width, height, offsetX, offsetY } = viewport;
+
+        const leftLon = (-width / 2 - offsetX) / base;
+        const rightLon = (width / 2 - offsetX) / base;
+        const topLat = Math.min(85.0511, Math.max(-85.0511, (height / 2 + offsetY) / base));
+        const bottomLat = Math.min(85.0511, Math.max(-85.0511, (-height / 2 + offsetY) / base));
+        const minY = Math.max(0, Math.floor(this.latToTileY(topLat, z)));
+        const maxY = Math.min(n - 1, Math.floor(this.latToTileY(bottomLat, z)));
+        const minX = Math.floor((leftLon + 180) / 360 * n);
+        const maxX = Math.floor((rightLon + 180) / 360 * n);
+
+        for (let x = minX; x <= maxX; x++) {
+          const wrappedX = ((x % n) + n) % n;
+          const west = x / n * 360 - 180;
+          const east = (x + 1) / n * 360 - 180;
+          const sx = width / 2 + west * base + offsetX;
+          const sw = Math.max(1, (east - west) * base);
+
+          for (let y = minY; y <= maxY; y++) {
+            const north = this.tileYToLat(y, z);
+            const south = this.tileYToLat(y + 1, z);
+            const sy = height / 2 - north * base + offsetY;
+            const sh = Math.max(1, (north - south) * base);
+            const tile = this.getTerrainTile(z, wrappedX, y);
+            if (tile.loaded) {
+              ctx.drawImage(tile.image, sx, sy, sw + 1, sh + 1);
+            }
+          }
+        }
+      },
+
+      getTerrainZoom() {
+        return Math.max(1, Math.min(6, Math.round(Math.log2(this.viewport.scale) + 2)));
+      },
+
+      getTerrainTile(z, x, y) {
+        const key = `${z}/${x}/${y}`;
+        if (this.terrainTileCache.has(key)) return this.terrainTileCache.get(key);
+
+        const tile = {
+          image: new Image(),
+          loaded: false,
+          failed: false
+        };
+        tile.image.crossOrigin = 'anonymous';
+        tile.image.onload = () => {
+          tile.loaded = true;
+          this.requestDraw("terrain-tile");
+        };
+        tile.image.onerror = () => {
+          tile.failed = true;
+        };
+        tile.image.src = this.terrainTileUrl
+          .replace('{z}', z)
+          .replace('{x}', x)
+          .replace('{y}', y);
+        this.terrainTileCache.set(key, tile);
+        if (this.terrainTileCache.size > this.terrainTileCacheLimit) {
+          const oldestKey = this.terrainTileCache.keys().next().value;
+          this.terrainTileCache.delete(oldestKey);
+        }
+        return tile;
+      },
+
+      latToTileY(lat, z) {
+        const clamped = Math.min(85.0511, Math.max(-85.0511, lat));
+        const rad = clamped * Math.PI / 180;
+        return (1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * (2 ** z);
+      },
+
+      tileYToLat(y, z) {
+        const n = Math.PI - 2 * Math.PI * y / (2 ** z);
+        return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+      },
+
+      renderCountryOutlines(ctx, viewport) {
+        const lines = window.COUNTRY_BOUNDARIES_110M || [];
+        const base = this.getBaseScale();
+        const { width, height, offsetX, offsetY } = viewport;
+        const style = this.getCurrentMapStyle();
+
+        const leftLon = (-width / 2 - offsetX) / base;
+        const rightLon = (width / 2 - offsetX) / base;
+        const firstSeg = Math.floor(leftLon / 360);
+        const lastSeg = Math.ceil(rightLon / 360);
+
+        ctx.strokeStyle = style.countryStroke;
+        ctx.lineWidth = 0.65;
+
+        for (let seg = firstSeg; seg <= lastSeg; seg++) {
+          const lonOffset = seg * 360;
+          for (const line of lines) {
+            if (line.length < 2) continue;
+            ctx.beginPath();
+            for (let i = 0; i < line.length; i++) {
+              const [lon, lat] = line[i];
+              const x = width / 2 + (lon + lonOffset) * base + offsetX;
+              const y = height / 2 - lat * base + offsetY;
+              if (i === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
           }
         }
       },
@@ -1545,13 +1766,14 @@
         const basins = window.BASIN_DATA?.basins || [];
         const base = this.getBaseScale();
         const { width, height, offsetX, offsetY } = viewport;
+        const style = this.getCurrentMapStyle();
 
         const leftLon = (-width / 2 - offsetX) / base;
         const rightLon = (width / 2 - offsetX) / base;
         const firstSeg = Math.floor(leftLon / 360);
         const lastSeg = Math.ceil(rightLon / 360);
 
-        ctx.strokeStyle = 'rgba(72, 84, 96, 0.15)';
+        ctx.strokeStyle = style.basinStroke;
         ctx.lineWidth = 0.3;
 
         for (let seg = firstSeg; seg <= lastSeg; seg++) {
@@ -1911,14 +2133,28 @@
         const layers = this.layerManager.getLayers();
         const basemapLayer = layers.find(l => l.id === 'basemap');
         const outlinesBasinsLayer = layers.find(l => l.id === 'outlines-basins');
+        const countryOutlinesLayer = layers.find(l => l.id === 'outlines-countries');
 
         let html = '';
 
-        // Outlines (expandable but no triangle icon)
+        html += `
+          <div class="layer-expandable expanded" data-id="map-display-group">
+            <span class="layer-name">Map Display</span>
+          </div>
+          <div class="layer-sublayers map-display-options">
+            ${Object.entries(this.mapStyles).map(([id, style]) => `
+              <label class="map-display-option">
+                <input type="radio" name="map-style" value="${id}" ${this.mapStyle === id ? 'checked' : ''}>
+                <span class="map-display-label">${style.label}</span>
+              </label>
+            `).join('')}
+          </div>
+        `;
+
+        // Outlines
         if (basemapLayer) {
           html += `
             <div class="layer-expandable expanded" data-id="outlines-group">
-              <input type="checkbox" class="layer-checkbox" ${basemapLayer.visible ? 'checked' : ''}>
               <span class="layer-name">Outlines</span>
             </div>
             <div class="layer-sublayers">
@@ -1930,12 +2166,16 @@
                 <input type="checkbox" class="layer-checkbox" ${outlinesBasinsLayer?.visible ? 'checked' : ''}>
                 <span class="layer-name">Basins</span>
               </div>
+              <div class="layer-sublayer" data-subid="countries">
+                <input type="checkbox" class="layer-checkbox" ${countryOutlinesLayer?.visible ? 'checked' : ''}>
+                <span class="layer-name">Countries</span>
+              </div>
             </div>
           `;
         }
 
         // Other layers
-        layers.filter(l => l.id !== 'basemap' && l.id !== 'outlines-basins').forEach(l => {
+        layers.filter(l => !['basemap', 'outlines-basins', 'outlines-countries'].includes(l.id)).forEach(l => {
           html += `
             <div class="layer-item" data-id="${l.id}">
               <input type="checkbox" class="layer-checkbox" ${l.visible ? 'checked' : ''}>
@@ -1947,6 +2187,13 @@
 
         el.innerHTML = html;
 
+        el.querySelectorAll('input[name="map-style"]').forEach(input => {
+          input.onchange = (e) => {
+            if (!e.target.checked) return;
+            this.setMapStyle(e.target.value);
+          };
+        });
+
         // Bind events for expandable layers (click on name to expand/collapse)
         el.querySelectorAll('.layer-expandable').forEach(item => {
           item.onclick = (e) => {
@@ -1956,7 +2203,9 @@
           const cb = item.querySelector('.layer-checkbox');
           if (cb) {
             cb.onchange = (e) => {
-              this.layerManager.setVisibility('basemap', e.target.checked);
+              if (item.dataset.id === 'outlines-group') {
+                this.layerManager.setVisibility('basemap', e.target.checked);
+              }
               this.draw();
             };
           }
@@ -1995,6 +2244,8 @@
                 this.layerManager.setVisibility('basemap', e.target.checked);
               } else if (subid === 'basins') {
                 this.layerManager.setVisibility('outlines-basins', e.target.checked);
+              } else if (subid === 'countries') {
+                this.layerManager.setVisibility('outlines-countries', e.target.checked);
               }
               this.draw();
             };

@@ -1,6 +1,6 @@
 {
   "name": "tereon",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A pluggable geospatial research foundation for map-based scientific modules.",
   "main": "src/server/server.js",
   "scripts": {
