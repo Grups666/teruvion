@@ -947,7 +947,8 @@
       remoteImportTimer: null,
       pendingConfirm: null,
       staticModules: [],
-      mapStyle: 'light',
+      themeStyle: 'light',
+      imageryEnabled: false,
       rasterTileCache: new Map(),
       rasterTileCacheLimit: 384,
       mapStyles: {
@@ -968,18 +969,12 @@
           landStroke: 'rgba(148, 163, 184, 0.38)',
           basinStroke: 'rgba(148, 163, 184, 0.22)',
           countryStroke: 'rgba(203, 213, 225, 0.42)'
-        },
-        imagery: {
-          label: 'Imagery',
-          background: ['#071322', '#0f2640', '#143454'],
-          grid: 'rgba(203, 213, 225, 0.08)',
-          landFill: null,
-          landStroke: 'rgba(226, 232, 240, 0.26)',
-          basinStroke: 'rgba(226, 232, 240, 0.2)',
-          countryStroke: 'rgba(248, 250, 252, 0.34)',
-          tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-          attribution: 'Imagery: Esri, Maxar, Earthstar Geographics, GIS User Community'
         }
+      },
+      imageryLayer: {
+        label: 'Imagery',
+        tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attribution: 'Imagery: Esri, Maxar, Earthstar Geographics, GIS User Community'
       },
 
       // Viewport state
@@ -1715,25 +1710,32 @@
       },
 
       getCurrentMapStyle() {
-        return this.mapStyles[this.mapStyle] || this.mapStyles.light;
+        return this.mapStyles[this.themeStyle] || this.mapStyles.light;
       },
 
-      setMapStyle(styleId) {
-        if (!this.mapStyles[styleId] || this.mapStyle === styleId) return;
-        this.mapStyle = styleId;
+      setThemeStyle(styleId) {
+        if (!this.mapStyles[styleId] || this.themeStyle === styleId) return;
+        this.themeStyle = styleId;
         this.applyTheme();
         this.updateMapAttribution();
-        this.requestDraw("map-style");
+        this.requestDraw("theme-style");
+      },
+
+      setImageryEnabled(enabled) {
+        if (this.imageryEnabled === enabled) return;
+        this.imageryEnabled = enabled;
+        this.updateMapAttribution();
+        this.requestDraw("imagery-toggle");
       },
 
       applyTheme() {
-        document.body.classList.toggle('theme-dark', this.mapStyle === 'dark');
+        document.body.classList.toggle('theme-dark', this.themeStyle === 'dark');
       },
 
       updateMapAttribution() {
         const el = document.getElementById('statusAttribution');
         if (!el) return;
-        const attribution = this.getCurrentMapStyle().attribution;
+        const attribution = this.imageryEnabled ? this.imageryLayer.attribution : '';
         if (!attribution) {
           el.classList.remove('visible');
           el.innerHTML = '';
@@ -1747,18 +1749,18 @@
         const { ctx, viewport } = this;
         const { width, height } = viewport;
         viewport.interacting = !!renderState.interacting;
-        const mapStyle = this.getCurrentMapStyle();
+        const theme = this.getCurrentMapStyle();
 
         // Background
         const grad = ctx.createLinearGradient(0, 0, 0, height);
-        grad.addColorStop(0, mapStyle.background[0]);
-        grad.addColorStop(0.58, mapStyle.background[1]);
-        grad.addColorStop(1, mapStyle.background[2]);
+        grad.addColorStop(0, theme.background[0]);
+        grad.addColorStop(0.58, theme.background[1]);
+        grad.addColorStop(1, theme.background[2]);
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, width, height);
 
         // Grid
-        ctx.strokeStyle = mapStyle.grid;
+        ctx.strokeStyle = theme.grid;
         ctx.lineWidth = 1;
         const base = this.getBaseScale();
         const leftLon = (-width / 2 - viewport.offsetX) / base;
@@ -1794,8 +1796,8 @@
         const { width, height, offsetX, offsetY } = viewport;
         const style = this.getCurrentMapStyle();
 
-        if (style.tileUrl) {
-          this.renderRasterTiles(ctx, viewport, style.tileUrl);
+        if (this.imageryEnabled) {
+          this.renderRasterTiles(ctx, viewport, this.imageryLayer.tileUrl);
         }
 
         const leftLon = (-width / 2 - offsetX) / base;
@@ -1819,7 +1821,7 @@
                 if (i === 0) path.moveTo(x, y);
                 else path.lineTo(x, y);
               }
-            if (style.landFill) ctx.fill(path);
+            if (!this.imageryEnabled && style.landFill) ctx.fill(path);
             ctx.stroke(path);
           }
         }
@@ -1896,7 +1898,7 @@
       },
 
       getRasterTile(z, x, y, tileUrl) {
-        const key = `${this.mapStyle}/${z}/${x}/${y}`;
+        const key = `${tileUrl}/${z}/${x}/${y}`;
         if (this.rasterTileCache.has(key)) return this.rasterTileCache.get(key);
 
         const tile = {
@@ -2437,10 +2439,14 @@
           <div class="layer-sublayers map-display-options">
             ${Object.entries(this.mapStyles).map(([id, style]) => `
               <label class="map-display-option">
-                <input type="radio" name="map-style" value="${id}" ${this.mapStyle === id ? 'checked' : ''}>
+                <input type="radio" name="theme-style" value="${id}" ${this.themeStyle === id ? 'checked' : ''}>
                 <span class="map-display-label">${style.label}</span>
               </label>
             `).join('')}
+            <label class="map-display-option">
+              <input type="checkbox" name="imagery-toggle" ${this.imageryEnabled ? 'checked' : ''}>
+              <span class="map-display-label">Imagery</span>
+            </label>
           </div>
         `;
 
@@ -2480,12 +2486,17 @@
 
         el.innerHTML = html;
 
-        el.querySelectorAll('input[name="map-style"]').forEach(input => {
+        el.querySelectorAll('input[name="theme-style"]').forEach(input => {
           input.onchange = (e) => {
             if (!e.target.checked) return;
-            this.setMapStyle(e.target.value);
+            this.setThemeStyle(e.target.value);
           };
         });
+
+        const imageryToggle = el.querySelector('input[name="imagery-toggle"]');
+        if (imageryToggle) {
+          imageryToggle.onchange = (e) => this.setImageryEnabled(e.target.checked);
+        }
 
         // Bind events for expandable layers (click on name to expand/collapse)
         el.querySelectorAll('.layer-expandable').forEach(item => {
