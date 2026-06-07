@@ -604,6 +604,170 @@
         z-index: 200;
       }
       .toast.visible { opacity: 1; transform: translateY(0); }
+
+      /* Global dark UI theme, activated by Map Display > Dark */
+      body.theme-dark {
+        color: #dbe7f3;
+        background: #07111f;
+        color-scheme: dark;
+      }
+      body.theme-dark .left-panel {
+        background: #0f172a;
+        border-right-color: #243247;
+        box-shadow: 2px 0 14px rgba(0,0,0,0.35);
+      }
+      body.theme-dark .panel-header,
+      body.theme-dark .panel-section-header,
+      body.theme-dark .inspector-header {
+        background: #111c2f;
+        border-color: #243247;
+      }
+      body.theme-dark .panel-bottom,
+      body.theme-dark .import-footer {
+        background: #0f172a;
+        border-color: #243247;
+      }
+      body.theme-dark .panel-section {
+        border-bottom-color: #243247;
+      }
+      body.theme-dark .panel-section-header,
+      body.theme-dark .panel-toggle-btn,
+      body.theme-dark .panel-show-btn,
+      body.theme-dark .module-remove-btn,
+      body.theme-dark .layer-btn,
+      body.theme-dark .import-close,
+      body.theme-dark .inspector-close {
+        color: #94a3b8;
+      }
+      body.theme-dark .panel-toggle-btn:hover,
+      body.theme-dark .panel-show-btn:hover,
+      body.theme-dark .panel-section-header:hover,
+      body.theme-dark .module-item:hover,
+      body.theme-dark .layer-item:hover,
+      body.theme-dark .layer-expandable:hover,
+      body.theme-dark .layer-sublayer:hover,
+      body.theme-dark .map-display-option:hover,
+      body.theme-dark .import-close:hover,
+      body.theme-dark .inspector-close:hover {
+        background: #1e293b;
+        color: #e2e8f0;
+      }
+      body.theme-dark .panel-show-btn,
+      body.theme-dark .map-btn,
+      body.theme-dark .legend-card,
+      body.theme-dark .import-dialog,
+      body.theme-dark .inspector-panel {
+        background: #0f172a;
+        color: #dbe7f3;
+      }
+      body.theme-dark .module-item.loaded {
+        background: #17335f;
+      }
+      body.theme-dark .module-item.loaded .module-name {
+        color: #93c5fd;
+      }
+      body.theme-dark .module-remove-btn:hover,
+      body.theme-dark .layer-btn:hover {
+        background: #233047;
+        color: #e2e8f0;
+      }
+      body.theme-dark .legend-card,
+      body.theme-dark .import-preview,
+      body.theme-dark .import-url-input,
+      body.theme-dark .source-tab,
+      body.theme-dark .import-btn-cancel,
+      body.theme-dark .layer-checkbox {
+        border-color: #334155;
+      }
+      body.theme-dark .legend-empty,
+      body.theme-dark .legend-note,
+      body.theme-dark .import-section-title,
+      body.theme-dark .import-url-help,
+      body.theme-dark .confirm-detail,
+      body.theme-dark .map-display-option,
+      body.theme-dark .import-btn-cancel {
+        color: #94a3b8;
+      }
+      body.theme-dark .source-tab,
+      body.theme-dark .import-preview-table th {
+        background: #111c2f;
+        color: #94a3b8;
+      }
+      body.theme-dark .source-tab.active,
+      body.theme-dark .import-url-input {
+        background: #0b1220;
+        color: #e2e8f0;
+      }
+      body.theme-dark .import-url-input::placeholder {
+        color: #64748b;
+      }
+      body.theme-dark .source-tab.active {
+        border-color: #60a5fa;
+      }
+      body.theme-dark .import-dropzone {
+        border-color: #334155 !important;
+        color: #94a3b8;
+      }
+      body.theme-dark .map-display-option input {
+        accent-color: #60a5fa;
+      }
+      body.theme-dark select {
+        background: #0b1220 !important;
+        border-color: #334155 !important;
+        color: #e2e8f0 !important;
+      }
+      body.theme-dark .import-dropzone:hover,
+      body.theme-dark .import-btn-cancel:hover {
+        background: #111c2f;
+        border-color: #475569;
+      }
+      body.theme-dark .import-preview-table td {
+        border-bottom-color: #1e293b;
+      }
+      body.theme-dark .confirm-message {
+        color: #dbe7f3;
+      }
+      body.theme-dark .map-btn {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      }
+      body.theme-dark .map-btn:hover {
+        background: #1e293b;
+      }
+      body.theme-dark .map-icon-plus::before,
+      body.theme-dark .map-icon-minus::before,
+      body.theme-dark .map-icon-plus::after,
+      body.theme-dark .map-icon-home::before {
+        background: #e2e8f0;
+      }
+      body.theme-dark .map-status {
+        color: #cbd5e1;
+        background: rgba(15, 23, 42, 0.9);
+      }
+      body.theme-dark .toggle-icon {
+        border-top-color: #64748b;
+      }
+      body.theme-dark .layer-checkbox:checked {
+        border-color: #94a3b8;
+      }
+      body.theme-dark .layer-checkbox:checked::after {
+        border-color: #cbd5e1;
+      }
+      body.theme-dark .toast {
+        color: #cbd5e1;
+      }
+      body.theme-dark .inspector-body h2,
+      body.theme-dark .inspector-body [style*="color:#334155"],
+      body.theme-dark .inspector-body [style*="color: #334155"] {
+        color: #e2e8f0 !important;
+      }
+      body.theme-dark .inspector-body [style*="background:#f8fafc"],
+      body.theme-dark .inspector-body [style*="background: #f8fafc"] {
+        background: #111c2f !important;
+      }
+      body.theme-dark .inspector-body [style*="color:#64748b"],
+      body.theme-dark .inspector-body [style*="color: #64748b"] {
+        color: #94a3b8 !important;
+      }
     </style>
   </head>
   <body>
@@ -891,6 +1055,7 @@
         // Setup interactions
         this.setupCanvasEvents();
         this.setupUI();
+        this.applyTheme();
         this.updateMapAttribution();
         this.updateLegendList();
 
@@ -1556,8 +1721,13 @@
       setMapStyle(styleId) {
         if (!this.mapStyles[styleId] || this.mapStyle === styleId) return;
         this.mapStyle = styleId;
+        this.applyTheme();
         this.updateMapAttribution();
         this.requestDraw("map-style");
+      },
+
+      applyTheme() {
+        document.body.classList.toggle('theme-dark', this.mapStyle === 'dark');
       },
 
       updateMapAttribution() {
@@ -1570,7 +1740,7 @@
           return;
         }
         el.classList.add('visible');
-        el.innerHTML = `${this.escape(attribution)} · <a href="https://www.esri.com/en-us/legal/terms/data-attributions" target="_blank" rel="noopener">Attribution</a>`;
+        el.innerHTML = `${this.escape(attribution)} - <a href="https://www.esri.com/en-us/legal/terms/data-attributions" target="_blank" rel="noopener">Attribution</a>`;
       },
 
       drawNow(renderState = {}) {
