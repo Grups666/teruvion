@@ -948,9 +948,8 @@
       pendingConfirm: null,
       staticModules: [],
       mapStyle: 'light',
-      terrainTileCache: new Map(),
-      terrainTileCacheLimit: 384,
-      terrainTileUrl: 'https://server.arcgisonline.com/arcgis/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}',
+      rasterTileCache: new Map(),
+      rasterTileCacheLimit: 384,
       mapStyles: {
         light: {
           label: 'Light',
@@ -978,7 +977,19 @@
           landStroke: 'rgba(30, 41, 59, 0.28)',
           basinStroke: 'rgba(30, 41, 59, 0.18)',
           countryStroke: 'rgba(15, 23, 42, 0.36)',
+          tileUrl: 'https://server.arcgisonline.com/arcgis/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}',
           attribution: 'Terrain: Esri, USGS, NOAA'
+        },
+        imagery: {
+          label: 'Imagery',
+          background: ['#071322', '#0f2640', '#143454'],
+          grid: 'rgba(203, 213, 225, 0.08)',
+          landFill: null,
+          landStroke: 'rgba(226, 232, 240, 0.26)',
+          basinStroke: 'rgba(226, 232, 240, 0.2)',
+          countryStroke: 'rgba(248, 250, 252, 0.34)',
+          tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          attribution: 'Imagery: Esri, Maxar, Earthstar Geographics, GIS User Community'
         }
       },
 
@@ -1794,8 +1805,8 @@
         const { width, height, offsetX, offsetY } = viewport;
         const style = this.getCurrentMapStyle();
 
-        if (this.mapStyle === 'terrain') {
-          this.renderTerrainTiles(ctx, viewport);
+        if (style.tileUrl) {
+          this.renderRasterTiles(ctx, viewport, style.tileUrl);
         }
 
         const leftLon = (-width / 2 - offsetX) / base;
@@ -1825,8 +1836,8 @@
         }
       },
 
-      renderTerrainTiles(ctx, viewport) {
-        const z = this.getTerrainZoom();
+      renderRasterTiles(ctx, viewport, tileUrl) {
+        const z = this.getRasterZoom();
         const n = 2 ** z;
         const base = this.getBaseScale();
         const { width, height, offsetX, offsetY } = viewport;
@@ -1852,15 +1863,15 @@
             const south = this.tileYToLat(y + 1, z);
             const sy = height / 2 - north * base + offsetY;
             const sh = Math.max(1, (north - south) * base);
-            const tile = this.getTerrainTile(z, wrappedX, y);
+            const tile = this.getRasterTile(z, wrappedX, y, tileUrl);
             if (tile.loaded) {
-              this.drawTerrainTile(ctx, tile.image, sx, sy, sw + 1, sh + 1, y, z);
+              this.drawRasterTile(ctx, tile.image, sx, sy, sw + 1, sh + 1, y, z);
             }
           }
         }
       },
 
-      drawTerrainTile(ctx, image, sx, sy, sw, sh, tileY, z) {
+      drawRasterTile(ctx, image, sx, sy, sw, sh, tileY, z) {
         const northLat = this.tileYToLat(tileY, z);
         const southLat = this.tileYToLat(tileY + 1, z);
         const latSpan = northLat - southLat;
@@ -1891,13 +1902,13 @@
         }
       },
 
-      getTerrainZoom() {
+      getRasterZoom() {
         return Math.max(1, Math.min(6, Math.round(Math.log2(this.viewport.scale) + 2)));
       },
 
-      getTerrainTile(z, x, y) {
-        const key = `${z}/${x}/${y}`;
-        if (this.terrainTileCache.has(key)) return this.terrainTileCache.get(key);
+      getRasterTile(z, x, y, tileUrl) {
+        const key = `${this.mapStyle}/${z}/${x}/${y}`;
+        if (this.rasterTileCache.has(key)) return this.rasterTileCache.get(key);
 
         const tile = {
           image: new Image(),
@@ -1907,19 +1918,19 @@
         tile.image.crossOrigin = 'anonymous';
         tile.image.onload = () => {
           tile.loaded = true;
-          this.requestDraw("terrain-tile");
+          this.requestDraw("raster-tile");
         };
         tile.image.onerror = () => {
           tile.failed = true;
         };
-        tile.image.src = this.terrainTileUrl
+        tile.image.src = tileUrl
           .replace('{z}', z)
           .replace('{x}', x)
           .replace('{y}', y);
-        this.terrainTileCache.set(key, tile);
-        if (this.terrainTileCache.size > this.terrainTileCacheLimit) {
-          const oldestKey = this.terrainTileCache.keys().next().value;
-          this.terrainTileCache.delete(oldestKey);
+        this.rasterTileCache.set(key, tile);
+        if (this.rasterTileCache.size > this.rasterTileCacheLimit) {
+          const oldestKey = this.rasterTileCache.keys().next().value;
+          this.rasterTileCache.delete(oldestKey);
         }
         return tile;
       },
