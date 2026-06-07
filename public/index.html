@@ -605,7 +605,7 @@
       }
       .toast.visible { opacity: 1; transform: translateY(0); }
 
-      /* Global dark UI theme, activated by Map Display > Dark */
+      /* Global dark UI theme, activated by Theme > Dark */
       body.theme-dark {
         color: #dbe7f3;
         background: #07111f;
@@ -968,17 +968,6 @@
           landStroke: 'rgba(148, 163, 184, 0.38)',
           basinStroke: 'rgba(148, 163, 184, 0.22)',
           countryStroke: 'rgba(203, 213, 225, 0.42)'
-        },
-        terrain: {
-          label: 'Terrain',
-          background: ['#dcecf2', '#d7e8ed', '#d5e3e8'],
-          grid: 'rgba(71, 85, 105, 0.12)',
-          landFill: null,
-          landStroke: 'rgba(30, 41, 59, 0.28)',
-          basinStroke: 'rgba(30, 41, 59, 0.18)',
-          countryStroke: 'rgba(15, 23, 42, 0.36)',
-          tileUrl: 'https://server.arcgisonline.com/arcgis/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}',
-          attribution: 'Terrain: Esri, USGS, NOAA'
         },
         imagery: {
           label: 'Imagery',
@@ -2444,7 +2433,7 @@
 
         html += `
           <div class="layer-expandable expanded" data-id="map-display-group">
-            <span class="layer-name">Map Display</span>
+            <span class="layer-name">Theme</span>
           </div>
           <div class="layer-sublayers map-display-options">
             ${Object.entries(this.mapStyles).map(([id, style]) => `
