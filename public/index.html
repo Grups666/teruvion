@@ -1681,9 +1681,40 @@
             const sh = Math.max(1, (north - south) * base);
             const tile = this.getTerrainTile(z, wrappedX, y);
             if (tile.loaded) {
-              ctx.drawImage(tile.image, sx, sy, sw + 1, sh + 1);
+              this.drawTerrainTile(ctx, tile.image, sx, sy, sw + 1, sh + 1, y, z);
             }
           }
+        }
+      },
+
+      drawTerrainTile(ctx, image, sx, sy, sw, sh, tileY, z) {
+        const northLat = this.tileYToLat(tileY, z);
+        const southLat = this.tileYToLat(tileY + 1, z);
+        const latSpan = northLat - southLat;
+        const imageWidth = image.naturalWidth || image.width || 256;
+        const imageHeight = image.naturalHeight || image.height || 256;
+        const sliceCount = 32;
+        const sliceHeight = imageHeight / sliceCount;
+
+        for (let i = 0; i < sliceCount; i++) {
+          const srcY = i * sliceHeight;
+          const nextSrcY = (i + 1) * sliceHeight;
+          const sliceNorth = this.tileYToLat(tileY + i / sliceCount, z);
+          const sliceSouth = this.tileYToLat(tileY + (i + 1) / sliceCount, z);
+          const destY = sy + (northLat - sliceNorth) / latSpan * sh;
+          const destH = Math.max(1, (sliceNorth - sliceSouth) / latSpan * sh);
+
+          ctx.drawImage(
+            image,
+            0,
+            Math.floor(srcY),
+            imageWidth,
+            Math.ceil(nextSrcY - srcY),
+            sx,
+            destY,
+            sw,
+            destH + 0.5
+          );
         }
       },
 
