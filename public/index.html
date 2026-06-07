@@ -1060,6 +1060,7 @@
         // Initial render
         this.resize();
         await this.loadDefaultModules();
+        await this.loadUrlModules();
         window.addEventListener('resize', () => this.resize());
       },
 
@@ -2244,6 +2245,28 @@
           } catch (error) {
             console.error(`Default module "${module.id}" failed to load`, error);
             this.toast(`Default module failed: ${module.name || module.id}`);
+          }
+        }
+        this.updateModuleList();
+        this.draw();
+      },
+
+      async loadUrlModules() {
+        const params = new URLSearchParams(window.location.search);
+        const urls = [
+          ...params.getAll('module'),
+          ...params.getAll('moduleUrl'),
+          ...params.getAll('manifest')
+        ].filter(Boolean);
+        if (!urls.length) return;
+
+        for (const url of urls) {
+          try {
+            const manifest = await this.fetchRemoteManifest(url);
+            await this.importModuleManifest(manifest);
+          } catch (error) {
+            console.error('URL module failed', error);
+            this.toast(`URL module failed: ${error.message}`);
           }
         }
         this.updateModuleList();
