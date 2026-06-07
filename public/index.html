@@ -847,6 +847,8 @@
         this.eventBus.on(Foundation.Events.FEATURE_CLICK, (payload) => {
           if (payload.layer?.moduleId === 'foundation' && payload.layer?.id === 'outlines-basins') {
             this.showBasinInspector(payload.feature);
+          } else if (payload.layer?.moduleId === 'foundation' && payload.layer?.id === 'outlines-countries') {
+            this.showCountryInspector(payload.feature);
           }
         });
 
@@ -858,17 +860,6 @@
           visible: true,
           interactive: false,
           renderer: (ctx, layer, vp) => this.renderBasemap(ctx, vp)
-        });
-
-        this.layerManager.addLayer({
-          id: 'outlines-countries',
-          name: 'Countries',
-          type: 'vector',
-          visible: false,
-          interactive: false,
-          moduleId: 'foundation',
-          groupPath: ['outlines', 'countries'],
-          renderer: (ctx, layer, vp) => this.renderCountryOutlines(ctx, vp)
         });
 
         // Add basin layer under Outlines > Basins. This single third-level layer owns
@@ -883,6 +874,18 @@
           groupPath: ['outlines', 'basins'],
           renderer: (ctx, layer, vp) => this.renderBasinsLayer(ctx, vp),
           hitTest: (lon, lat, vp, layer) => this.hitTestBasins(lon, lat)
+        });
+
+        this.layerManager.addLayer({
+          id: 'outlines-countries',
+          name: 'Countries',
+          type: 'vector',
+          visible: false,
+          interactive: true,
+          moduleId: 'foundation',
+          groupPath: ['outlines', 'countries'],
+          renderer: (ctx, layer, vp) => this.renderCountryOutlines(ctx, vp),
+          hitTest: (lon, lat, vp, layer) => this.hitTestCountryOutlines(lon, lat, vp)
         });
 
         // Setup interactions
@@ -1778,8 +1781,15 @@
 
         for (let seg = firstSeg; seg <= lastSeg; seg++) {
           const lonOffset = seg * 360;
-          for (const line of lines) {
+          for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex];
             if (line.length < 2) continue;
+            const featureId = `country-boundary-${lineIndex}`;
+            const isHovered = this.hoveredFeatureId === featureId;
+            const isSelected = this.selectedFeature?.id === featureId;
+
+            ctx.strokeStyle = isSelected ? '#2563eb' : (isHovered ? '#3b82f6' : style.countryStroke);
+            ctx.lineWidth = isSelected ? 1.8 : (isHovered ? 1.2 : 0.65);
             ctx.beginPath();
             for (let i = 0; i < line.length; i++) {
               const [lon, lat] = line[i];
@@ -1791,6 +1801,50 @@
             ctx.stroke();
           }
         }
+      },
+
+      hitTestCountryOutlines(lon, lat, viewport) {
+        const lines = window.COUNTRY_BOUNDARIES_110M || [];
+        const base = this.getBaseScale();
+        const threshold = Math.max(0.3, 5 / base);
+        const seg = Math.round(lon / 360);
+        const testLon = lon - seg * 360;
+        let best = null;
+        let bestDistance = threshold;
+
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+          const line = lines[lineIndex];
+          if (line.length < 2) continue;
+
+          for (let i = 1; i < line.length; i++) {
+            const [x1, y1] = line[i - 1];
+            const [x2, y2] = line[i];
+            const distance = this.distanceToSegment(testLon, lat, x1, y1, x2, y2);
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              best = {
+                id: `country-boundary-${lineIndex}`,
+                name: `Country boundary ${lineIndex + 1}`,
+                type: 'Country boundary',
+                segmentCount: line.length - 1,
+                lineIndex,
+                distanceDeg: distance
+              };
+            }
+          }
+        }
+
+        return best;
+      },
+
+      distanceToSegment(px, py, x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
+        const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+        const x = x1 + t * dx;
+        const y = y1 + t * dy;
+        return Math.hypot(px - x, py - y);
       },
 
       renderBasinOutlines(ctx, viewport) {
@@ -1923,6 +1977,26 @@
           </div>
         `;
         this.showInspector(basin.name, content);
+      },
+
+      showCountryInspector(boundary) {
+        const content = `
+          <h2 style="margin:0 0 12px;font-size:18px;font-weight:600">${this.escape(boundary.type)}</h2>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px">
+            <div style="background:#f8fafc;padding:12px;border-radius:6px">
+              <div style="font-size:18px;font-weight:600">${boundary.lineIndex + 1}</div>
+              <div style="font-size:11px;color:#64748b">Boundary ID</div>
+            </div>
+            <div style="background:#f8fafc;padding:12px;border-radius:6px">
+              <div style="font-size:18px;font-weight:600">${boundary.segmentCount}</div>
+              <div style="font-size:11px;color:#64748b">Segments</div>
+            </div>
+          </div>
+          <div style="color:#64748b;font-size:12px;line-height:1.5">
+            Natural Earth 110m country boundary line. This outline layer is selectable for map inspection and context.
+          </div>
+        `;
+        this.showInspector(boundary.type, content);
       },
 
       getRegionName(regionCode) {
@@ -2268,19 +2342,26 @@
         // Sublayers
         el.querySelectorAll('.layer-sublayer').forEach(sub => {
           const cb = sub.querySelector('.layer-checkbox');
-          if (cb) {
-            cb.onchange = (e) => {
-              const subid = sub.dataset.subid;
-              if (subid === 'land') {
-                this.layerManager.setVisibility('basemap', e.target.checked);
-              } else if (subid === 'basins') {
-                this.layerManager.setVisibility('outlines-basins', e.target.checked);
-              } else if (subid === 'countries') {
-                this.layerManager.setVisibility('outlines-countries', e.target.checked);
-              }
-              this.draw();
-            };
-          }
+          if (!cb) return;
+          const setSublayerVisibility = (checked) => {
+            const subid = sub.dataset.subid;
+            if (subid === 'land') {
+              this.layerManager.setVisibility('basemap', checked);
+            } else if (subid === 'basins') {
+              this.layerManager.setVisibility('outlines-basins', checked);
+            } else if (subid === 'countries') {
+              this.layerManager.setVisibility('outlines-countries', checked);
+            }
+            this.draw();
+          };
+          sub.onclick = () => {
+            cb.checked = !cb.checked;
+            setSublayerVisibility(cb.checked);
+          };
+          cb.onclick = (e) => {
+            e.stopPropagation();
+            setSublayerVisibility(cb.checked);
+          };
         });
 
         document.getElementById('statusFeatures').textContent = `${layers.length} layers`;
