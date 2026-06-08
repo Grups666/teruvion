@@ -975,10 +975,10 @@
         tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attribution: 'Imagery: Esri, Maxar, Earthstar Geographics, GIS User Community'
       },
-      rasterLatitudeFillScale: 90 / 85.0511,
+      minViewportScale: 90 / 85.0511,
 
       // Viewport state
-      viewport: { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0 },
+      viewport: { width: 0, height: 0, scale: 90 / 85.0511, offsetX: 0, offsetY: 0 },
       dragging: false,
       draggingActive: false,
       suppressClick: false,
@@ -1146,7 +1146,7 @@
           const { lon, lat } = this.screenToGeo(x, y);
 
           const factor = e.deltaY < 0 ? 1.2 : 0.8;
-          const newScale = Math.max(1, Math.min(12, this.viewport.scale * factor));
+          const newScale = Math.max(this.minViewportScale, Math.min(12, this.viewport.scale * factor));
 
           if (newScale !== this.viewport.scale) {
             this.viewport.scale = newScale;
@@ -1201,12 +1201,12 @@
           this.draw();
         };
         document.getElementById('btnZoomOut').onclick = () => {
-          this.viewport.scale = Math.max(1, this.viewport.scale / 1.2);
+          this.viewport.scale = Math.max(this.minViewportScale, this.viewport.scale / 1.2);
           this.clampOffset();
           this.draw();
         };
         document.getElementById('btnReset').onclick = () => {
-          this.viewport = { ...this.viewport, scale: 1, offsetX: 0, offsetY: 0 };
+          this.viewport = { ...this.viewport, scale: this.minViewportScale, offsetX: 0, offsetY: 0 };
           this.draw();
         };
 
@@ -1831,7 +1831,7 @@
       renderRasterTiles(ctx, viewport, tileUrl) {
         const z = this.getRasterZoom();
         const n = 2 ** z;
-        const base = this.getBaseScale() * this.rasterLatitudeFillScale;
+        const base = this.getBaseScale();
         const { width, height, offsetX, offsetY } = viewport;
 
         const leftLon = (-width / 2 - offsetX) / base;
