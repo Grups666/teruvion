@@ -975,10 +975,11 @@
         tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attribution: 'Imagery: Esri, Maxar, Earthstar Geographics, GIS User Community'
       },
-      minViewportScale: 90 / 85.0511,
+      rasterLatitudeLimit: 85.0511,
+      minViewportScale: (90 / 85.0511) * 1.01,
 
       // Viewport state
-      viewport: { width: 0, height: 0, scale: 90 / 85.0511, offsetX: 0, offsetY: 0 },
+      viewport: { width: 0, height: 0, scale: (90 / 85.0511) * 1.01, offsetX: 0, offsetY: 0 },
       dragging: false,
       draggingActive: false,
       suppressClick: false,
@@ -1693,7 +1694,8 @@
       },
 
       clampOffset() {
-        const mapHeight = 180 * this.getBaseScale();
+        const latSpan = this.imageryEnabled ? this.rasterLatitudeLimit * 2 : 180;
+        const mapHeight = latSpan * this.getBaseScale();
         if (mapHeight > this.viewport.height) {
           const maxY = (mapHeight - this.viewport.height) / 2;
           this.viewport.offsetY = Math.max(-maxY, Math.min(maxY, this.viewport.offsetY));
@@ -1725,6 +1727,7 @@
       setImageryEnabled(enabled) {
         if (this.imageryEnabled === enabled) return;
         this.imageryEnabled = enabled;
+        this.clampOffset();
         this.updateMapAttribution();
         this.requestDraw("imagery-toggle");
       },
