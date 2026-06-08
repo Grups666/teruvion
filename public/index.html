@@ -975,6 +975,7 @@
         tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attribution: 'Imagery: Esri, Maxar, Earthstar Geographics, GIS User Community'
       },
+      rasterLatitudeFillScale: 90 / 85.0511,
 
       // Viewport state
       viewport: { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0 },
@@ -1830,7 +1831,7 @@
       renderRasterTiles(ctx, viewport, tileUrl) {
         const z = this.getRasterZoom();
         const n = 2 ** z;
-        const base = this.getBaseScale();
+        const base = this.getBaseScale() * this.rasterLatitudeFillScale;
         const { width, height, offsetX, offsetY } = viewport;
 
         const leftLon = (-width / 2 - offsetX) / base;
