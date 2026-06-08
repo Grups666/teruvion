@@ -1856,35 +1856,8 @@
             const sh = Math.max(1, (north - south) * base);
             const tile = this.getRasterTile(z, wrappedX, y, tileUrl);
             if (tile.loaded) {
-              this.drawRasterPolarCap(ctx, tile.image, sx, sw + 1, y, z, base, height, offsetY);
               this.drawRasterTile(ctx, tile.image, sx, sy, sw + 1, sh + 1, y, z);
             }
-          }
-        }
-      },
-
-      drawRasterPolarCap(ctx, image, sx, sw, tileY, z, base, height, offsetY) {
-        const n = 2 ** z;
-        const imageWidth = image.naturalWidth || image.width || 256;
-        const imageHeight = image.naturalHeight || image.height || 256;
-
-        if (tileY === 0) {
-          const north = this.tileYToLat(0, z);
-          const capTopY = height / 2 - 90 * base + offsetY;
-          const tileTopY = height / 2 - north * base + offsetY;
-          const capH = tileTopY - capTopY;
-          if (capH > 0) {
-            ctx.drawImage(image, 0, 0, imageWidth, 1, sx, capTopY, sw, capH + 1);
-          }
-        }
-
-        if (tileY === n - 1) {
-          const south = this.tileYToLat(n, z);
-          const tileBottomY = height / 2 - south * base + offsetY;
-          const capBottomY = height / 2 + 90 * base + offsetY;
-          const capH = capBottomY - tileBottomY;
-          if (capH > 0) {
-            ctx.drawImage(image, 0, imageHeight - 1, imageWidth, 1, sx, tileBottomY, sw, capH + 1);
           }
         }
       },
