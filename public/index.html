@@ -975,11 +975,14 @@
         tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attribution: 'Imagery: Esri, Maxar, Earthstar Geographics, GIS User Community'
       },
-      worldLatitudeSpan: 85.0511 * 2,
-      minViewportScale: (180 / (85.0511 * 2)) * 1.01,
+      worldBounds: {
+        minLat: -85.0511287798066,
+        maxLat: 85.0511287798066
+      },
+      maxViewportScale: 12,
 
       // Viewport state
-      viewport: { width: 0, height: 0, scale: (180 / (85.0511 * 2)) * 1.01, offsetX: 0, offsetY: 0 },
+      viewport: { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0 },
       dragging: false,
       draggingActive: false,
       suppressClick: false,
@@ -1147,7 +1150,7 @@
           const { lon, lat } = this.screenToGeo(x, y);
 
           const factor = e.deltaY < 0 ? 1.2 : 0.8;
-          const newScale = Math.max(this.minViewportScale, Math.min(12, this.viewport.scale * factor));
+          const newScale = Math.max(this.getMinViewportScale(), Math.min(this.maxViewportScale, this.viewport.scale * factor));
 
           if (newScale !== this.viewport.scale) {
             this.viewport.scale = newScale;
@@ -1197,17 +1200,17 @@
       setupUI() {
         // Zoom buttons
         document.getElementById('btnZoomIn').onclick = () => {
-          this.viewport.scale = Math.min(12, this.viewport.scale * 1.2);
+          this.viewport.scale = Math.min(this.maxViewportScale, this.viewport.scale * 1.2);
           this.clampOffset();
           this.draw();
         };
         document.getElementById('btnZoomOut').onclick = () => {
-          this.viewport.scale = Math.max(this.minViewportScale, this.viewport.scale / 1.2);
+          this.viewport.scale = Math.max(this.getMinViewportScale(), this.viewport.scale / 1.2);
           this.clampOffset();
           this.draw();
         };
         document.getElementById('btnReset').onclick = () => {
-          this.viewport = { ...this.viewport, scale: this.minViewportScale, offsetX: 0, offsetY: 0 };
+          this.viewport = { ...this.viewport, scale: this.getMinViewportScale(), offsetX: 0, offsetY: 0 };
           this.draw();
         };
 
@@ -1677,12 +1680,25 @@
         this.canvas.style.height = rect.height + 'px';
 
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.ensureViewportScale();
         this.clampOffset();
         this.draw();
       },
 
       getBaseScale() {
         return (this.viewport.height / 180) * this.viewport.scale;
+      },
+
+      getWorldLatitudeSpan() {
+        return this.worldBounds.maxLat - this.worldBounds.minLat;
+      },
+
+      getMinViewportScale() {
+        return 180 / this.getWorldLatitudeSpan();
+      },
+
+      ensureViewportScale() {
+        this.viewport.scale = Math.max(this.getMinViewportScale(), Math.min(this.maxViewportScale, this.viewport.scale));
       },
 
       screenToGeo(x, y) {
@@ -1694,12 +1710,16 @@
       },
 
       clampOffset() {
-        if (this.viewport.scale <= this.minViewportScale + 0.000001) {
+        this.ensureViewportScale();
+        const minScale = this.getMinViewportScale();
+
+        if (this.viewport.scale <= minScale + 0.000001) {
+          this.viewport.scale = minScale;
           this.viewport.offsetY = 0;
           return;
         }
 
-        const mapHeight = this.worldLatitudeSpan * this.getBaseScale();
+        const mapHeight = this.getWorldLatitudeSpan() * this.getBaseScale();
         if (mapHeight > this.viewport.height) {
           const maxY = (mapHeight - this.viewport.height) / 2;
           this.viewport.offsetY = Math.max(-maxY, Math.min(maxY, this.viewport.offsetY));
@@ -1842,8 +1862,8 @@
 
         const leftLon = (-width / 2 - offsetX) / base;
         const rightLon = (width / 2 - offsetX) / base;
-        const topLat = Math.min(85.0511, Math.max(-85.0511, (height / 2 + offsetY) / base));
-        const bottomLat = Math.min(85.0511, Math.max(-85.0511, (-height / 2 + offsetY) / base));
+        const topLat = this.clampLatitude((height / 2 + offsetY) / base);
+        const bottomLat = this.clampLatitude((-height / 2 + offsetY) / base);
         const minY = Math.max(0, Math.floor(this.latToTileY(topLat, z)));
         const maxY = Math.min(n - 1, Math.floor(this.latToTileY(bottomLat, z)));
         const minX = Math.floor((leftLon + 180) / 360 * n);
@@ -1934,9 +1954,13 @@
       },
 
       latToTileY(lat, z) {
-        const clamped = Math.min(85.0511, Math.max(-85.0511, lat));
+        const clamped = this.clampLatitude(lat);
         const rad = clamped * Math.PI / 180;
         return (1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * (2 ** z);
+      },
+
+      clampLatitude(lat) {
+        return Math.min(this.worldBounds.maxLat, Math.max(this.worldBounds.minLat, lat));
       },
 
       tileYToLat(y, z) {
