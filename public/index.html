@@ -1694,6 +1694,11 @@
       },
 
       clampOffset() {
+        if (this.viewport.scale <= this.minViewportScale + 0.000001) {
+          this.viewport.offsetY = 0;
+          return;
+        }
+
         const mapHeight = this.worldLatitudeSpan * this.getBaseScale();
         if (mapHeight > this.viewport.height) {
           const maxY = (mapHeight - this.viewport.height) / 2;
