@@ -237,8 +237,6 @@
       }
       .layer-expandable:hover { background: #e2e8f0; }
       .layer-expandable.expanded + .layer-sublayers { display: block; }
-      .layer-expandable:not(.expanded) .layer-toggle-icon { transform: rotate(-90deg); }
-      .layer-toggle-icon { margin-left: auto; flex: 0 0 auto; }
       .layer-sublayers {
         padding-left: 22px;
         display: none;
@@ -253,8 +251,6 @@
       .layer-expandable.expanded + .layer-sublayers.map-display-options { display: flex; }
       .map-display-options {
         flex-direction: column;
-        gap: 4px;
-        padding: 4px 0 6px;
       }
       .map-display-option {
         display: flex;
@@ -2573,7 +2569,6 @@
         return `
           <div class="layer-expandable expanded" data-id="${this.escape(id)}">
             <span class="layer-name">${this.escape(title)}</span>
-            <span class="toggle-icon layer-toggle-icon" aria-hidden="true"></span>
           </div>
           <div class="layer-sublayers ${contentClass}">
             ${content}
@@ -2583,17 +2578,17 @@
 
       renderThemeLayerControls() {
         const themeOptions = Object.entries(this.mapStyles).map(([id, style]) => `
-          <label class="map-display-option">
+          <label class="layer-sublayer">
             <input type="radio" name="theme-style" value="${this.escape(id)}" ${this.themeStyle === id ? 'checked' : ''}>
-            <span class="map-display-label">${this.escape(style.label)}</span>
+            <span class="layer-name">${this.escape(style.label)}</span>
           </label>
         `).join('');
 
         return `
           ${themeOptions}
-          <label class="map-display-option">
+          <label class="layer-sublayer">
             <input type="checkbox" name="imagery-toggle" ${this.imageryEnabled ? 'checked' : ''}>
-            <span class="map-display-label">Imagery</span>
+            <span class="layer-name">Imagery</span>
           </label>
         `;
       },
