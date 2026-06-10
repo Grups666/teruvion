@@ -17,6 +17,7 @@
 
 const ontology = require('../registry/ontology');
 const DynamicOntologyActivation = require('./DynamicOntologyActivation');
+const SectionParser = require('./SectionParser');
 
 class DigitalEarthDecomposer {
   constructor(llm, options = {}) {
@@ -25,9 +26,11 @@ class DigitalEarthDecomposer {
       maxRetries: options.maxRetries || 2,
       confidenceThreshold: options.confidenceThreshold || 0.6,
       useLLM: options.useLLM !== false, // Default to true
+      maxChunkSize: options.maxChunkSize || 8000,
       ...options
     };
     this.ontologyActivator = new DynamicOntologyActivation();
+    this.sectionParser = new SectionParser();
   }
 
   /**
@@ -133,15 +136,26 @@ class DigitalEarthDecomposer {
 
       // Step 5: Build bridge relations
       if (depth === 'deep' || depth === 'structured') {
-        result.bridgeRelations = this._buildBridgeRelations(
+        // First, collect LLM-extracted relations from merge result
+        const llmRelations = merged.bridgeRelations || [];
+
+        // Then, add inferred fallback relations (only for metadata-extracted objects)
+        const inferredRelations = this._buildBridgeRelations(
           result.capabilityObjects,
           result.worldObjects,
-          result.evidenceObjects
+          result.evidenceObjects,
+          llmRelations // Pass LLM relations to avoid duplicates
         );
+
+        // Combine: LLM relations first (higher priority), then inferred
+        result.bridgeRelations = this._validateAndMergeBridgeRelations(llmRelations, inferredRelations);
       }
 
       // Step 6: Validate all objects against ontology
       this._validateObjects(result);
+
+      // Step 7: Validate provenance (source text verification)
+      this._validateProvenance(result, content.text);
 
       // Calculate overall confidence
       result.confidence = this._calculateConfidence(result);
@@ -353,112 +367,195 @@ class DigitalEarthDecomposer {
   async _extractWithLLM(input, content, admissionResult) {
     if (!this.llm) return null;
 
+    // Parse source text into sections
+    const fullText = content.text || '';
+    const parsedSections = this.sectionParser.parse(fullText, admissionResult.sourceType);
+
     // Get activated ontology subset for LLM
     const activatedOntology = this.ontologyActivator.getActivatedOntology(admissionResult);
 
     // Build extraction prompt
     const prompt = this.ontologyActivator.generateExtractionPrompt(admissionResult, content);
 
-    // Prepare LLM call
+    // Process chunks (most important sections first)
+    const chunks = parsedSections.chunks;
+    const allResults = [];
+
+    // System prompt for LLM
     const systemPrompt = `You are a Digital Earth knowledge extraction system. Extract structured objects from the source text according to the provided ontology.
 
 IMPORTANT:
 - Only extract objects explicitly mentioned in the text
-- Include provenance information (sourceText: the exact text span that mentions this object)
+- Include provenance information with EXACT sourceText (copy verbatim from source)
+- Provide spanStart if you can estimate character position
 - Assign confidence scores (0-1) based on how clearly the object is defined
 - Validate entity types against the provided list
+- For bridgeRelations, explain the evidence in the provenance
 - Return valid JSON only`;
 
-    const userPrompt = `${prompt}
+    // Process each chunk
+    for (const chunk of chunks) {
+      const chunkPrompt = `${prompt}
+
+## Source Text (Section: ${chunk.sections.join(', ')})
+${chunk.text}
+
+Return JSON for this chunk. Focus on extracting objects mentioned in this section.`;
+
+      try {
+        const response = await this.llm.chat({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: chunkPrompt }
+          ],
+          temperature: 0.1,
+          max_tokens: 4000
+        });
+
+        // Parse LLM response
+        const responseText = response.choices?.[0]?.message?.content || response.content || '';
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) continue;
+
+        const parsed = JSON.parse(jsonMatch[0]);
+
+        // Add chunk context to results
+        if (parsed.capabilityObjects || parsed.worldObjects || parsed.evidenceObjects) {
+          allResults.push({
+            ...parsed,
+            chunkInfo: {
+              sections: chunk.sections,
+              importance: chunk.importance,
+              index: chunk.index
+            }
+          });
+        }
+
+        // Limit processing to top 3 chunks for efficiency
+        if (allResults.length >= 3) break;
+
+      } catch (error) {
+        console.error(`LLM extraction failed for chunk ${chunk.index}:`, error.message);
+        continue;
+      }
+    }
+
+    // If no chunks, try full text (fallback)
+    if (allResults.length === 0 && fullText.length > 0) {
+      const fallbackPrompt = `${prompt}
 
 ## Source Text
-${content.text?.substring(0, 15000) || 'No text available'}
+${fullText.substring(0, this.options.maxChunkSize)}
 
-Return JSON with this structure:
-{
-  "capabilityObjects": [
-    {
-      "type": "Dataset|Model|Sensor|...",
-      "attributes": { "name": "...", ... },
-      "confidence": 0.9,
-      "provenance": { "section": "methods", "sourceText": "..." }
-    }
-  ],
-  "worldObjects": [
-    {
-      "type": "Basin|Region|EarthVariable|...",
-      "attributes": { "name": "...", ... },
-      "confidence": 0.85,
-      "provenance": { "section": "study_area", "sourceText": "..." }
-    }
-  ],
-  "evidenceObjects": [
-    {
-      "type": "Claim|Evidence",
-      "attributes": { "statement": "...", "confidence": 0.9 },
-      "provenance": { "section": "results", "sourceText": "..." }
-    }
-  ],
-  "bridgeRelations": [
-    {
-      "type": "covers|simulates|observes|...",
-      "from": "entity-name-1",
-      "to": "entity-name-2",
-      "confidence": 0.8,
-      "provenance": { "sourceText": "..." }
-    }
-  ]
-}`;
+Return JSON with this structure:`;
 
-    try {
-      const response = await this.llm.chat({
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.1,
-        max_tokens: 4000
-      });
+      try {
+        const response = await this.llm.chat({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: fallbackPrompt }
+          ],
+          temperature: 0.1,
+          max_tokens: 4000
+        });
 
-      // Parse LLM response
-      const responseText = response.choices?.[0]?.message?.content || response.content || '';
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('No JSON found in LLM response');
+        const responseText = response.choices?.[0]?.message?.content || response.content || '';
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          allResults.push(JSON.parse(jsonMatch[0]));
+        }
+      } catch (error) {
+        console.error('LLM extraction failed (fallback):', error.message);
+        throw error;
+      }
+    }
+
+    // Merge all chunk results
+    return this._mergeChunkResults(allResults);
+  }
+
+  /**
+   * Merge results from multiple chunks
+   */
+  _mergeChunkResults(chunkResults) {
+    const result = {
+      capabilityObjects: [],
+      worldObjects: [],
+      evidenceObjects: [],
+      bridgeRelations: [],
+      sections: { chunks: chunkResults.length }
+    };
+
+    const seenCapabilities = new Map();
+    const seenWorld = new Map();
+    const seenEvidence = new Map();
+    const seenRelations = new Set();
+
+    for (const chunkResult of chunkResults) {
+      // Merge capability objects
+      for (const obj of chunkResult.capabilityObjects || []) {
+        const key = `${obj.type}:${obj.attributes?.name?.toLowerCase()}`;
+        if (!seenCapabilities.has(key)) {
+          // Enhance provenance with chunk info
+          if (chunkResult.chunkInfo && obj.provenance) {
+            obj.provenance.sections = chunkResult.chunkInfo.sections;
+            obj.provenance.chunkIndex = chunkResult.chunkInfo.index;
+          }
+          obj.id = obj.id || this._generateId(obj.type, obj.attributes?.name);
+          obj.layer = 'capability';
+          obj.extractionSource = 'llm';
+          seenCapabilities.set(key, obj);
+        }
       }
 
-      const parsed = JSON.parse(jsonMatch[0]);
+      // Merge world objects
+      for (const obj of chunkResult.worldObjects || []) {
+        const key = `${obj.type}:${obj.attributes?.name?.toLowerCase()}`;
+        if (!seenWorld.has(key)) {
+          if (chunkResult.chunkInfo && obj.provenance) {
+            obj.provenance.sections = chunkResult.chunkInfo.sections;
+            obj.provenance.chunkIndex = chunkResult.chunkInfo.index;
+          }
+          obj.id = obj.id || this._generateId(obj.type, obj.attributes?.name);
+          obj.layer = 'world';
+          obj.extractionSource = 'llm';
+          seenWorld.set(key, obj);
+        }
+      }
 
-      // Add IDs to objects
-      const result = {
-        capabilityObjects: (parsed.capabilityObjects || []).map(obj => ({
-          ...obj,
-          id: this._generateId(obj.type, obj.attributes?.name),
-          layer: 'capability',
-          extractionSource: 'llm'
-        })),
-        worldObjects: (parsed.worldObjects || []).map(obj => ({
-          ...obj,
-          id: this._generateId(obj.type, obj.attributes?.name),
-          layer: 'world',
-          extractionSource: 'llm'
-        })),
-        evidenceObjects: (parsed.evidenceObjects || []).map(obj => ({
-          ...obj,
-          id: this._generateId(obj.type, obj.attributes?.statement?.substring(0, 30)),
-          layer: 'foundation',
-          extractionSource: 'llm'
-        })),
-        bridgeRelations: parsed.bridgeRelations || [],
-        sections: { llm: true }
-      };
+      // Merge evidence objects
+      for (const obj of chunkResult.evidenceObjects || []) {
+        const key = `${obj.type}:${obj.attributes?.statement?.substring(0, 50)}`;
+        if (!seenEvidence.has(key)) {
+          if (chunkResult.chunkInfo && obj.provenance) {
+            obj.provenance.sections = chunkResult.chunkInfo.sections;
+            obj.provenance.chunkIndex = chunkResult.chunkInfo.index;
+          }
+          obj.id = obj.id || this._generateId(obj.type, obj.attributes?.statement?.substring(0, 30));
+          obj.layer = 'foundation';
+          obj.extractionSource = 'llm';
+          seenEvidence.set(key, obj);
+        }
+      }
 
-      return result;
-
-    } catch (error) {
-      console.error('LLM extraction failed:', error.message);
-      throw error;
+      // Merge bridge relations
+      for (const rel of chunkResult.bridgeRelations || []) {
+        const key = `${rel.type}:${rel.from}:${rel.to}`;
+        if (!seenRelations.has(key)) {
+          if (chunkResult.chunkInfo && rel.provenance) {
+            rel.provenance.sections = chunkResult.chunkInfo.sections;
+          }
+          seenRelations.add(key);
+          result.bridgeRelations.push(rel);
+        }
+      }
     }
+
+    result.capabilityObjects = Array.from(seenCapabilities.values());
+    result.worldObjects = Array.from(seenWorld.values());
+    result.evidenceObjects = Array.from(seenEvidence.values());
+
+    return result;
   }
 
   /**
@@ -1370,110 +1467,220 @@ Return JSON with this structure:
    * - inferenceMethod: 'type-pattern' (vs 'llm-semantic')
    * - confidence: typically 0.5-0.7 (lower than LLM-extracted)
    */
-  _buildBridgeRelations(capabilityObjects, worldObjects, evidenceObjects) {
+  _buildBridgeRelations(capabilityObjects, worldObjects, evidenceObjects, llmRelations = []) {
     const relations = [];
+    const existingKeys = new Set();
+
+    // Track LLM-extracted relation keys to avoid duplicates
+    for (const rel of llmRelations) {
+      if (rel.from && rel.to && rel.type) {
+        existingKeys.add(`${rel.type}:${rel.from}:${rel.to}`);
+      }
+    }
 
     // Skip if no objects to bridge
     if (capabilityObjects.length === 0 && evidenceObjects.length === 0) {
       return relations;
     }
 
-    // Dataset → Region coverage (INFERRED)
-    // Only create if no LLM-extracted relations exist
+    // Dataset → Region coverage (INFERRED FALLBACK)
+    // Only for metadata-extracted objects, not LLM-extracted
     for (const cap of capabilityObjects) {
       if (cap.type === 'Dataset' && cap.extractionSource !== 'llm') {
         for (const world of worldObjects) {
           if (['Basin', 'Region', 'Watershed', 'Glacier', 'Lake'].includes(world.type)) {
-            relations.push({
-              type: 'covers',
-              from: cap.id,
-              to: world.id,
-              confidence: 0.6,
-              inferenceMethod: 'type-pattern',
-              provenance: this._createProvenance('spatial', null, {
-                note: 'Inferred from Dataset + Region type proximity. Verify with source text.'
-              })
-            });
+            const key = `covers:${cap.id}:${world.id}`;
+            if (!existingKeys.has(key)) {
+              relations.push({
+                type: 'covers',
+                from: cap.id,
+                to: world.id,
+                confidence: 0.6,
+                inferenceMethod: 'type-pattern',
+                isFallback: true,
+                provenance: this._createProvenance('spatial', null, {
+                  note: 'Inferred from Dataset + Region type proximity. Verify with source text.'
+                })
+              });
+              existingKeys.add(key);
+            }
           }
         }
       }
 
-      // Model → Basin simulation (INFERRED)
+      // Model → Basin simulation (INFERRED FALLBACK)
       if (cap.type === 'Model' && cap.extractionSource !== 'llm') {
         for (const world of worldObjects) {
           if (['Basin', 'Watershed', 'River'].includes(world.type)) {
-            relations.push({
-              type: 'simulates',
-              from: cap.id,
-              to: world.id,
-              confidence: 0.65,
-              inferenceMethod: 'type-pattern',
-              provenance: this._createProvenance('methods', null, {
-                note: 'Inferred from Model + Basin proximity. Check if model actually simulates this basin.'
-              })
-            });
+            const key = `simulates:${cap.id}:${world.id}`;
+            if (!existingKeys.has(key)) {
+              relations.push({
+                type: 'simulates',
+                from: cap.id,
+                to: world.id,
+                confidence: 0.65,
+                inferenceMethod: 'type-pattern',
+                isFallback: true,
+                provenance: this._createProvenance('methods', null, {
+                  note: 'Inferred from Model + Basin proximity. Check if model actually simulates this basin.'
+                })
+              });
+              existingKeys.add(key);
+            }
           }
         }
       }
 
-      // Sensor/Satellite → Variable observation (INFERRED)
+      // Sensor/Satellite → Variable observation (INFERRED FALLBACK)
       if (['Satellite', 'Sensor', 'Gauge'].includes(cap.type) && cap.extractionSource !== 'llm') {
         for (const world of worldObjects) {
           if (world.type === 'EarthVariable') {
-            relations.push({
-              type: 'observes',
-              from: cap.id,
-              to: world.id,
-              confidence: 0.65,
-              inferenceMethod: 'type-pattern',
-              provenance: this._createProvenance('methods', null, {
-                note: 'Inferred observation relation. Verify with source text.'
-              })
-            });
+            const key = `observes:${cap.id}:${world.id}`;
+            if (!existingKeys.has(key)) {
+              relations.push({
+                type: 'observes',
+                from: cap.id,
+                to: world.id,
+                confidence: 0.65,
+                inferenceMethod: 'type-pattern',
+                isFallback: true,
+                provenance: this._createProvenance('methods', null, {
+                  note: 'Inferred observation relation. Verify with source text.'
+                })
+              });
+              existingKeys.add(key);
+            }
           }
         }
       }
 
-      // Intervention → Risk reduction (INFERRED)
+      // Intervention → Risk reduction (INFERRED FALLBACK)
       if (['Intervention', 'AdaptationMeasure', 'MitigationMeasure'].includes(cap.type)) {
         for (const world of worldObjects) {
           if (world.type === 'EarthRisk' || world.type === 'FloodRisk' || world.type === 'DroughtRisk') {
-            relations.push({
-              type: 'mitigates',
-              from: cap.id,
-              to: world.id,
-              confidence: 0.55,
-              inferenceMethod: 'type-pattern',
-              provenance: this._createProvenance('discussion', null, {
-                note: 'Inferred mitigation relation. Check if intervention specifically addresses this risk.'
-              })
-            });
+            const key = `mitigates:${cap.id}:${world.id}`;
+            if (!existingKeys.has(key)) {
+              relations.push({
+                type: 'mitigates',
+                from: cap.id,
+                to: world.id,
+                confidence: 0.55,
+                inferenceMethod: 'type-pattern',
+                isFallback: true,
+                provenance: this._createProvenance('discussion', null, {
+                  note: 'Inferred mitigation relation. Check if intervention specifically addresses this risk.'
+                })
+              });
+              existingKeys.add(key);
+            }
           }
         }
       }
     }
 
-    // Evidence → World Object support (INFERRED)
+    // Evidence → World Object support (INFERRED FALLBACK)
     for (const ev of evidenceObjects) {
       if (ev.type === 'Evidence' && ev.extractionSource !== 'llm') {
         for (const world of worldObjects) {
           if (['Hazard', 'EarthVariable', 'EarthRisk'].includes(world.type)) {
-            relations.push({
-              type: 'supports',
-              from: ev.id,
-              to: world.id,
-              confidence: ev.metadata?.strength || 0.6,
-              inferenceMethod: 'type-pattern',
-              provenance: this._createProvenance(ev.provenance?.section, ev.provenance?.sourceText, {
-                note: 'Inferred support relation. Verify evidence-world connection in source.'
-              })
-            });
+            const key = `supports:${ev.id}:${world.id}`;
+            if (!existingKeys.has(key)) {
+              relations.push({
+                type: 'supports',
+                from: ev.id,
+                to: world.id,
+                confidence: ev.metadata?.strength || 0.6,
+                inferenceMethod: 'type-pattern',
+                isFallback: true,
+                provenance: this._createProvenance(ev.provenance?.section, ev.provenance?.sourceText, {
+                  note: 'Inferred support relation. Verify evidence-world connection in source.'
+                })
+              });
+              existingKeys.add(key);
+            }
           }
         }
       }
     }
 
     return relations;
+  }
+
+  /**
+   * Validate and merge LLM-extracted and inferred bridge relations
+   */
+  _validateAndMergeBridgeRelations(llmRelations, inferredRelations) {
+    const merged = [];
+    const seenKeys = new Set();
+
+    // Process LLM relations first (higher priority)
+    for (const rel of llmRelations) {
+      const validated = this._validateBridgeRelation(rel, 'llm');
+      if (validated) {
+        const key = `${validated.type}:${validated.from}:${validated.to}`;
+        if (!seenKeys.has(key)) {
+          merged.push(validated);
+          seenKeys.add(key);
+        }
+      }
+    }
+
+    // Add inferred relations (lower priority)
+    for (const rel of inferredRelations) {
+      const key = `${rel.type}:${rel.from}:${rel.to}`;
+      if (!seenKeys.has(key)) {
+        merged.push(rel);
+        seenKeys.add(key);
+      }
+    }
+
+    return merged;
+  }
+
+  /**
+   * Validate a single bridge relation
+   * Returns null if invalid, otherwise returns enhanced relation
+   */
+  _validateBridgeRelation(rel, source = 'unknown') {
+    // Required fields
+    if (!rel.type || !rel.from || !rel.to) {
+      return null;
+    }
+
+    // Validate relation type is known
+    const validRelations = [
+      'covers', 'simulates', 'observes', 'measures', 'mitigates', 'supports',
+      'uses', 'produces', 'implements', 'targets', 'affects', 'located_at',
+      'occurs_at', 'interacts_with', 'drains_to', 'flows_through',
+      'exposed_to', 'vulnerable_to', 'generates_risk', 'projects',
+      'responds_to', 'reduces_risk', 'triggers_hazard', 'exacerbates',
+      'calibrated_with', 'validated_on', 'trained_on', 'has_variable',
+      'has_coverage', 'derived_from', 'depends_on', 'references'
+    ];
+
+    if (!validRelations.includes(rel.type)) {
+      // Unknown relation type - keep but flag for review
+      rel.isUnknownType = true;
+    }
+
+    // Set defaults
+    rel.confidence = rel.confidence || 0.7;
+    rel.inferenceMethod = rel.inferenceMethod || source;
+    rel.extractionSource = source;
+
+    // Ensure provenance exists
+    if (!rel.provenance) {
+      rel.provenance = this._createProvenance('unknown', null, {
+        note: `Relation extracted via ${source}`
+      });
+    }
+
+    // If LLM provided sourceText, validate it exists (we'll do this in a later pass)
+    if (rel.provenance?.sourceText) {
+      rel.provenance.hasSourceText = true;
+    }
+
+    return rel;
   }
 
   /**
@@ -1495,6 +1702,7 @@ Return JSON with this structure:
     if (sourceText) {
       provenance.sourceText = sourceText;
       provenance.spanLength = sourceText.length;
+      provenance.hasSourceText = true;
     }
 
     // Add optional fields
@@ -1522,7 +1730,74 @@ Return JSON with this structure:
       provenance.url = options.url;
     }
 
+    // Add chunk info if available
+    if (options.chunkIndex !== undefined) {
+      provenance.chunkIndex = options.chunkIndex;
+    }
+
     return provenance;
+  }
+
+  /**
+   * Validate provenance for all extracted objects
+   * Checks that sourceText actually appears in the source
+   * @param {Object} result - Decomposition result
+   * @param {string} fullText - Full source text
+   */
+  _validateProvenance(result, fullText) {
+    if (!fullText) return;
+
+    const allObjects = [
+      ...result.capabilityObjects,
+      ...result.worldObjects,
+      ...result.evidenceObjects
+    ];
+
+    for (const obj of allObjects) {
+      if (obj.provenance?.sourceText) {
+        const validation = this.sectionParser.validateSourceText(
+          obj.provenance.sourceText,
+          fullText,
+          0.7 // threshold
+        );
+
+        obj.provenance.sourceTextValidation = {
+          valid: validation.valid,
+          matchType: validation.matchType,
+          confidence: validation.confidence
+        };
+
+        // If valid, find span position
+        if (validation.valid) {
+          const span = this.sectionParser.findSpan(obj.provenance.sourceText, fullText);
+          if (span) {
+            obj.provenance.spanStart = span.start;
+            obj.provenance.spanEnd = span.end;
+            obj.provenance.section = span.section;
+            if (span.sectionTitle) {
+              obj.provenance.sectionTitle = span.sectionTitle;
+            }
+          }
+        }
+      }
+    }
+
+    // Also validate bridge relations
+    for (const rel of result.bridgeRelations) {
+      if (rel.provenance?.sourceText) {
+        const validation = this.sectionParser.validateSourceText(
+          rel.provenance.sourceText,
+          fullText,
+          0.7
+        );
+
+        rel.provenance.sourceTextValidation = {
+          valid: validation.valid,
+          matchType: validation.matchType,
+          confidence: validation.confidence
+        };
+      }
+    }
   }
 
   /**

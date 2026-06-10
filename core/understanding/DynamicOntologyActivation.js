@@ -373,8 +373,14 @@ class DynamicOntologyActivation {
    * @param {Object} content - Source content
    * @returns {string} Prompt for LLM
    */
+  /**
+   * Generate extraction prompt for LLM with prioritized entity types
+   */
   generateExtractionPrompt(admissionResult, content) {
     const activated = this.getActivatedOntology(admissionResult);
+
+    // Prioritize entity types by source role
+    const prioritizedTypes = this._prioritizeEntityTypes(activated, admissionResult.primaryRole);
 
     const promptParts = [
       `You are extracting structured information for a Digital Earth knowledge graph.`,
@@ -385,8 +391,15 @@ class DynamicOntologyActivation {
       `Activated Categories: ${activated.categories.join(', ')}`,
       ``,
       `## Entity Types to Extract`,
-      `Focus on these entity types:`,
-      activated.entityTypes.slice(0, 20).map(t => `- ${t}`).join('\n'),
+      ``,
+      `### Primary Types (Focus on these first):`,
+      prioritizedTypes.primary.map(t => `- ${t}`).join('\n'),
+      ``,
+      `### Secondary Types (Extract if mentioned):`,
+      prioritizedTypes.secondary.slice(0, 15).map(t => `- ${t}`).join('\n'),
+      ``,
+      `### Foundation Types (Use if needed):`,
+      prioritizedTypes.foundation.slice(0, 10).map(t => `- ${t}`).join('\n'),
       ``,
       `## Extraction Hints`,
       ...activated.extractionHints,
@@ -397,12 +410,71 @@ class DynamicOntologyActivation {
       `- capabilityObjects: [{ type, id, attributes, provenance }]`,
       `- worldObjects: [{ type, id, attributes, provenance }]`,
       `- evidenceObjects: [{ type, statement, confidence, provenance }]`,
-      `- bridgeRelations: [{ type, from, to, confidence }]`,
+      `- bridgeRelations: [{ type, from, to, confidence, provenance }]`,
       ``,
-      `Each object must include provenance with section reference.`
+      `Each object must include provenance with:`,
+      `- section: the section name (e.g., "methods", "results")`,
+      `- sourceText: the EXACT text span mentioning this object (copy from source)`,
+      `- spanStart: approximate character position (if known)`,
+      ``,
+      `For bridgeRelations, explain WHY this relation exists based on the source text.`
     ];
 
     return promptParts.join('\n');
+  }
+
+  /**
+   * Prioritize entity types based on source role
+   * Returns { primary, secondary, foundation }
+   */
+  _prioritizeEntityTypes(activated, primaryRole) {
+    const allTypes = activated.entityTypes;
+    const categories = activated.categories;
+
+    // Define primary types for each role
+    const rolePrimaryTypes = {
+      'earth_content': ['Claim', 'Evidence', 'EarthVariable', 'Region', 'Basin', 'EarthProcess'],
+      'data_capability': ['Dataset', 'Variable', 'Coverage', 'Resolution', 'DataQuality', 'DataProduct'],
+      'observation_capability': ['Sensor', 'Satellite', 'Gauge', 'Station', 'RemoteSensingSystem', 'InSituNetwork'],
+      'modeling_capability': ['Model', 'Algorithm', 'Simulation', 'Forecasting', 'Calibration', 'Validation'],
+      'computing_capability': ['Software', 'API', 'Workflow', 'Pipeline', 'Interface', 'CloudService'],
+      'governance_capability': ['Policy', 'Regulation', 'Institution', 'Stakeholder', 'Standard', 'Agreement'],
+      'evidence_assessment': ['Assessment', 'Indicator', 'Index', 'EvidenceChain', 'EvaluationFramework'],
+      'action_capability': ['Intervention', 'AdaptationMeasure', 'MitigationMeasure', 'ManagementAction', 'EmergencyResponse'],
+      'event_signal': ['Hazard', 'FloodEvent', 'DroughtEvent', 'Region', 'Exposure', 'Vulnerability']
+    };
+
+    // Foundation types (always available)
+    const foundationTypes = ['Entity', 'Claim', 'Evidence', 'Method', 'Data', 'Process', 'Event', 'Location', 'Time', 'Result', 'Metric', 'Uncertainty'];
+
+    // Source types
+    const sourceTypes = ['Paper', 'Repository', 'Dataset', 'Report', 'News'];
+
+    // Get primary types for this role
+    const primaryForRole = rolePrimaryTypes[primaryRole] || [];
+
+    // Build prioritized lists
+    const primary = [];
+    const secondary = [];
+
+    for (const type of allTypes) {
+      if (primaryForRole.includes(type)) {
+        primary.push(type);
+      } else if (!foundationTypes.includes(type) && !sourceTypes.includes(type)) {
+        secondary.push(type);
+      }
+    }
+
+    // Ensure we have some primary types
+    if (primary.length === 0 && secondary.length > 0) {
+      primary.push(...secondary.splice(0, 5));
+    }
+
+    return {
+      primary: [...new Set(primary)],
+      secondary: [...new Set(secondary)],
+      foundation: [...new Set(foundationTypes.filter(t => allTypes.includes(t)))]
+    };
   }
 
   /**
