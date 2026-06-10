@@ -20,6 +20,7 @@ const testFiles = [
   'integration/entity-mapper.test.js',
   'integration/lenses.test.js',
   'integration/ingest-pipeline.test.js',
+  'integration/real-source-e2e.test.js',
   'fixtures/fixture1-technical-paper.test.js',
   'fixtures/fixture2-era5-land-dataset.test.js',
   'fixtures/fixture3-wmo-policy-report.test.js',
