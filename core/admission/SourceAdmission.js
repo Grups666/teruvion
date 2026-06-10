@@ -26,11 +26,12 @@ class SourceAdmission {
     this.options = {
       minScoreForProcessing: options.minScoreForProcessing || 0.15,
       skipEvaluators: options.skipEvaluators || [],
+      useLLMTransferAssessment: options.useLLMTransferAssessment !== false,
       ...options
     };
 
     this.evaluators = {
-      sourceRole: new SourceRoleEvaluator(),
+      sourceRole: new SourceRoleEvaluator(llm),
       informationDensity: new InformationDensityEvaluator()
     };
   }
@@ -48,19 +49,23 @@ class SourceAdmission {
     // Detect source type
     const sourceType = metadata.type || detectSourceType(input, metadata);
 
-    // Evaluate source roles for Digital Earth
-    const roleResult = this.evaluators.sourceRole.score({
+    const combinedMetadata = {
       ...metadata,
       ...content,
       type: sourceType
-    });
+    };
+
+    // Evaluate source roles for Digital Earth
+    // Use evaluate() for LLM-enhanced assessment, score() for rule-only
+    let roleResult;
+    if (this.llm && this.options.useLLMTransferAssessment) {
+      roleResult = await this.evaluators.sourceRole.evaluate(combinedMetadata);
+    } else {
+      roleResult = this.evaluators.sourceRole.score(combinedMetadata);
+    }
 
     // Evaluate information density
-    const densityResult = this.evaluators.informationDensity.score({
-      ...metadata,
-      ...content,
-      type: sourceType
-    });
+    const densityResult = this.evaluators.informationDensity.score(combinedMetadata);
 
     // Determine activated ontology layers and categories
     const activatedOntology = getActivatedOntology(roleResult.roles);
@@ -82,6 +87,9 @@ class SourceAdmission {
       sourceRoles: roleResult.roles,
       detectedRoles: roleResult.detectedRoles,
       primaryRole: roleResult.primaryRole,
+      isExplicitEarthSource: roleResult.isExplicitEarthSource,
+      isTransferSource: roleResult.isTransferSource || false,
+      transferReasons: roleResult.transferReasons || null,
 
       // Ontology activation
       activatedOntologyLayers: activatedOntology.layers,
@@ -97,6 +105,7 @@ class SourceAdmission {
 
       // Metadata
       informationDensity: densityResult,
+      evaluationMethod: roleResult.evaluationMethod || 'rule-based',
       elapsedMs
     };
   }
