@@ -15,6 +15,15 @@ const world = require('./world');
 const domain = require('./domain');
 const { OntologyExtension, ExtensionRegistry, getRegistry } = require('./extension-api');
 
+// Lazy import to avoid circular dependency (relation-semantics imports this module)
+let _bridgeRelations = null;
+function getBridgeRelationSemantics() {
+  if (!_bridgeRelations) {
+    _bridgeRelations = require('./relation-semantics');
+  }
+  return _bridgeRelations;
+}
+
 // ============================================================================
 // UNIFIED ENTITY TYPES (All 5 Layers)
 // ============================================================================
@@ -76,7 +85,7 @@ const ENTITY_TYPES = getAllEntityTypes();
 // ============================================================================
 
 /**
- * Get all relation types across all 5 layers
+ * Get all relation types across all 5 layers + bridge relations
  */
 function getAllRelationTypes() {
   const relations = {};
@@ -117,6 +126,12 @@ function getAllRelationTypes() {
     for (const [key, def] of Object.entries(ext.relations)) {
       relations[key] = def.name;
     }
+  }
+
+  // Bridge Relations (Capability ↔ World connections)
+  const bridgeSemantics = getBridgeRelationSemantics().BRIDGE_RELATION_SEMANTICS;
+  for (const [key, semantics] of Object.entries(bridgeSemantics)) {
+    relations[key] = semantics.name;
   }
 
   return relations;
@@ -508,6 +523,38 @@ function getOntologyStats() {
 }
 
 // ============================================================================
+// BRIDGE RELATION WRAPPERS
+// ============================================================================
+
+/**
+ * Get BRIDGE_RELATION_SEMANTICS (lazy-loaded)
+ */
+function getBridgeRelations() {
+  return getBridgeRelationSemantics().BRIDGE_RELATION_SEMANTICS;
+}
+
+/**
+ * Validate a bridge relation (lazy-loaded)
+ */
+function validateBridgeRelation(relationType, subjectType, objectType, options) {
+  return getBridgeRelationSemantics().validateRelation(relationType, subjectType, objectType, options);
+}
+
+/**
+ * Get confidence cap for a relation (lazy-loaded)
+ */
+function getBridgeConfidenceCap(relationType, hasSourceEvidence) {
+  return getBridgeRelationSemantics().getConfidenceCap(relationType, hasSourceEvidence);
+}
+
+/**
+ * Get valid relations between types (lazy-loaded)
+ */
+function getValidBridgeRelations(subjectType, objectType) {
+  return getBridgeRelationSemantics().getValidRelations(subjectType, objectType);
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
@@ -556,5 +603,11 @@ module.exports = {
   // Extension API
   OntologyExtension,
   ExtensionRegistry,
-  getRegistry
+  getRegistry,
+
+  // Bridge Relation Semantics (lazy-loaded wrappers to avoid circular dependency)
+  getBridgeRelations,
+  validateBridgeRelation,
+  getBridgeConfidenceCap,
+  getValidBridgeRelations
 };

@@ -68,6 +68,12 @@ const OntologyExtension = layeredOntology.OntologyExtension;
 const ExtensionRegistry = layeredOntology.ExtensionRegistry;
 const getRegistry = layeredOntology.getRegistry;
 
+// Bridge Relation Semantics
+const getBridgeRelations = layeredOntology.getBridgeRelations;
+const validateBridgeRelation = layeredOntology.validateBridgeRelation;
+const getBridgeConfidenceCap = layeredOntology.getBridgeConfidenceCap;
+const getValidBridgeRelations = layeredOntology.getValidBridgeRelations;
+
 // ============================================================================
 // LEGACY CONSTANTS (For backward compatibility)
 // ============================================================================
@@ -486,5 +492,11 @@ module.exports = {
   // Extension API
   OntologyExtension,
   ExtensionRegistry,
-  getRegistry
+  getRegistry,
+
+  // Bridge Relation Semantics
+  getBridgeRelations,
+  validateBridgeRelation,
+  getBridgeConfidenceCap,
+  getValidBridgeRelations
 };
