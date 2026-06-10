@@ -18,6 +18,7 @@
 const ontology = require('../registry/ontology');
 const DynamicOntologyActivation = require('./DynamicOntologyActivation');
 const SectionParser = require('./SectionParser');
+const { validateRelation, getConfidenceCap, BRIDGE_RELATION_SEMANTICS } = require('../registry/ontology/relation-semantics');
 
 class DigitalEarthDecomposer {
   constructor(llm, options = {}) {
@@ -1638,35 +1639,56 @@ Return JSON with this structure:`;
   }
 
   /**
-   * Validate a single bridge relation
+   * Validate a single bridge relation using relation semantics
    * Returns null if invalid, otherwise returns enhanced relation
    */
-  _validateBridgeRelation(rel, source = 'unknown') {
+  _validateBridgeRelation(rel, source = 'unknown', subjectType = null, objectType = null) {
     // Required fields
     if (!rel.type || !rel.from || !rel.to) {
       return null;
     }
 
-    // Validate relation type is known
-    const validRelations = [
-      'covers', 'simulates', 'observes', 'measures', 'mitigates', 'supports',
-      'uses', 'produces', 'implements', 'targets', 'affects', 'located_at',
-      'occurs_at', 'interacts_with', 'drains_to', 'flows_through',
-      'exposed_to', 'vulnerable_to', 'generates_risk', 'projects',
-      'responds_to', 'reduces_risk', 'triggers_hazard', 'exacerbates',
-      'calibrated_with', 'validated_on', 'trained_on', 'has_variable',
-      'has_coverage', 'derived_from', 'depends_on', 'references'
-    ];
+    // Get relation semantics
+    const semantics = BRIDGE_RELATION_SEMANTICS[rel.type];
 
-    if (!validRelations.includes(rel.type)) {
+    // Check if relation type is known
+    if (!semantics) {
       // Unknown relation type - keep but flag for review
       rel.isUnknownType = true;
+      rel.validationWarning = `Unknown relation type: ${rel.type}`;
+    } else {
+      // Validate against domain/range constraints if types available
+      if (subjectType && objectType) {
+        const validation = validateRelation(rel.type, subjectType, objectType);
+        if (!validation.valid) {
+          // Don't reject, but flag the issue
+          rel.validationWarning = validation.reason;
+          rel.requiresTypeReview = true;
+        }
+      }
     }
 
-    // Set defaults
-    rel.confidence = rel.confidence || 0.7;
+    // Determine confidence based on evidence and source
+    const hasSourceEvidence = !!rel.provenance?.sourceText;
+    const confidenceCap = getConfidenceCap(rel.type, hasSourceEvidence);
+
+    // Set confidence with cap
+    if (rel.confidence === undefined) {
+      rel.confidence = hasSourceEvidence ? 0.85 : confidenceCap;
+    } else {
+      rel.confidence = Math.min(rel.confidence, confidenceCap);
+    }
+
+    // Set inference method
     rel.inferenceMethod = rel.inferenceMethod || source;
     rel.extractionSource = source;
+
+    // Mark fallback status
+    if (semantics?.fallbackConditions?.allowed && !hasSourceEvidence) {
+      rel.isFallback = true;
+      rel.requiresVerification = true;
+      rel.fallbackNote = semantics.fallbackConditions.note;
+    }
 
     // Ensure provenance exists
     if (!rel.provenance) {
@@ -1675,9 +1697,18 @@ Return JSON with this structure:`;
       });
     }
 
-    // If LLM provided sourceText, validate it exists (we'll do this in a later pass)
+    // If LLM provided sourceText, mark for validation
     if (rel.provenance?.sourceText) {
       rel.provenance.hasSourceText = true;
+    }
+
+    // Add semantics info for downstream use
+    if (semantics) {
+      rel.semantics = {
+        description: semantics.description,
+        inverse: semantics.inverse,
+        cardinality: semantics.cardinality
+      };
     }
 
     return rel;
