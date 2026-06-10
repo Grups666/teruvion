@@ -877,15 +877,17 @@ class EntityMapper {
     }
 
     // Apply metadata mapping
-    for (const [fromPath, toSpec] of Object.entries(rule.metadataMap)) {
-      const value = this._getNestedValue(data, fromPath);
-      if (value !== undefined && value !== null) {
-        if (typeof toSpec === 'string') {
-          metadata[toSpec] = value;
-        } else if (typeof toSpec === 'object') {
-          const toField = toSpec.to;
-          const transformed = toSpec.transform ? toSpec.transform(value) : value;
-          metadata[toField] = transformed;
+    if (rule.metadataMap) {
+      for (const [fromPath, toSpec] of Object.entries(rule.metadataMap)) {
+        const value = this._getNestedValue(data, fromPath);
+        if (value !== undefined && value !== null) {
+          if (typeof toSpec === 'string') {
+            metadata[toSpec] = value;
+          } else if (typeof toSpec === 'object') {
+            const toField = toSpec.to;
+            const transformed = toSpec.transform ? toSpec.transform(value) : value;
+            metadata[toField] = transformed;
+          }
         }
       }
     }

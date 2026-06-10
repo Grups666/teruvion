@@ -2,19 +2,21 @@
  * Digital Earth Decomposer
  * Decomposes sources into Digital Earth object graph based on activated ontology
  *
- * Key insight: Different sources require different extraction strategies.
- * A paper produces different objects than a GitHub repo or a dataset page.
- * This component uses the activated ontology from SourceAdmission to guide extraction.
+ * Two-phase extraction:
+ * 1. Metadata-driven extraction (fast, reliable, from connector metadata)
+ * 2. LLM-assisted deep extraction (semantic understanding from source text)
  *
  * Pipeline:
  * 1. Source Role Detection → Activated Ontology (from SourceAdmission)
- * 2. Capability Extraction (Layer 2 objects)
- * 3. World Object Extraction (Layer 3 objects)
- * 4. Bridge Relation Extraction (Capability ↔ World connections)
- * 5. Provenance Grounding (trace to source sections)
+ * 2. Metadata Extraction (connector-provided structured data)
+ * 3. LLM Extraction (semantic deep decomposition)
+ * 4. Merge + Validate (combine both sources)
+ * 5. Bridge Relations (Capability ↔ World connections)
+ * 6. Provenance Grounding (trace to source sections)
  */
 
 const ontology = require('../registry/ontology');
+const DynamicOntologyActivation = require('./DynamicOntologyActivation');
 
 class DigitalEarthDecomposer {
   constructor(llm, options = {}) {
@@ -22,8 +24,10 @@ class DigitalEarthDecomposer {
     this.options = {
       maxRetries: options.maxRetries || 2,
       confidenceThreshold: options.confidenceThreshold || 0.6,
+      useLLM: options.useLLM !== false, // Default to true
       ...options
     };
+    this.ontologyActivator = new DynamicOntologyActivation();
   }
 
   /**
@@ -62,7 +66,15 @@ class DigitalEarthDecomposer {
       provenance: {
         input,
         timestamp: new Date().toISOString(),
-        sections: {}
+        sections: {},
+        extractionMethod: 'hybrid' // 'metadata', 'llm', or 'hybrid'
+      },
+
+      // Extraction metadata
+      extractionMetadata: {
+        metadataExtraction: null,
+        llmExtraction: null,
+        mergeStrategy: null
       },
 
       // Metadata
@@ -73,33 +85,51 @@ class DigitalEarthDecomposer {
     // Skip deep extraction for light/reject
     if (depth === 'reject') {
       result.processingTime = Date.now() - startTime;
+      result.provenance.extractionMethod = 'none';
       return result;
     }
 
     try {
-      // Step 1: Create source object (always)
+      // Step 1: Create source object (always from metadata)
       result.sourceObject = this._createSourceObject(input, content, admissionResult);
 
-      // Step 2: Extract capabilities based on activated categories
-      if (admissionResult.activatedCategories.length > 0) {
-        const capabilities = await this._extractCapabilities(content, admissionResult);
-        result.capabilityObjects = capabilities.objects;
-        result.provenance.sections.capabilities = capabilities.sections;
+      // Step 2: Phase 1 - Metadata-driven extraction
+      const metadataResult = this._extractFromMetadata(content, admissionResult);
+      result.extractionMetadata.metadataExtraction = {
+        capabilityCount: metadataResult.capabilityObjects.length,
+        worldCount: metadataResult.worldObjects.length,
+        evidenceCount: metadataResult.evidenceObjects.length
+      };
+
+      // Step 3: Phase 2 - LLM-assisted extraction (if LLM available and text exists)
+      let llmResult = null;
+      if (this.options.useLLM && this.llm && content.text && content.text.length > 100) {
+        try {
+          llmResult = await this._extractWithLLM(input, content, admissionResult);
+          result.extractionMetadata.llmExtraction = {
+            capabilityCount: llmResult.capabilityObjects?.length || 0,
+            worldCount: llmResult.worldObjects?.length || 0,
+            evidenceCount: llmResult.evidenceObjects?.length || 0,
+            success: true
+          };
+        } catch (llmError) {
+          result.extractionMetadata.llmExtraction = {
+            success: false,
+            error: llmError.message
+          };
+        }
       }
 
-      // Step 3: Extract world objects based on activated layers
-      if (admissionResult.activatedOntologyLayers.includes('world')) {
-        const worldObjects = await this._extractWorldObjects(content, admissionResult);
-        result.worldObjects = worldObjects.objects;
-        result.provenance.sections.worldObjects = worldObjects.sections;
-      }
+      // Step 4: Merge results (LLM takes precedence, metadata as fallback)
+      const merged = this._mergeExtractions(metadataResult, llmResult, admissionResult);
+      result.capabilityObjects = merged.capabilityObjects;
+      result.worldObjects = merged.worldObjects;
+      result.evidenceObjects = merged.evidenceObjects;
+      result.extractionMetadata.mergeStrategy = merged.strategy;
 
-      // Step 4: Extract evidence objects (for deep processing)
-      if (depth === 'deep' || depth === 'structured') {
-        const evidence = await this._extractEvidence(content, admissionResult);
-        result.evidenceObjects = evidence.objects;
-        result.provenance.sections.evidence = evidence.sections;
-      }
+      // Update provenance
+      result.provenance.sections = merged.sections;
+      result.provenance.extractionMethod = llmResult ? 'hybrid' : 'metadata';
 
       // Step 5: Build bridge relations
       if (depth === 'deep' || depth === 'structured') {
@@ -109,6 +139,9 @@ class DigitalEarthDecomposer {
           result.evidenceObjects
         );
       }
+
+      // Step 6: Validate all objects against ontology
+      this._validateObjects(result);
 
       // Calculate overall confidence
       result.confidence = this._calculateConfidence(result);
@@ -120,6 +153,422 @@ class DigitalEarthDecomposer {
 
     result.processingTime = Date.now() - startTime;
     return result;
+  }
+
+  /**
+   * Phase 1: Extract from connector-provided metadata
+   */
+  _extractFromMetadata(content, admissionResult) {
+    const result = {
+      capabilityObjects: [],
+      worldObjects: [],
+      evidenceObjects: [],
+      sections: {}
+    };
+
+    const metadata = content.metadata || {};
+
+    // Extract capabilities from metadata (synchronous since it's just data transformation)
+    if (admissionResult.activatedCategories?.length > 0) {
+      const capabilities = this._extractCapabilitiesSync(metadata, admissionResult);
+      result.capabilityObjects = capabilities.objects;
+      result.sections.capabilities = capabilities.sections;
+    }
+
+    // Extract world objects from metadata
+    if (admissionResult.activatedOntologyLayers?.includes('world')) {
+      const worldObjects = this._extractWorldObjectsSync(metadata, admissionResult);
+      result.worldObjects = worldObjects.objects;
+      result.sections.worldObjects = worldObjects.sections;
+    }
+
+    // Extract evidence from metadata
+    if (admissionResult.depth === 'deep' || admissionResult.depth === 'structured') {
+      const evidence = this._extractEvidenceSync(metadata, admissionResult);
+      result.evidenceObjects = evidence.objects;
+      result.sections.evidence = evidence.sections;
+    }
+
+    return result;
+  }
+
+  /**
+   * Sync version of capability extraction (metadata-only)
+   */
+  _extractCapabilitiesSync(metadata, admissionResult) {
+    const objects = [];
+    const sections = {};
+    const categories = admissionResult.activatedCategories || [];
+
+    // Extract based on activated categories
+    if (categories.includes('data')) {
+      const dataObjects = this._extractDataCapabilities(metadata, '');
+      objects.push(...dataObjects);
+      sections.data = { count: dataObjects.length, sources: ['metadata'] };
+    }
+
+    if (categories.includes('observation')) {
+      const obsObjects = this._extractObservationCapabilities(metadata, '');
+      objects.push(...obsObjects);
+      sections.observation = { count: obsObjects.length, sources: ['metadata'] };
+    }
+
+    if (categories.includes('modeling')) {
+      const modelObjects = this._extractModelingCapabilities(metadata, '');
+      objects.push(...modelObjects);
+      sections.modeling = { count: modelObjects.length, sources: ['metadata'] };
+    }
+
+    if (categories.includes('computing')) {
+      const computeObjects = this._extractComputingCapabilities(metadata, '');
+      objects.push(...computeObjects);
+      sections.computing = { count: computeObjects.length, sources: ['metadata'] };
+    }
+
+    if (categories.includes('governance')) {
+      const govObjects = this._extractGovernanceCapabilities(metadata, '');
+      objects.push(...govObjects);
+      sections.governance = { count: govObjects.length, sources: ['metadata'] };
+    }
+
+    if (categories.includes('socioeconomic')) {
+      const socioObjects = this._extractSocioeconomicCapabilities(metadata, '');
+      objects.push(...socioObjects);
+      sections.socioeconomic = { count: socioObjects.length, sources: ['metadata'] };
+    }
+
+    if (categories.includes('evidence')) {
+      const evidenceObjects = this._extractEvidenceCapabilities(metadata, '');
+      objects.push(...evidenceObjects);
+      sections.evidence = { count: evidenceObjects.length, sources: ['metadata'] };
+    }
+
+    if (categories.includes('action')) {
+      const actionObjects = this._extractActionCapabilities(metadata, '');
+      objects.push(...actionObjects);
+      sections.action = { count: actionObjects.length, sources: ['metadata'] };
+    }
+
+    return { objects, sections };
+  }
+
+  /**
+   * Sync version of world objects extraction
+   */
+  _extractWorldObjectsSync(metadata, admissionResult) {
+    const objects = [];
+    const sections = {};
+    const categories = admissionResult.activatedCategories || [];
+
+    if (categories.includes('earth-object')) {
+      const earthObjects = this._extractEarthObjects(metadata);
+      objects.push(...earthObjects);
+      sections.earthObjects = { count: earthObjects.length };
+    }
+
+    if (categories.includes('earth-variable')) {
+      const variables = this._extractEarthVariables(metadata);
+      objects.push(...variables);
+      sections.earthVariables = { count: variables.length };
+    }
+
+    if (categories.includes('hazard')) {
+      const hazards = this._extractHazards(metadata);
+      objects.push(...hazards);
+      sections.hazards = { count: hazards.length };
+    }
+
+    if (categories.includes('risk')) {
+      const risks = this._extractRisks(metadata);
+      objects.push(...risks);
+      sections.risks = { count: risks.length };
+    }
+
+    if (categories.includes('model-output')) {
+      const outputs = this._extractModelOutputs(metadata);
+      objects.push(...outputs);
+      sections.modelOutputs = { count: outputs.length };
+    }
+
+    return { objects, sections };
+  }
+
+  /**
+   * Sync version of evidence extraction
+   */
+  _extractEvidenceSync(metadata, admissionResult) {
+    const objects = [];
+    const sections = {};
+
+    const claims = metadata.claims || [];
+    for (const claim of claims) {
+      objects.push({
+        type: 'Claim',
+        id: this._generateId('claim', claim.statement?.substring(0, 50) || claim.id || 'claim'),
+        attributes: {
+          statement: claim.statement,
+          confidence: claim.confidence,
+          type: claim.type
+        },
+        metadata: {
+          evidence: claim.evidence,
+          figureRef: claim.figureRef
+        },
+        provenance: {
+          section: claim.section || 'results',
+          sourceText: claim.originalText
+        }
+      });
+    }
+    sections.claims = { count: claims.length };
+
+    const evidenceItems = metadata.evidence || [];
+    for (const ev of evidenceItems) {
+      objects.push({
+        type: 'Evidence',
+        id: this._generateId('evidence', ev.description?.substring(0, 50) || ev.id || 'evidence'),
+        attributes: {
+          type: ev.type || 'empirical',
+          description: ev.description,
+          strength: ev.strength
+        },
+        metadata: {
+          supportsClaim: ev.supportsClaim
+        },
+        provenance: {
+          section: ev.section || 'results',
+          figureRef: ev.figureRef,
+          tableRef: ev.tableRef
+        }
+      });
+    }
+    sections.evidence = { count: evidenceItems.length };
+
+    return { objects, sections };
+  }
+
+  /**
+   * Phase 2: Extract using LLM with activated ontology
+   */
+  async _extractWithLLM(input, content, admissionResult) {
+    if (!this.llm) return null;
+
+    // Get activated ontology subset for LLM
+    const activatedOntology = this.ontologyActivator.getActivatedOntology(admissionResult);
+
+    // Build extraction prompt
+    const prompt = this.ontologyActivator.generateExtractionPrompt(admissionResult, content);
+
+    // Prepare LLM call
+    const systemPrompt = `You are a Digital Earth knowledge extraction system. Extract structured objects from the source text according to the provided ontology.
+
+IMPORTANT:
+- Only extract objects explicitly mentioned in the text
+- Include provenance information (sourceText: the exact text span that mentions this object)
+- Assign confidence scores (0-1) based on how clearly the object is defined
+- Validate entity types against the provided list
+- Return valid JSON only`;
+
+    const userPrompt = `${prompt}
+
+## Source Text
+${content.text?.substring(0, 15000) || 'No text available'}
+
+Return JSON with this structure:
+{
+  "capabilityObjects": [
+    {
+      "type": "Dataset|Model|Sensor|...",
+      "attributes": { "name": "...", ... },
+      "confidence": 0.9,
+      "provenance": { "section": "methods", "sourceText": "..." }
+    }
+  ],
+  "worldObjects": [
+    {
+      "type": "Basin|Region|EarthVariable|...",
+      "attributes": { "name": "...", ... },
+      "confidence": 0.85,
+      "provenance": { "section": "study_area", "sourceText": "..." }
+    }
+  ],
+  "evidenceObjects": [
+    {
+      "type": "Claim|Evidence",
+      "attributes": { "statement": "...", "confidence": 0.9 },
+      "provenance": { "section": "results", "sourceText": "..." }
+    }
+  ],
+  "bridgeRelations": [
+    {
+      "type": "covers|simulates|observes|...",
+      "from": "entity-name-1",
+      "to": "entity-name-2",
+      "confidence": 0.8,
+      "provenance": { "sourceText": "..." }
+    }
+  ]
+}`;
+
+    try {
+      const response = await this.llm.chat({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.1,
+        max_tokens: 4000
+      });
+
+      // Parse LLM response
+      const responseText = response.choices?.[0]?.message?.content || response.content || '';
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No JSON found in LLM response');
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      // Add IDs to objects
+      const result = {
+        capabilityObjects: (parsed.capabilityObjects || []).map(obj => ({
+          ...obj,
+          id: this._generateId(obj.type, obj.attributes?.name),
+          layer: 'capability',
+          extractionSource: 'llm'
+        })),
+        worldObjects: (parsed.worldObjects || []).map(obj => ({
+          ...obj,
+          id: this._generateId(obj.type, obj.attributes?.name),
+          layer: 'world',
+          extractionSource: 'llm'
+        })),
+        evidenceObjects: (parsed.evidenceObjects || []).map(obj => ({
+          ...obj,
+          id: this._generateId(obj.type, obj.attributes?.statement?.substring(0, 30)),
+          layer: 'foundation',
+          extractionSource: 'llm'
+        })),
+        bridgeRelations: parsed.bridgeRelations || [],
+        sections: { llm: true }
+      };
+
+      return result;
+
+    } catch (error) {
+      console.error('LLM extraction failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Merge metadata and LLM extraction results
+   */
+  _mergeExtractions(metadataResult, llmResult, admissionResult) {
+    const result = {
+      capabilityObjects: [],
+      worldObjects: [],
+      evidenceObjects: [],
+      sections: {},
+      strategy: llmResult ? 'llm-primary' : 'metadata-only'
+    };
+
+    if (!llmResult) {
+      // No LLM result, use metadata only
+      return {
+        ...metadataResult,
+        strategy: 'metadata-only'
+      };
+    }
+
+    // Merge capability objects (LLM takes precedence, but keep unique metadata objects)
+    const capabilityByName = new Map();
+
+    // Add LLM objects first (higher priority)
+    for (const obj of llmResult.capabilityObjects || []) {
+      const key = obj.attributes?.name?.toLowerCase() || obj.id;
+      if (key) capabilityByName.set(key, obj);
+    }
+
+    // Add metadata objects that aren't in LLM results
+    for (const obj of metadataResult.capabilityObjects || []) {
+      const key = obj.attributes?.name?.toLowerCase();
+      if (key && !capabilityByName.has(key)) {
+        obj.extractionSource = 'metadata';
+        capabilityByName.set(key, obj);
+      }
+    }
+
+    result.capabilityObjects = Array.from(capabilityByName.values());
+
+    // Merge world objects
+    const worldByName = new Map();
+    for (const obj of llmResult.worldObjects || []) {
+      const key = obj.attributes?.name?.toLowerCase() || obj.id;
+      if (key) worldByName.set(key, obj);
+    }
+    for (const obj of metadataResult.worldObjects || []) {
+      const key = obj.attributes?.name?.toLowerCase();
+      if (key && !worldByName.has(key)) {
+        obj.extractionSource = 'metadata';
+        worldByName.set(key, obj);
+      }
+    }
+    result.worldObjects = Array.from(worldByName.values());
+
+    // Merge evidence objects
+    const evidenceByKey = new Map();
+    for (const obj of llmResult.evidenceObjects || []) {
+      const key = obj.attributes?.statement?.substring(0, 50) || obj.id;
+      if (key) evidenceByKey.set(key, obj);
+    }
+    for (const obj of metadataResult.evidenceObjects || []) {
+      const key = obj.attributes?.statement?.substring(0, 50);
+      if (key && !evidenceByKey.has(key)) {
+        obj.extractionSource = 'metadata';
+        evidenceByKey.set(key, obj);
+      }
+    }
+    result.evidenceObjects = Array.from(evidenceByKey.values());
+
+    // Merge sections
+    result.sections = {
+      ...metadataResult.sections,
+      llmExtracted: true
+    };
+
+    return result;
+  }
+
+  /**
+   * Validate all objects against ontology
+   */
+  _validateObjects(result) {
+    const validate = (objects, label) => {
+      for (const obj of objects) {
+        try {
+          ontology.validateEntityType(obj.type);
+        } catch (err) {
+          // Mark as invalid but don't remove
+          obj.validationWarning = `Unknown type: ${obj.type}`;
+        }
+
+        // Ensure required fields
+        if (!obj.id) {
+          obj.id = this._generateId(obj.type, obj.attributes?.name || 'unknown');
+        }
+        if (!obj.provenance) {
+          obj.provenance = { section: 'unknown' };
+        }
+        if (!obj.confidence) {
+          obj.confidence = 0.7;
+        }
+      }
+    };
+
+    validate(result.capabilityObjects, 'capability');
+    validate(result.worldObjects, 'world');
+    validate(result.evidenceObjects, 'evidence');
   }
 
   /**
@@ -444,7 +893,7 @@ class DigitalEarthDecomposer {
     if (metadata.type === 'APIPage' || metadata.apiEndpoint) {
       objects.push({
         type: 'API',
-        id: this._generateId('api', metadata.name || input),
+        id: this._generateId('api', metadata.name || 'api'),
         attributes: {
           name: metadata.name,
           endpoint: metadata.apiEndpoint,

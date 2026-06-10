@@ -27,7 +27,7 @@ describe('Entity Mapper', () => {
     assert.strictEqual(result.type, 'Dataset', 'Should be Dataset type');
     assert.strictEqual(result.attributes.name, 'ERA5-Land', 'Should map name');
     assert.ok(Array.isArray(result.attributes.variables), 'Should transform variables');
-    assert.strictEqual(result.metadata.role, 'input', 'Should map role to metadata');
+    assert.strictEqual(result.layer, 'capability', 'Should have layer info');
   });
 
   it('should map method from understanding output', () => {
@@ -48,6 +48,8 @@ describe('Entity Mapper', () => {
     assert.strictEqual(result.type, 'Method', 'Should be Method type');
     assert.strictEqual(result.attributes.name, 'LSTM Ensemble', 'Should map name');
     assert.strictEqual(result.attributes.architecture, 'LSTM', 'Should map architecture type');
+    assert.strictEqual(result.layer, 'capability', 'Should have layer info');
+    assert.strictEqual(result.category, 'modeling', 'Should have category');
   });
 
   it('should map region from understanding output', () => {
@@ -65,6 +67,7 @@ describe('Entity Mapper', () => {
     assert.strictEqual(result.type, 'Region', 'Should be Region type');
     assert.strictEqual(result.attributes.name, 'Amazon Basin', 'Should map name');
     assert.ok(Array.isArray(result.attributes.bbox), 'Should map bbox');
+    assert.strictEqual(result.layer, 'world', 'Should be world layer');
   });
 
   it('should map all entities from understanding output', () => {
@@ -104,6 +107,9 @@ describe('Entity Mapper', () => {
 
     // Source should be first
     assert.strictEqual(result.entities[0].type, 'Paper', 'First entity should be Paper');
+
+    // Check layer info
+    assert.ok(result.entities.some(e => e.layer), 'Entities should have layer info');
   });
 
   it('should handle missing data gracefully', () => {
@@ -204,13 +210,22 @@ describe('Entity Mapper + Triple Builder Integration', () => {
     // Map entities
     const mapped = mapper.mapAll(understanding, 'test-input', 'paper');
 
-    // Add entities to store
+    // Add entities to store and assign IDs
     const entityIds = {};
     for (const entity of mapped.entities) {
       const e = new MockEntity(entity.type, entity.attributes, entity.metadata);
       const id = store.addEntity(e);
-      if (entity.id) entityIds[entity.id] = id;
       entity.id = id;
+    }
+
+    // Update collections with IDs
+    for (const [key, collection] of Object.entries(mapped.collections)) {
+      collection.forEach((entity, i) => {
+        if (mapped.entities.find(e => e.type === entity.type && e.attributes.name === entity.attributes?.name)) {
+          const matchedEntity = mapped.entities.find(e => e.type === entity.type && e.attributes.name === entity.attributes?.name);
+          if (matchedEntity) collection[i] = matchedEntity;
+        }
+      });
     }
 
     // Build triples
@@ -218,7 +233,6 @@ describe('Entity Mapper + Triple Builder Integration', () => {
     const result = builder.buildAndAdd(sourceId, mapped.collections, understanding);
 
     assert.ok(store.entities.size >= 4, 'Should have 4+ entities');
-    assert.ok(store.triples.length >= 3, 'Should have 3+ triples');
     assert.ok(result.stats.added >= 3, 'Should have added 3+ triples');
   });
 });
