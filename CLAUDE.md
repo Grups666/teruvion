@@ -1,54 +1,194 @@
-# Tereon Project Agent Guide
+# Teruvion: Research Intelligence Platform
 
-This file is intentionally mirrored in `CLAUDE.md`. Keep both files byte-for-byte identical when updating project guidance.
+**Mission**: Transform research from linear documents into living, explorable object graphs.
 
-## Project Identity
+**Vision**: Research Intelligence OS for Digital Earth.
 
-Tereon is a pluggable geospatial research operating foundation. It provides the interactive browser map shell, base geospatial layers, rendering pipeline, sidebar, layer manager, event bus, module loader, and shared inspector, legend, and modal UI.
+---
 
-Domain repositories such as Hydrological Imbalance should remain separate modules. They can be loaded into Tereon by URL through a module manifest instead of being baked into the foundation.
+## What It Is
 
-## Goals
+Teruvion is a **multi-source research object graph platform** that decomposes papers, repos, datasets, reports, and news into structured objects—Dataset, Method, Claim, Evidence, Region—and their relationships, then recomposes them into maps, evidence chains, workflows, and comparisons.
 
-- Provide a stable browser-based foundation for spatial research workflows.
-- Keep foundation concerns separate from domain modules.
-- Support URL-loadable research modules with data, styling, legends, charts, literature panels, and model outputs.
-- Keep interaction smooth for global basin-scale visualization.
-- Make GitHub Pages usable as a zero-install demo and deployment surface.
+**Core Loop**: **Decomposition → Recomposition → Exploration**
 
-## Architecture Boundaries
+**Example**:
+- **Decompose**: Nature paper on flood forecasting → extract datasets (ERA5-Land, GRDC), methods (LSTM ensemble), claims (AI matches GloFAS reliability), regions (global watersheds)
+- **Recompose**: Generate map view showing all study regions, evidence chains linking claims to figures, workflow view of model pipeline
+- **Explore**: System automatically tracks new papers, dataset updates, GitHub commits, and news events related to flood forecasting
 
-Tereon owns:
+---
 
-- map canvas and viewport state
-- coordinate transform
-- foundation basin, country, land, theme, and optional imagery layers
-- module manifest import and lifecycle
-- shared right inspector, modal, legend, and sidebar structure
-- feature hover, click, selection, and cleanup routing
+## Product Positioning
 
-Modules own:
+**Teruvion = Research Intelligence OS built on a living research object graph**
 
-- domain data and metadata
-- feature-level joins to foundation geometries
-- module-specific rendering enhancements
-- module legends and inspector content
-- cleanup in `onUnload()`
+We are NOT:
+- ❌ A literature summarizer (ChatPDF/Elicit style)
+- ❌ A citation manager (Zotero/Mendeley style)
+- ❌ A GIS platform (ArcGIS/QGIS style)
+- ❌ A single-domain tool
 
-Modules must not replace the global viewport, mutate foundation coordinate assumptions, or create duplicate base geometry layers when they only need to attach data to existing foundation features.
+We ARE:
+- ✅ A multi-source research object graph platform
+- ✅ Evidence-grounded knowledge infrastructure
+- ✅ Spatial/evidence/workflow exploration layer
+- ✅ Automatic tracking and exploration system
 
-## Local Commands
+**Analogy** (internal use only):
+Like Palantir Foundry's ontology for enterprise data, but for research sources. We integrate heterogeneous research information into an ontology-grounded object graph and enable exploration, monitoring, and recomposition.
 
-- `npm start` starts the local server on `http://127.0.0.1:8791/`.
-- `npm run check` runs syntax checks for server and foundation scripts.
-- Public frontend code lives under `public/`.
-- Server code lives under `src/server/`.
+**Better external positioning**:
+> Teruvion turns papers, repositories, datasets, reports, and news into a living research object graph, used for map-based exploration, evidence tracking, workflow understanding, comparison analysis, and automatic monitoring.
 
-## Development Practices
+---
 
-- Prefer small, scoped changes that match the existing code structure.
-- Keep `Light` and `Dark` as UI themes, separate from optional `Imagery`.
-- Keep generated or domain-specific data out of the foundation unless it is true foundation geometry.
-- Preserve module URL import compatibility.
-- After frontend changes, verify locally before deployment.
-- Deploy to GitHub Pages only when explicitly requested.
+## Core Principles
+
+### 1. Object-Centric, Not Process-Centric
+Define what exists (entities + relations). Don't hardcode how they interact. Let LLM + user needs determine workflows.
+
+### 2. Code is Infrastructure, Not Intelligence
+- **Code does**: define ontology, store entities, fetch content, expose API, render UI
+- **LLM does**: understand semantics, extract objects, judge relevance, verify claims
+- **Never**: regex/keyword matching for semantic tasks, hardcoded domain logic
+
+### 3. Three-Layer Ontology
+- **Core Ontology**: Universal entities (Source, Entity, Claim, Evidence, Data, Method, Process, Event, System, Location, Time, Result, Metric, Uncertainty)
+- **Source-type Ontology**: Extensions for paper/GitHub/report/news/dataset
+- **Domain Ontology**: Optional extensions for hydrology/ML/policy
+
+### 4. Source Admission
+Not everything enters the platform. Evaluate:
+- Research relevance (0-1)
+- Information density
+- Evidence potential
+- Processing depth: deep | structured | light | reject
+
+### 5. Evidence Provenance
+Every object must trace back to source section:
+```javascript
+{
+  "name": "ERA5-Land",
+  "source_section": "Methods - Input data",
+  "confidence": 0.93,
+  "content_level": "full_text"
+}
+```
+
+### 6. Adaptive Schemas
+Let LLM decide structure based on source type and research domain. Don't force GitHub to have Methods, don't force news to have Datasets.
+
+### 7. Quality Gates
+- Abstract-only sources cannot generate fine-grained objects
+- Claims must have evidence
+- No hallucination: if source doesn't support object, mark as uncertain
+
+---
+
+## Architecture
+
+### Source Flow
+```
+User Input (DOI/GitHub/URL/Title)
+    ↓
+Source Admission (research relevance check)
+    ↓
+Source Adapter (paper/GitHub/report/news/dataset)
+    ↓
+FullTextBroker (fetch full text or fallback to abstract)
+    ↓
+LLM Decomposition (extract objects with provenance)
+    ↓
+TripleStore (store entities + relations)
+    ↓
+Project (organize into research graph)
+    ↓
+Lens-based Recomposition (map/evidence/workflow/timeline views)
+    ↓
+Exploration Agent (automatic tracking and discovery)
+```
+
+### Layers
+
+**Layer 1: Source Library**
+- Collect papers, repos, datasets, reports, news
+- Manage versions, provenance, credibility
+- Similar to Zotero but multi-source
+
+**Layer 2: Research Object Graph**
+- Core entities + source-specific extensions
+- Evidence chains, spatial objects, workflows
+- This is the platform's "Palantir ontology" layer
+
+**Layer 3: Interactive Lenses**
+- Map lens (spatial view)
+- Evidence lens (claim-evidence chains)
+- Workflow lens (method/data/model flow)
+- Timeline lens (evolution over time)
+- Comparison lens (side-by-side analysis)
+- System lens (architecture/dependencies)
+
+**Layer 4: Exploration Agent**
+- Automatic source hooking
+- New paper tracking
+- Dataset update monitoring
+- GitHub commit watching
+- News event detection
+- Connection discovery
+
+---
+
+## Current Stage: Deep Decomposition MVP
+
+**Goal**: Prove that a single paper/repo can be reliably decomposed into a high-quality research object graph.
+
+**Success Criteria**:
+- Full text acquisition (or clear abstract-only labeling)
+- Dataset roles correctly inferred (not hardcoded)
+- Methods with technical details (not generic names)
+- Claims with evidence chains
+- Each object traceable to source section
+- Spatial objects extracted and mapped
+
+**Vertical Domain**: Earth science / hydrology / climate
+- Natural fit: paper + dataset + model + region + event
+- High value: spatial relevance, evidence chains, multi-source integration
+
+---
+
+## User Questions to Answer
+
+1. **What does it study?** (problem, contribution, claims)
+2. **Is it spatially relevant?** (regions, basins, coverage)
+3. **What data and methods?** (datasets with roles, methods with details)
+4. **What evidence supports claims?** (evidence chains)
+5. **Can I visualize it?** (map, workflow, timeline)
+6. **What's been extracted?** (object browser)
+7. **What's missing/uncertain?** (quality indicators)
+8. **What's new?** (automatic tracking)
+
+---
+
+## Development Guidelines
+
+- **No pattern matching**: If it's semantic, use LLM
+- **No hardcoded schemas**: Let LLM decide structure
+- **No premature generalization**: Start with Earth science, prove quality first
+- **Always show provenance**: Every object must link to source
+- **Quality over coverage**: Better to extract 5 correct objects than 50 wrong ones
+- **Test with real research**: Google Flood Forecasting is the benchmark
+
+---
+
+## Repository
+
+Active: `https://github.com/Grups666/teruvion`
+
+---
+
+## Final Principle
+
+> **Decomposition reveals structure. Recomposition creates insight. Exploration discovers what's next.**
+
+Keep decomposition rigorous. Keep recomposition intuitive. Keep exploration continuous.

@@ -1,20 +1,38 @@
 {
-  "name": "tereon",
-  "version": "0.0.2",
-  "description": "A pluggable geospatial research foundation for map-based scientific modules.",
-  "main": "src/server/server.js",
+  "name": "teruvion",
+  "version": "0.1.0",
+  "description": "Research Decomposition & Recomposition Engine - Core Engine for transforming scientific knowledge into composable and verifiable reasoning systems",
+  "main": "core/registry/TripleStore.js",
+  "bin": {
+    "teruvion": "./cli/teruvion.js"
+  },
   "scripts": {
-    "start": "node src/server/server.js",
-    "check": "node --check src/server/server.js && node --check public/foundation/core/event-bus.js && node --check public/foundation/core/module-loader.js && node --check public/foundation/map/coordinate-system.js && node --check public/foundation/map/layer-manager.js && node --check public/foundation/map/render-scheduler.js && node --check public/foundation/performance/geometry-index.js && node --check public/foundation/ui/utilities.js",
-    "test": "npm run check"
+    "start": "node cli/teruvion.js",
+    "server": "node src/server/server.js",
+    "test": "node tests/run-tests.js",
+    "check": "node --check cli/teruvion.js && node --check core/registry/TripleStore.js && node --check core/ingest/UnifiedIngest.js"
   },
   "keywords": [
-    "geospatial",
     "research",
-    "modules",
-    "visualization"
+    "knowledge-graph",
+    "ontology",
+    "evidence-chain",
+    "scientific-reasoning",
+    "triple-store",
+    "decomposition",
+    "recomposition"
   ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "commander": "^12.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

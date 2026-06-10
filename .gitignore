@@ -1,8 +1,37 @@
+# Dependencies
 node_modules/
+package-lock.json
+
+# Environment
 .env
 .env.local
+.env.*.local
+
+# Configuration
 config/*.local.json
-*.log
+_local/
+
+# Build outputs
 dist/
 tmp/
+build/
+
+# Logs
+*.log
+logs/
+
+# IDE
 .obsidian/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

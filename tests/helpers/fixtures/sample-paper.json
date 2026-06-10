@@ -1,0 +1,69 @@
+{
+  "title": "Deep learning for global flood forecasting",
+  "doi": "10.1038/s41586-024-12345-6",
+  "authors": [
+    { "name": "John Smith", "affiliation": "Google Research" },
+    { "name": "Jane Doe", "affiliation": "ETH Zurich" }
+  ],
+  "year": 2024,
+  "venue": "Nature",
+  "abstract": "We present a novel deep learning approach for global flood forecasting that achieves state-of-the-art performance across 5,680 river basins worldwide.",
+  "keywords": ["flood forecasting", "deep learning", "hydrology", "LSTM"],
+  "citationCount": 42,
+  "sections": {
+    "introduction": "Flood forecasting is critical for early warning systems...",
+    "methods": "We use an LSTM ensemble model trained on ERA5-Land reanalysis data...",
+    "results": "Our model achieves a reliability score of 0.85 across all basins...",
+    "discussion": "The results demonstrate the potential of AI for operational flood forecasting..."
+  },
+  "datasets": [
+    {
+      "name": "ERA5-Land",
+      "type": "reanalysis",
+      "variables": ["precipitation", "temperature", "evaporation"],
+      "spatialCoverage": "global",
+      "temporalCoverage": "1950-2022",
+      "role": "input"
+    },
+    {
+      "name": "GRDC",
+      "type": "observations",
+      "variables": ["streamflow"],
+      "spatialCoverage": "global",
+      "temporalCoverage": "1900-2022",
+      "role": "target"
+    }
+  ],
+  "methods": [
+    {
+      "name": "LSTM Ensemble",
+      "category": "machine-learning",
+      "architecture": "LSTM",
+      "hyperparameters": {
+        "layers": 3,
+        "hiddenSize": 256,
+        "learningRate": 0.001
+      }
+    }
+  ],
+  "regions": [
+    {
+      "name": "Global",
+      "bbox": [-180, -90, 180, 90],
+      "description": "Global coverage across 5,680 river basins"
+    }
+  ],
+  "claims": [
+    {
+      "statement": "The model achieves 0.85 reliability score across all basins",
+      "evidence": "Figure 2, Table 1",
+      "confidence": 0.95
+    }
+  ],
+  "reproducibility": {
+    "grade": "B",
+    "codeAvailable": true,
+    "dataAvailable": true,
+    "documentationQuality": "high"
+  }
+}

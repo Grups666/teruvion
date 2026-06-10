@@ -1,0 +1,37 @@
+{
+  "name": "google/flood-forecasting",
+  "fullName": "google/flood-forecasting",
+  "description": "Deep learning models for global flood forecasting",
+  "url": "https://github.com/google/flood-forecasting",
+  "stars": 150,
+  "language": "Python",
+  "topics": ["machine-learning", "hydrology", "flood-forecasting", "lstm"],
+  "license": "Apache-2.0",
+  "readme": "# Flood Forecasting\n\nThis repository contains the implementation of our Nature paper on global flood forecasting.\n\n## Installation\n\n```bash\npip install -r requirements.txt\n```\n\n## Usage\n\n```python\nfrom flood_forecasting import Model\nmodel = Model.load('pretrained/model.pt')\npredictions = model.predict(basin_data)\n```\n\n## Datasets\n\n- ERA5-Land reanalysis data\n- GRDC streamflow observations\n\n## Citation\n\n```bibtex\n@article{smith2024flood,\n  title={Deep learning for global flood forecasting},\n  author={Smith, John and Doe, Jane},\n  journal={Nature},\n  year={2024}\n}\n```",
+  "tree": [
+    "README.md",
+    "requirements.txt",
+    "setup.py",
+    "src/__init__.py",
+    "src/model.py",
+    "src/data.py",
+    "src/train.py",
+    "src/predict.py",
+    "configs/default.yaml",
+    "tests/test_model.py",
+    "notebooks/demo.ipynb",
+    "data/sample.csv",
+    "paper/paper.pdf"
+  ],
+  "keyFiles": {
+    "requirements.txt": "torch>=1.9.0\nnumpy>=1.19.0\npandas>=1.2.0\nxarray>=0.18.0\nhydra-core>=1.1.0",
+    "configs/default.yaml": "model:\n  architecture: lstm\n  hidden_size: 256\n  num_layers: 3\ntraining:\n  learning_rate: 0.001\n  batch_size: 32\n  epochs: 100",
+    "src/model.py": "import torch\nimport torch.nn as nn\n\nclass LSTMEnsemble(nn.Module):\n    def __init__(self, input_size, hidden_size=256, num_layers=3):\n        super().__init__()\n        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)\n        self.fc = nn.Linear(hidden_size, 1)\n    \n    def forward(self, x):\n        out, _ = self.lstm(x)\n        return self.fc(out[:, -1, :])"
+  },
+  "metadata": {
+    "hasTests": true,
+    "hasPaper": true,
+    "hasData": true,
+    "hasDocumentation": true
+  }
+}

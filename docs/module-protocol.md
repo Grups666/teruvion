@@ -1,6 +1,6 @@
 # Module Protocol
 
-Tereon modules are loaded through a manifest.
+Teruvion modules are loaded through a manifest.
 
 ```json
 {
@@ -18,7 +18,7 @@ Relative paths in a remote manifest resolve from the manifest URL directory. A m
 
 ## Remote Import
 
-The Tereon frontend can import a module from:
+The Teruvion frontend can import a module from:
 
 - A direct `module.json` URL.
 - A GitHub `blob/.../module.json` URL.
@@ -39,7 +39,7 @@ A module class receives `(app, manifest)` and may implement:
 - `onLoad()`
 - `onUnload()`
 
-The module can use Tereon APIs such as:
+The module can use Teruvion APIs such as:
 
 - `app.layerManager.getLayer(id)`
 - `app.registerLegend(id, legend)`
