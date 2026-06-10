@@ -1362,83 +1362,111 @@ Return JSON with this structure:
 
   /**
    * Build bridge relations between capabilities and world objects
+   *
+   * IMPORTANT: These are "inferred fallback" relations based on type patterns.
+   * They should be superseded by LLM-extracted semantic relations when available.
+   *
+   * The relations generated here are marked as:
+   * - inferenceMethod: 'type-pattern' (vs 'llm-semantic')
+   * - confidence: typically 0.5-0.7 (lower than LLM-extracted)
    */
   _buildBridgeRelations(capabilityObjects, worldObjects, evidenceObjects) {
     const relations = [];
 
-    // Dataset → Region coverage
+    // Skip if no objects to bridge
+    if (capabilityObjects.length === 0 && evidenceObjects.length === 0) {
+      return relations;
+    }
+
+    // Dataset → Region coverage (INFERRED)
+    // Only create if no LLM-extracted relations exist
     for (const cap of capabilityObjects) {
-      if (cap.type === 'Dataset') {
+      if (cap.type === 'Dataset' && cap.extractionSource !== 'llm') {
         for (const world of worldObjects) {
           if (['Basin', 'Region', 'Watershed', 'Glacier', 'Lake'].includes(world.type)) {
             relations.push({
               type: 'covers',
               from: cap.id,
               to: world.id,
-              confidence: 0.7,
-              provenance: { section: 'spatial' }
+              confidence: 0.6,
+              inferenceMethod: 'type-pattern',
+              provenance: this._createProvenance('spatial', null, {
+                note: 'Inferred from Dataset + Region type proximity. Verify with source text.'
+              })
             });
           }
         }
       }
 
-      // Model → Basin simulation
-      if (cap.type === 'Model') {
+      // Model → Basin simulation (INFERRED)
+      if (cap.type === 'Model' && cap.extractionSource !== 'llm') {
         for (const world of worldObjects) {
           if (['Basin', 'Watershed', 'River'].includes(world.type)) {
             relations.push({
               type: 'simulates',
               from: cap.id,
               to: world.id,
-              confidence: 0.8,
-              provenance: { section: 'methods' }
+              confidence: 0.65,
+              inferenceMethod: 'type-pattern',
+              provenance: this._createProvenance('methods', null, {
+                note: 'Inferred from Model + Basin proximity. Check if model actually simulates this basin.'
+              })
             });
           }
         }
       }
 
-      // Sensor/Satellite → Variable observation
-      if (['Satellite', 'Sensor', 'Gauge'].includes(cap.type)) {
+      // Sensor/Satellite → Variable observation (INFERRED)
+      if (['Satellite', 'Sensor', 'Gauge'].includes(cap.type) && cap.extractionSource !== 'llm') {
         for (const world of worldObjects) {
           if (world.type === 'EarthVariable') {
             relations.push({
               type: 'observes',
               from: cap.id,
               to: world.id,
-              confidence: 0.8,
-              provenance: { section: 'methods' }
+              confidence: 0.65,
+              inferenceMethod: 'type-pattern',
+              provenance: this._createProvenance('methods', null, {
+                note: 'Inferred observation relation. Verify with source text.'
+              })
             });
           }
         }
       }
 
-      // Intervention → Risk reduction
+      // Intervention → Risk reduction (INFERRED)
       if (['Intervention', 'AdaptationMeasure', 'MitigationMeasure'].includes(cap.type)) {
         for (const world of worldObjects) {
-          if (world.type === 'EarthRisk') {
+          if (world.type === 'EarthRisk' || world.type === 'FloodRisk' || world.type === 'DroughtRisk') {
             relations.push({
               type: 'mitigates',
               from: cap.id,
               to: world.id,
-              confidence: 0.7,
-              provenance: { section: 'discussion' }
+              confidence: 0.55,
+              inferenceMethod: 'type-pattern',
+              provenance: this._createProvenance('discussion', null, {
+                note: 'Inferred mitigation relation. Check if intervention specifically addresses this risk.'
+              })
             });
           }
         }
       }
     }
 
-    // Evidence → World Object support
+    // Evidence → World Object support (INFERRED)
     for (const ev of evidenceObjects) {
-      if (ev.type === 'Evidence') {
+      if (ev.type === 'Evidence' && ev.extractionSource !== 'llm') {
         for (const world of worldObjects) {
           if (['Hazard', 'EarthVariable', 'EarthRisk'].includes(world.type)) {
             relations.push({
               type: 'supports',
               from: ev.id,
               to: world.id,
-              confidence: ev.metadata?.strength || 0.7,
-              provenance: ev.provenance
+              confidence: ev.metadata?.strength || 0.6,
+              inferenceMethod: 'type-pattern',
+              provenance: this._createProvenance(ev.provenance?.section, ev.provenance?.sourceText, {
+                note: 'Inferred support relation. Verify evidence-world connection in source.'
+              })
             });
           }
         }
@@ -1446,6 +1474,97 @@ Return JSON with this structure:
     }
 
     return relations;
+  }
+
+  /**
+   * Create enhanced provenance object with span and verification support
+   * @param {string} section - Section of source (e.g., 'methods', 'results')
+   * @param {string} sourceText - The text span from source
+   * @param {Object} options - Additional provenance options
+   * @returns {Object} Provenance object
+   */
+  _createProvenance(section, sourceText = null, options = {}) {
+    const provenance = {
+      section: section || 'unknown',
+      extractedAt: new Date().toISOString(),
+      verificationStatus: 'unverified', // 'unverified', 'verified', 'disputed'
+      evidenceStrength: options.evidenceStrength || 'moderate' // 'strong', 'moderate', 'weak', 'inferred'
+    };
+
+    // Add source text span if provided
+    if (sourceText) {
+      provenance.sourceText = sourceText;
+      provenance.spanLength = sourceText.length;
+    }
+
+    // Add optional fields
+    if (options.note) {
+      provenance.note = options.note;
+    }
+
+    if (options.spanStart !== undefined) {
+      provenance.spanStart = options.spanStart;
+    }
+
+    if (options.spanEnd !== undefined) {
+      provenance.spanEnd = options.spanEnd;
+    }
+
+    if (options.sectionTitle) {
+      provenance.sectionTitle = options.sectionTitle;
+    }
+
+    if (options.pageNumber) {
+      provenance.pageNumber = options.pageNumber;
+    }
+
+    if (options.url) {
+      provenance.url = options.url;
+    }
+
+    return provenance;
+  }
+
+  /**
+   * Find text span in source text
+   * @param {string} sourceText - Full source text
+   * @param {string} searchText - Text to find
+   * @returns {Object|null} Span info with start/end positions
+   */
+  _findTextSpan(sourceText, searchText) {
+    if (!sourceText || !searchText) return null;
+
+    const index = sourceText.indexOf(searchText);
+    if (index === -1) return null;
+
+    return {
+      spanStart: index,
+      spanEnd: index + searchText.length,
+      spanLength: searchText.length,
+      context: sourceText.substring(Math.max(0, index - 50), Math.min(sourceText.length, index + searchText.length + 50))
+    };
+  }
+
+  /**
+   * Update provenance with verification status
+   * @param {Object} provenance - Provenance object to update
+   * @param {string} status - 'verified', 'disputed', or 'unverified'
+   * @param {string} verifiedBy - Who verified it
+   * @param {string} notes - Verification notes
+   */
+  _updateVerificationStatus(provenance, status, verifiedBy = null, notes = null) {
+    if (!provenance) return;
+
+    provenance.verificationStatus = status;
+    provenance.verifiedAt = new Date().toISOString();
+
+    if (verifiedBy) {
+      provenance.verifiedBy = verifiedBy;
+    }
+
+    if (notes) {
+      provenance.verificationNotes = notes;
+    }
   }
 
   /**
