@@ -1,29 +1,20 @@
 #!/usr/bin/env node
 /**
- * Teruvion Test Runner
- * Runs all tests in the tests directory with proper failure tracking
+ * Fixture Test Runner
+ * Runs all fixture tests to validate the Digital Earth decomposition pipeline
  */
 
 const path = require('path');
 const fs = require('fs');
 
-const TEST_DIR = path.join(__dirname);
+const FIXTURE_DIR = path.join(__dirname);
 
-// Test files to run (in order)
-const testFiles = [
-  'core/ontology.test.js',
-  'core/layered-ontology.test.js',
-  'core/triple-store.test.js',
-  'integration/source-admission.test.js',
-  'integration/digital-earth-decomposer.test.js',
-  'integration/dynamic-ontology-activation.test.js',
-  'integration/entity-mapper.test.js',
-  'integration/lenses.test.js',
-  'integration/ingest-pipeline.test.js',
-  'fixtures/fixture1-technical-paper.test.js',
-  'fixtures/fixture2-era5-land-dataset.test.js',
-  'fixtures/fixture3-wmo-policy-report.test.js',
-  'fixtures/fixture4-flood-news.test.js'
+// Fixture test files
+const fixtureFiles = [
+  'fixture1-technical-paper.test.js',
+  'fixture2-era5-land-dataset.test.js',
+  'fixture3-wmo-policy-report.test.js',
+  'fixture4-flood-news.test.js'
 ];
 
 let passed = 0;
@@ -32,15 +23,11 @@ let total = 0;
 let anyTestFailed = false;
 
 console.log('════════════════════════════════════════');
-console.log('  Teruvion Test Suite');
+console.log('  Digital Earth Fixture Tests');
 console.log('════════════════════════════════════════\n');
 
-// Track process.exitCode changes
-const originalExitCode = process.exitCode;
-let lastExitCode = 0;
-
-for (const testFile of testFiles) {
-  const filepath = path.join(TEST_DIR, testFile);
+for (const testFile of fixtureFiles) {
+  const filepath = path.join(FIXTURE_DIR, testFile);
 
   if (!fs.existsSync(filepath)) {
     console.log(`⚠ Skipping ${testFile} (not found)`);
@@ -49,22 +36,16 @@ for (const testFile of testFiles) {
 
   console.log(`\n► Running ${testFile}\n`);
 
-  // Reset exit code before each test
   process.exitCode = 0;
-  lastExitCode = 0;
+  let lastExitCode = 0;
 
-  // Capture console output to detect test failures
-  let testOutput = [];
   const originalLog = console.log;
   const originalError = console.error;
 
   try {
-    // Temporarily intercept console to capture test results
     console.log = (...args) => {
       const output = args.join(' ');
-      testOutput.push(output);
       originalLog.apply(console, args);
-      // Check for test failure markers
       if (output.includes('❌') || output.includes('✘') || output.includes('failed')) {
         anyTestFailed = true;
         lastExitCode = 1;
@@ -72,7 +53,6 @@ for (const testFile of testFiles) {
     };
 
     console.error = (...args) => {
-      testOutput.push(args.join(' '));
       originalError.apply(console, args);
       anyTestFailed = true;
       lastExitCode = 1;
@@ -80,7 +60,6 @@ for (const testFile of testFiles) {
 
     require(filepath);
 
-    // Check if process.exitCode was set
     if (process.exitCode !== 0) {
       lastExitCode = process.exitCode;
       anyTestFailed = true;
@@ -99,27 +78,13 @@ for (const testFile of testFiles) {
     total++;
     anyTestFailed = true;
   } finally {
-    // Restore console
     console.log = originalLog;
     console.error = originalError;
   }
 }
 
-// Cleanup temp files
-const tempDir = path.join(TEST_DIR, '.temp');
-if (fs.existsSync(tempDir)) {
-  try {
-    const files = fs.readdirSync(tempDir);
-    for (const file of files) {
-      fs.unlinkSync(path.join(tempDir, file));
-    }
-  } catch (err) {
-    // Ignore cleanup errors
-  }
-}
-
 console.log('\n════════════════════════════════════════');
-console.log(`  Results: ${passed}/${total} test files passed`);
+console.log(`  Fixture Results: ${passed}/${total} tests passed`);
 if (failed > 0) {
   console.log(`  ✘ ${failed} failed`);
 }
