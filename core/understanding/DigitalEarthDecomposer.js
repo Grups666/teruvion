@@ -18,7 +18,7 @@
 const ontology = require('../registry/ontology');
 const DynamicOntologyActivation = require('./DynamicOntologyActivation');
 const SectionParser = require('./SectionParser');
-const { validateRelation, getConfidenceCap, BRIDGE_RELATION_SEMANTICS } = require('../registry/ontology/relation-semantics');
+const { validateRelation, getValidRelations, getConfidenceCap, BRIDGE_RELATION_SEMANTICS } = require('../registry/ontology/relation-semantics');
 
 class DigitalEarthDecomposer {
   constructor(llm, options = {}) {
@@ -1484,122 +1484,71 @@ Return JSON with this structure:`;
       return relations;
     }
 
-    // Dataset → Region coverage (INFERRED FALLBACK)
-    // Only for metadata-extracted objects, not LLM-extracted
+    // Use relation semantics for fallback relations
+    // Instead of hardcoded type arrays, check against relation semantics
     for (const cap of capabilityObjects) {
-      if (cap.type === 'Dataset' && cap.extractionSource !== 'llm') {
-        for (const world of worldObjects) {
-          if (['Basin', 'Region', 'Watershed', 'Glacier', 'Lake'].includes(world.type)) {
-            const key = `covers:${cap.id}:${world.id}`;
-            if (!existingKeys.has(key)) {
-              relations.push({
-                type: 'covers',
-                from: cap.id,
-                to: world.id,
-                confidence: 0.6,
-                inferenceMethod: 'type-pattern',
-                isFallback: true,
-                provenance: this._createProvenance('spatial', null, {
-                  note: 'Inferred from Dataset + Region type proximity. Verify with source text.'
-                })
-              });
-              existingKeys.add(key);
-            }
-          }
-        }
-      }
+      // Skip LLM-extracted objects (they should already have relations)
+      if (cap.extractionSource === 'llm') continue;
 
-      // Model → Basin simulation (INFERRED FALLBACK)
-      if (cap.type === 'Model' && cap.extractionSource !== 'llm') {
-        for (const world of worldObjects) {
-          if (['Basin', 'Watershed', 'River'].includes(world.type)) {
-            const key = `simulates:${cap.id}:${world.id}`;
-            if (!existingKeys.has(key)) {
-              relations.push({
-                type: 'simulates',
-                from: cap.id,
-                to: world.id,
-                confidence: 0.65,
-                inferenceMethod: 'type-pattern',
-                isFallback: true,
-                provenance: this._createProvenance('methods', null, {
-                  note: 'Inferred from Model + Basin proximity. Check if model actually simulates this basin.'
-                })
-              });
-              existingKeys.add(key);
-            }
-          }
-        }
-      }
+      for (const world of worldObjects) {
+        // Get valid relations between these types using semantics
+        const validRels = getValidRelations(cap.type, world.type);
 
-      // Sensor/Satellite → Variable observation (INFERRED FALLBACK)
-      if (['Satellite', 'Sensor', 'Gauge'].includes(cap.type) && cap.extractionSource !== 'llm') {
-        for (const world of worldObjects) {
-          if (world.type === 'EarthVariable') {
-            const key = `observes:${cap.id}:${world.id}`;
-            if (!existingKeys.has(key)) {
-              relations.push({
-                type: 'observes',
-                from: cap.id,
-                to: world.id,
-                confidence: 0.65,
-                inferenceMethod: 'type-pattern',
-                isFallback: true,
-                provenance: this._createProvenance('methods', null, {
-                  note: 'Inferred observation relation. Verify with source text.'
-                })
-              });
-              existingKeys.add(key);
-            }
-          }
-        }
-      }
+        for (const relInfo of validRels) {
+          // Only create fallback relations
+          if (!relInfo.fallbackAllowed) continue;
 
-      // Intervention → Risk reduction (INFERRED FALLBACK)
-      if (['Intervention', 'AdaptationMeasure', 'MitigationMeasure'].includes(cap.type)) {
-        for (const world of worldObjects) {
-          if (world.type === 'EarthRisk' || world.type === 'FloodRisk' || world.type === 'DroughtRisk') {
-            const key = `mitigates:${cap.id}:${world.id}`;
-            if (!existingKeys.has(key)) {
-              relations.push({
-                type: 'mitigates',
-                from: cap.id,
-                to: world.id,
-                confidence: 0.55,
-                inferenceMethod: 'type-pattern',
-                isFallback: true,
-                provenance: this._createProvenance('discussion', null, {
-                  note: 'Inferred mitigation relation. Check if intervention specifically addresses this risk.'
-                })
-              });
-              existingKeys.add(key);
-            }
-          }
+          const key = `${relInfo.type}:${cap.id}:${world.id}`;
+          if (existingKeys.has(key)) continue;
+
+          // Create fallback relation using semantics
+          const semantics = BRIDGE_RELATION_SEMANTICS[relInfo.type];
+          if (!semantics) continue;
+
+          relations.push({
+            type: relInfo.type,
+            from: cap.id,
+            to: world.id,
+            confidence: semantics.fallbackConditions?.confidenceCap || 0.5,
+            inferenceMethod: 'semantics-fallback',
+            isFallback: true,
+            provenance: this._createProvenance('inferred', null, {
+              note: semantics.fallbackConditions?.note || 'Inferred relation. Verify with source text.'
+            })
+          });
+          existingKeys.add(key);
         }
       }
     }
 
-    // Evidence → World Object support (INFERRED FALLBACK)
+    // Evidence → World Object support (use semantics)
     for (const ev of evidenceObjects) {
-      if (ev.type === 'Evidence' && ev.extractionSource !== 'llm') {
-        for (const world of worldObjects) {
-          if (['Hazard', 'EarthVariable', 'EarthRisk'].includes(world.type)) {
-            const key = `supports:${ev.id}:${world.id}`;
-            if (!existingKeys.has(key)) {
-              relations.push({
-                type: 'supports',
-                from: ev.id,
-                to: world.id,
-                confidence: ev.metadata?.strength || 0.6,
-                inferenceMethod: 'type-pattern',
-                isFallback: true,
-                provenance: this._createProvenance(ev.provenance?.section, ev.provenance?.sourceText, {
-                  note: 'Inferred support relation. Verify evidence-world connection in source.'
-                })
-              });
-              existingKeys.add(key);
-            }
-          }
+      if (ev.extractionSource === 'llm') continue;
+
+      for (const world of worldObjects) {
+        const validRels = getValidRelations(ev.type, world.type);
+
+        for (const relInfo of validRels) {
+          if (!relInfo.fallbackAllowed) continue;
+
+          const key = `${relInfo.type}:${ev.id}:${world.id}`;
+          if (existingKeys.has(key)) continue;
+
+          const semantics = BRIDGE_RELATION_SEMANTICS[relInfo.type];
+          if (!semantics) continue;
+
+          relations.push({
+            type: relInfo.type,
+            from: ev.id,
+            to: world.id,
+            confidence: semantics.fallbackConditions?.confidenceCap || 0.5,
+            inferenceMethod: 'semantics-fallback',
+            isFallback: true,
+            provenance: this._createProvenance(ev.provenance?.section, ev.provenance?.sourceText, {
+              note: semantics.fallbackConditions?.note || 'Inferred relation. Verify evidence-world connection.'
+            })
+          });
+          existingKeys.add(key);
         }
       }
     }

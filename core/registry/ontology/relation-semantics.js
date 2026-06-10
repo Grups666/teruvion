@@ -551,28 +551,19 @@ function validateRelation(relationType, subjectType, objectType, options = {}) {
 }
 
 /**
- * Check if a type is a subtype of another (simplified)
+ * Check if a type is a subtype of another
+ * Uses ontology type hierarchy instead of hardcoded mapping
  */
 function isSubtypeOf(type, parentType) {
-  // Basic inheritance check - would need full ontology integration
-  const subtypeMap = {
-    'HydrologicalModel': ['Model'],
-    'ClimateModel': ['Model'],
-    'FloodEvent': ['Hazard', 'Event'],
-    'DroughtEvent': ['Hazard', 'Event'],
-    'Streamflow': ['EarthVariable'],
-    'Precipitation': ['EarthVariable'],
-    'Temperature': ['EarthVariable'],
-    'SoilMoisture': ['EarthVariable'],
-    'FloodRisk': ['EarthRisk', 'Risk'],
-    'DroughtRisk': ['EarthRisk', 'Risk']
-  };
+  const ontology = require('./index');
 
-  if (subtypeMap[type]?.includes(parentType)) {
-    return true;
-  }
+  // Direct match
+  if (type === parentType) return true;
 
-  return type === parentType;
+  // Check ontology hierarchy
+  const hierarchy = ontology.getTypeHierarchy ? ontology.getTypeHierarchy(type) : [type];
+
+  return hierarchy.includes(parentType);
 }
 
 /**

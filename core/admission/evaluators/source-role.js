@@ -2,395 +2,269 @@
  * Source Role Evaluator
  * Determines what Digital Earth roles a source can play
  *
- * Key insight: Not everything is "research-relevant" but many things are
- * Digital Earth-relevant. A policy report, population dataset, or flood news
- * may not be strong research sources, but they're critical for Digital Earth.
+ * Design principle: LLM for semantic judgment, not keyword matching
  *
- * Two-phase evaluation:
- * 1. Rule-based keyword matching (fast, reliable)
- * 2. LLM-based transfer potential assessment (for non-obvious sources)
- *
- * Transfer Capability Sources:
- * - A GNN paper may not have Earth keywords, but can model spatial networks
- * - A materials science paper may help with sensor materials
- * - A supply chain paper may help with infrastructure resilience
+ * Two modes:
+ * 1. LLM mode: Semantic understanding of source content
+ * 2. Fallback mode: Type-based inference only (no keywords)
  */
 
+const { LLMRoleEvaluator } = require('./llm-role-evaluator');
+
+// Role definitions (descriptions only, no hardcoded keywords)
 const SOURCE_ROLES = {
   earth_content: {
     name: 'earth_content',
     description: 'Contains Earth system knowledge (papers, reports, assessments)',
-    sourceTypes: ['Paper', 'Preprint', 'Report', 'AssessmentReport', 'WhitePaper', 'Documentation'],
-    keywords: ['earth', 'climate', 'hydrology', 'water', 'flood', 'drought', 'ecosystem', 'geology', 'ocean', 'atmosphere', 'glacier', 'basin', 'watershed'],
-    transferIndicators: ['spatiotemporal', 'network', 'system', 'dynamic', 'feedback']
+    sourceTypes: ['Paper', 'Preprint', 'Report', 'AssessmentReport', 'WhitePaper', 'Documentation']
   },
   data_capability: {
     name: 'data_capability',
     description: 'Provides data for Earth analysis (datasets, data products)',
-    sourceTypes: ['DatasetPage', 'DataCatalog', 'KnowledgeGraph'],
-    keywords: ['dataset', 'data', 'variables', 'coverage', 'era5', 'grdc', 'glofas', 'modis', 'sentinel', 'landsat', 'elevation', 'precipitation', 'temperature'],
-    transferIndicators: ['time series', 'spatial data', 'multivariate', 'quality control']
+    sourceTypes: ['DatasetPage', 'DataCatalog', 'KnowledgeGraph']
   },
   observation_capability: {
     name: 'observation_capability',
     description: 'Provides Earth observation capability (sensors, gauges, satellites)',
-    sourceTypes: ['Repository', 'Documentation', 'APIPage'],
-    keywords: ['sensor', 'gauge', 'station', 'satellite', 'observation', 'monitoring', 'remote sensing', 'in-situ', 'network', 'station'],
-    transferIndicators: ['measurement', 'sampling', 'calibration', 'noise reduction', 'signal processing']
+    sourceTypes: ['Repository', 'Documentation', 'APIPage']
   },
   modeling_capability: {
     name: 'modeling_capability',
     description: 'Provides modeling/simulation capability (models, algorithms)',
-    sourceTypes: ['Repository', 'ModelCard', 'Paper', 'Benchmark'],
-    keywords: ['model', 'simulation', 'forecast', 'prediction', 'lstm', 'transformer', 'gnn', 'cnn', 'hydrological', 'climate model', 'calibration', 'validation'],
-    transferIndicators: ['graph neural network', 'attention', 'spatial', 'temporal', 'physics-informed', 'uncertainty', 'ensemble', 'transfer learning', 'domain adaptation']
+    sourceTypes: ['Repository', 'ModelCard', 'Paper', 'Benchmark']
   },
   computing_capability: {
     name: 'computing_capability',
     description: 'Provides computing infrastructure (software, APIs, workflows)',
-    sourceTypes: ['Repository', 'Package', 'APIPage', 'Documentation', 'TechnicalBlog'],
-    keywords: ['software', 'package', 'api', 'workflow', 'pipeline', 'framework', 'library', 'toolkit', 'platform', 'cloud'],
-    transferIndicators: ['parallel computing', 'optimization', 'visualization', 'data pipeline', 'distributed']
+    sourceTypes: ['Repository', 'Package', 'APIPage', 'Documentation', 'TechnicalBlog']
   },
   governance_capability: {
     name: 'governance_capability',
     description: 'Provides governance/policy information (regulations, institutions, standards)',
-    sourceTypes: ['PolicyDocument', 'StandardDocument', 'Report', 'AssessmentReport'],
-    keywords: ['policy', 'regulation', 'standard', 'institution', 'governance', 'compliance', 'wmo', 'ipcc', 'fema', 'directive', 'law', 'act'],
-    transferIndicators: ['decision-making', 'multi-stakeholder', 'coordination', 'implementation']
+    sourceTypes: ['PolicyDocument', 'StandardDocument', 'Report', 'AssessmentReport']
   },
   socioeconomic_capability: {
     name: 'socioeconomic_capability',
     description: 'Provides socioeconomic data (population, infrastructure, exposure)',
-    sourceTypes: ['DatasetPage', 'Report', 'PolicyDocument'],
-    keywords: ['population', 'gdp', 'infrastructure', 'exposure', 'vulnerability', 'land use', 'urban', 'building', 'asset', 'economic', 'demographic'],
-    transferIndicators: ['human behavior', 'resource allocation', 'risk perception', 'decision support']
+    sourceTypes: ['DatasetPage', 'Report', 'PolicyDocument']
   },
   evidence_assessment: {
     name: 'evidence_assessment',
     description: 'Provides evidence or assessment (claims, indicators, evaluations)',
-    sourceTypes: ['Paper', 'Report', 'AssessmentReport', 'WhitePaper'],
-    keywords: ['assessment', 'evaluation', 'indicator', 'index', 'evidence', 'finding', 'conclusion', 'confidence', 'risk assessment', 'impact'],
-    transferIndicators: ['validation', 'benchmarking', 'quality metrics', 'reproducibility']
+    sourceTypes: ['Paper', 'Report', 'AssessmentReport', 'WhitePaper']
   },
   action_capability: {
     name: 'action_capability',
     description: 'Provides action/intervention information (measures, plans, responses)',
-    sourceTypes: ['PolicyDocument', 'Report', 'News'],
-    keywords: ['adaptation', 'mitigation', 'intervention', 'action', 'plan', 'measure', 'response', 'management', 'early warning', 'evacuation'],
-    transferIndicators: ['optimization', 'resource management', 'scheduling', 'coordination']
+    sourceTypes: ['PolicyDocument', 'Report', 'News']
   },
   event_signal: {
     name: 'event_signal',
     description: 'Reports on Earth events (floods, droughts, disasters, changes)',
-    sourceTypes: ['News', 'PressRelease', 'Report'],
-    keywords: ['flood', 'drought', 'earthquake', 'wildfire', 'landslide', 'heatwave', 'cyclone', 'hurricane', 'disaster', 'event', 'crisis', 'emergency', 'warning'],
-    transferIndicators: ['real-time', 'alert', 'anomaly detection', 'rapid assessment']
+    sourceTypes: ['News', 'PressRelease', 'Report']
   }
 };
-
-// Fields that indicate transfer potential to Digital Earth
-const TRANSFER_POTENTIAL_INDICATORS = [
-  'spatiotemporal',
-  'graph neural network',
-  'attention mechanism',
-  'physics-informed',
-  'domain adaptation',
-  'transfer learning',
-  'uncertainty quantification',
-  'time series forecasting',
-  'anomaly detection',
-  'multi-scale',
-  'network analysis',
-  'optimization',
-  'resource allocation',
-  'decision support',
-  'risk analysis',
-  'simulation',
-  'forecasting',
-  'prediction',
-  'calibration',
-  'validation'
-];
 
 class SourceRoleEvaluator {
   constructor(llm = null) {
     this.llm = llm;
+    this.llmEvaluator = new LLMRoleEvaluator(llm);
   }
 
   /**
-   * Phase 1: Rule-based scoring (fast, reliable)
+   * Main evaluation method
+   * Uses LLM when available, fallback to type inference otherwise
+   */
+  async evaluate(metadata = {}) {
+    if (this.llm) {
+      return this.llmEvaluator.evaluateRoles(metadata);
+    }
+    return this.score(metadata);
+  }
+
+  /**
+   * Fallback scoring without LLM
+   * Uses type-based inference only
    */
   score(metadata = {}) {
-    const roles = {};
-    const detectedRoles = [];
-
     const type = (metadata.type || '').toLowerCase();
-    const title = (metadata.title || metadata.name || '').toLowerCase();
-    const description = (metadata.description || metadata.abstract || metadata.readme || '').toLowerCase();
-    const combinedText = `${title} ${description}`;
+    const roles = {};
 
+    // Initialize all roles
+    for (const roleName of Object.keys(SOURCE_ROLES)) {
+      roles[roleName] = 0;
+    }
+
+    // Type-based scoring
     for (const [roleName, roleDef] of Object.entries(SOURCE_ROLES)) {
-      let score = 0;
-
-      // Check source type match
       const typeMatch = roleDef.sourceTypes.some(st =>
         type === st.toLowerCase() || type.includes(st.toLowerCase())
       );
       if (typeMatch) {
-        score += 0.4;
-      }
-
-      // Check keyword match
-      const keywordMatches = roleDef.keywords.filter(kw =>
-        combinedText.includes(kw)
-      );
-      if (keywordMatches.length > 0) {
-        score += Math.min(0.5, keywordMatches.length * 0.1);
-      }
-
-      // Check transfer indicator match
-      const transferMatches = roleDef.transferIndicators?.filter(ti =>
-        combinedText.includes(ti)
-      ) || [];
-      if (transferMatches.length > 0) {
-        score += Math.min(0.3, transferMatches.length * 0.08);
-      }
-
-      // Check content-specific indicators
-      score += this._contentBonus(roleName, metadata);
-
-      // Cap at 1.0
-      score = Math.min(1.0, score);
-
-      roles[roleName] = Math.round(score * 100) / 100;
-
-      if (score >= 0.2) {
-        detectedRoles.push({
-          role: roleName,
-          score,
-          typeMatch,
-          keywordMatches: keywordMatches.slice(0, 3),
-          transferMatches: transferMatches.slice(0, 3)
-        });
+        roles[roleName] = 0.5;
       }
     }
 
+    // Content bonuses (structural indicators only, no keywords)
+    this._addContentBonuses(roles, metadata);
+
+    // Build detected roles
+    const detectedRoles = Object.entries(roles)
+      .filter(([_, score]) => score > 0)
+      .map(([role, score]) => ({ role, score }))
+      .sort((a, b) => b.score - a.score);
+
     return {
       roles,
-      detectedRoles: detectedRoles.sort((a, b) => b.score - a.score),
-      primaryRole: detectedRoles.length > 0 ? detectedRoles[0].role : 'earth_content',
-      roleCount: detectedRoles.filter(r => r.score >= 0.2).length,
-      isExplicitEarthSource: this._isExplicitEarthSource(combinedText, detectedRoles)
+      detectedRoles,
+      primaryRole: detectedRoles[0]?.role || 'earth_content',
+      roleCount: detectedRoles.length,
+      isExplicitEarthSource: this._checkExplicitEarthSource(metadata),
+      evaluationMethod: 'type-fallback'
     };
   }
 
   /**
-   * Check if source is explicitly Earth-related (has Earth keywords)
+   * Add bonuses based on structural content indicators
+   * NOT keyword matching - only checks for presence of structured fields
    */
-  _isExplicitEarthSource(text, detectedRoles) {
-    const earthKeywords = SOURCE_ROLES.earth_content.keywords;
-    const hasEarthKeywords = earthKeywords.some(kw => text.includes(kw));
-    const hasHighEarthScore = detectedRoles.some(r => r.role === 'earth_content' && r.score >= 0.3);
-    return hasEarthKeywords || hasHighEarthScore;
+  _addContentBonuses(roles, metadata) {
+    // Data capability: presence of structured variables
+    if (metadata.variables?.length > 0) {
+      roles.data_capability = Math.min(1.0, roles.data_capability + 0.3);
+    }
+    if (metadata.spatialCoverage || metadata.temporalCoverage) {
+      roles.data_capability = Math.min(1.0, roles.data_capability + 0.2);
+    }
+
+    // Modeling capability: presence of model metadata
+    if (metadata.architecture || metadata.hyperparameters || metadata.performance) {
+      roles.modeling_capability = Math.min(1.0, roles.modeling_capability + 0.3);
+    }
+
+    // Computing capability: presence of code structure
+    if (metadata.language || metadata.dependencies?.length > 0 || metadata.tree?.length > 5) {
+      roles.computing_capability = Math.min(1.0, roles.computing_capability + 0.2);
+    }
+
+    // Governance capability: presence of jurisdiction
+    if (metadata.jurisdiction || metadata.effectiveDate) {
+      roles.governance_capability = Math.min(1.0, roles.governance_capability + 0.3);
+    }
+
+    // Event signal: presence of event metadata
+    if (metadata.date && metadata.location) {
+      roles.event_signal = Math.min(1.0, roles.event_signal + 0.3);
+    }
   }
 
   /**
-   * Phase 2: LLM-based transfer potential assessment
-   * Called when source is not explicitly Earth-related
+   * Check if source is explicitly Earth-related
+   * Uses LLM assessment when available
+   */
+  _checkExplicitEarthSource(metadata) {
+    // Check for Earth-related metadata fields
+    if (metadata.hazards?.length > 0) return true;
+    if (metadata.regions?.some(r => ['Global', 'Africa', 'Asia', 'Europe', 'Americas'].includes(r))) return true;
+    if (metadata.institutions?.some(i => ['WMO', 'IPCC', 'UNEP', 'FAO'].includes(i.name))) return true;
+    return false;
+  }
+
+  /**
+   * Assess transfer potential using LLM
    */
   async assessTransferPotential(metadata, ruleResult) {
     if (!this.llm) {
       return {
         transferPotential: null,
-        refinement: null,
-        reason: 'No LLM available for transfer assessment'
+        reason: 'No LLM available'
       };
     }
 
-    // Skip if already explicitly Earth-related
+    // If already explicit Earth source, no transfer assessment needed
     if (ruleResult.isExplicitEarthSource) {
       return {
         transferPotential: 0,
-        refinement: null,
-        reason: 'Already explicit Earth source, no transfer assessment needed'
+        reason: 'Already explicit Earth source'
       };
     }
 
     const title = metadata.title || metadata.name || '';
     const abstract = metadata.abstract || metadata.description || metadata.readme || '';
 
-    // Skip if insufficient text
     if (abstract.length < 100) {
       return {
         transferPotential: null,
-        refinement: null,
-        reason: 'Insufficient text for transfer assessment'
+        reason: 'Insufficient text'
       };
     }
 
-    const prompt = `Assess the Digital Earth transfer potential of this source.
+    const prompt = `Assess Digital Earth transfer potential for this source.
 
-Digital Earth Intelligence Platform needs sources that can help:
-- Observe/monitor Earth systems (water, climate, ecosystems)
-- Model/simulate Earth processes (hydrology, climate, hazards)
-- Assess risks and vulnerabilities (floods, droughts, heatwaves)
-- Support decision-making and interventions
-- Analyze spatiotemporal patterns and networks
+Digital Earth needs sources that can help with:
+- Observing/monitoring Earth systems
+- Modeling/simulating Earth processes
+- Assessing risks and vulnerabilities
+- Supporting decision-making
+- Analyzing spatiotemporal patterns
 
-This source may not be explicitly about Earth science, but it might have transferable capabilities.
+This source may not be explicitly Earth-related, but could have transferable capabilities.
 
-## Source
 Title: ${title}
-Abstract/Description: ${abstract.substring(0, 2000)}
+Description: ${abstract.substring(0, 2000)}
 
-## Assessment Task
-1. Score transfer potential (0-1): How much could this source contribute to Digital Earth construction?
-2. Identify relevant Digital Earth roles: modeling_capability, computing_capability, observation_capability, data_capability, governance_capability, action_capability
-3. Explain WHY: What specific capabilities could transfer?
+Assess:
+1. transferPotential (0-1): How much could this contribute to Digital Earth?
+2. relevantRoles: Which Digital Earth roles could benefit?
+3. transferReasons: What specific capabilities could transfer?
 
 Return JSON:
 {
   "transferPotential": 0.0-1.0,
   "relevantRoles": ["role1", "role2"],
-  "transferReasons": ["reason1", "reason2"],
-  "capabilityTypes": ["specific capability this could enable"],
+  "transferReasons": ["reason1"],
   "confidence": 0.0-1.0
 }`;
 
     try {
       const response = await this.llm.chat({
         messages: [
-          { role: 'system', content: 'You are a Digital Earth relevance assessor. Evaluate transfer potential of research sources to Earth system applications.' },
+          { role: 'system', content: 'You assess transfer potential of research sources to Digital Earth applications.' },
           { role: 'user', content: prompt }
         ],
         temperature: 0.2,
-        max_tokens: 500
+        max_tokens: 400
       });
 
       const responseText = response.choices?.[0]?.message?.content || response.content || '';
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('No JSON in response');
-      }
+      if (!jsonMatch) throw new Error('No JSON');
 
-      const assessment = JSON.parse(jsonMatch[0]);
+      const result = JSON.parse(jsonMatch[0]);
 
       return {
-        transferPotential: assessment.transferPotential || 0,
-        relevantRoles: assessment.relevantRoles || [],
-        transferReasons: assessment.transferReasons || [],
-        capabilityTypes: assessment.capabilityTypes || [],
-        confidence: assessment.confidence || 0.5,
-        isTransferSource: assessment.transferPotential >= 0.4
+        transferPotential: result.transferPotential || 0,
+        relevantRoles: result.relevantRoles || [],
+        transferReasons: result.transferReasons || [],
+        confidence: result.confidence || 0.5,
+        isTransferSource: result.transferPotential >= 0.4
       };
 
     } catch (error) {
-      console.error('Transfer potential assessment failed:', error.message);
       return {
         transferPotential: null,
-        refinement: null,
         reason: `LLM assessment failed: ${error.message}`
       };
     }
   }
-
-  /**
-   * Combined evaluation: rule-based + LLM refinement
-   */
-  async evaluate(metadata = {}) {
-    // Phase 1: Rule-based scoring
-    const ruleResult = this.score(metadata);
-
-    // Phase 2: LLM transfer assessment (if needed and available)
-    let transferResult = null;
-
-    if (!ruleResult.isExplicitEarthSource && this.llm) {
-      transferResult = await this.assessTransferPotential(metadata, ruleResult);
-
-      // Merge transfer assessment into roles
-      if (transferResult?.isTransferSource) {
-        for (const role of transferResult.relevantRoles) {
-          if (ruleResult.roles[role] !== undefined) {
-            // Boost role score with transfer potential
-            const boost = transferResult.transferPotential * 0.3;
-            ruleResult.roles[role] = Math.min(1.0, ruleResult.roles[role] + boost);
-          } else {
-            // Add new role from transfer assessment
-            ruleResult.roles[role] = transferResult.transferPotential * 0.5;
-          }
-        }
-
-        // Update detected roles
-        ruleResult.detectedRoles = Object.entries(ruleResult.roles)
-          .filter(([_, score]) => score >= 0.2)
-          .map(([role, score]) => ({
-            role,
-            score,
-            source: roleResult.roles[role] >= 0.3 ? 'rule+transfer' : 'transfer'
-          }))
-          .sort((a, b) => b.score - a.score);
-
-        ruleResult.primaryRole = ruleResult.detectedRoles[0]?.role || ruleResult.primaryRole;
-        ruleResult.isTransferSource = true;
-        ruleResult.transferReasons = transferResult.transferReasons;
-      }
-    }
-
-    return {
-      ...ruleResult,
-      transferAssessment: transferResult,
-      evaluationMethod: ruleResult.isExplicitEarthSource ? 'rule-based' :
-                        (transferResult?.isTransferSource ? 'rule+llm-transfer' : 'rule-based')
-    };
-  }
-
-  _contentBonus(roleName, metadata) {
-    let bonus = 0;
-
-    switch (roleName) {
-      case 'data_capability':
-        if (metadata.variables?.length > 0) bonus += 0.2;
-        if (metadata.spatialCoverage) bonus += 0.15;
-        if (metadata.temporalCoverage) bonus += 0.1;
-        break;
-
-      case 'modeling_capability':
-        if (metadata.architecture || metadata.hyperparameters) bonus += 0.2;
-        if (metadata.performance || metadata.metrics) bonus += 0.15;
-        break;
-
-      case 'computing_capability':
-        if (metadata.language) bonus += 0.1;
-        if (metadata.tree?.length > 5) bonus += 0.15;
-        if (metadata.dependencies?.length > 0) bonus += 0.1;
-        break;
-
-      case 'governance_capability':
-        if (metadata.jurisdiction) bonus += 0.2;
-        if (metadata.effectiveDate) bonus += 0.15;
-        break;
-
-      case 'evidence_assessment':
-        if (metadata.sections?.results) bonus += 0.2;
-        if (metadata.figures?.length > 0) bonus += 0.1;
-        break;
-
-      case 'event_signal':
-        if (metadata.date || metadata.timestamp) bonus += 0.15;
-        if (metadata.location) bonus += 0.1;
-        break;
-    }
-
-    return bonus;
-  }
 }
 
 /**
- * Determine activated ontology layers and categories based on source roles
+ * Determine activated ontology layers based on roles
+ * Simplified - uses LLM judgment embedded in role scores
  */
 function getActivatedOntology(roles) {
-  const layers = new Set(['source']); // Always include source layer
+  const layers = new Set(['source', 'foundation']);
   const categories = new Set();
 
   if (roles.earth_content >= 0.2 || roles.evidence_assessment >= 0.2) {
@@ -453,9 +327,6 @@ function getActivatedOntology(roles) {
     categories.add('earth-object');
   }
 
-  // Always include foundation
-  layers.add('foundation');
-
   return {
     layers: Array.from(layers),
     categories: Array.from(categories)
@@ -463,32 +334,26 @@ function getActivatedOntology(roles) {
 }
 
 /**
- * Determine source type from input and metadata
+ * Detect source type
+ * Uses LLM evaluator when available, otherwise minimal structural detection
  */
 function detectSourceType(input, metadata = {}) {
-  const inputStr = (input || '').toLowerCase();
-
+  // Use metadata type if provided
   if (metadata.type) return metadata.type;
 
-  // DOI pattern
+  const inputStr = (input || '').toLowerCase();
+
+  // DOI pattern (structural)
   if (/10\.\d{4,}\/\S+/.test(inputStr)) return 'Paper';
 
-  // GitHub URL
+  // GitHub pattern (structural)
   if (/github\.com\/[\w-]+\/[\w-]+/.test(inputStr)) return 'Repository';
 
-  // Dataset indicators
-  if (inputStr.includes('dataset') || inputStr.includes('data.gov') || inputStr.includes('copernicus')) return 'DatasetPage';
+  // Dataset portals (structural URL patterns)
+  if (/data\.gov|copernicus|cds\.climate|pangea|earthdata/.test(inputStr)) return 'DatasetPage';
 
-  // Policy indicators
-  if (inputStr.includes('policy') || inputStr.includes('regulation') || inputStr.includes('directive')) return 'PolicyDocument';
-
-  // News indicators
-  if (inputStr.includes('news') || inputStr.includes('reuters') || inputStr.includes('bbc')) return 'News';
-
-  // Report indicators
-  if (inputStr.includes('report') || inputStr.includes('assessment') || inputStr.includes('ipcc')) return 'Report';
-
-  // Default
+  // For other inputs, return generic type
+  // LLM will refine this
   return 'Source';
 }
 

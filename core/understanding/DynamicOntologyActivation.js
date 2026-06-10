@@ -96,26 +96,20 @@ class DynamicOntologyActivation {
 
   /**
    * Get capability entities for specific categories
+   * Uses ontology module instead of hardcoded mapping
    */
   _getCapabilityEntities(categories) {
     const module = this.layerModules.capability;
     if (!module) return [];
 
     const entities = [];
-    const categoryMap = {
-      'data': ['Dataset', 'Variable', 'Coverage', 'Resolution', 'DataQuality', 'DataProduct'],
-      'observation': ['Sensor', 'Satellite', 'Gauge', 'Station', 'RemoteSensingSystem', 'InSituNetwork'],
-      'modeling': ['Model', 'Algorithm', 'Simulation', 'Forecasting', 'Calibration', 'Validation', 'UncertaintyQuantification'],
-      'computing': ['Software', 'API', 'Workflow', 'Pipeline', 'Interface', 'CloudService'],
-      'governance': ['Policy', 'Regulation', 'Institution', 'Stakeholder', 'Standard', 'Protocol', 'Agreement'],
-      'socioeconomic': ['PopulationDataset', 'EconomicIndicator', 'LandUseClassification', 'InfrastructureInventory', 'ExposureDataset', 'VulnerabilityIndex'],
-      'evidence': ['Assessment', 'Indicator', 'Index', 'EvidenceChain', 'EvaluationFramework', 'RiskAssessment', 'ImpactAssessment'],
-      'action': ['Intervention', 'AdaptationMeasure', 'MitigationMeasure', 'ManagementAction', 'EmergencyResponse', 'ResourceAllocation']
-    };
+    const capTypes = module.getCapabilityTypeNames ? module.getCapabilityTypeNames() : [];
 
-    for (const cat of categories) {
-      if (categoryMap[cat]) {
-        entities.push(...categoryMap[cat]);
+    // Get entity types and filter by category from schema
+    for (const typeName of capTypes) {
+      const schema = module.getMergedSchema ? module.getMergedSchema(typeName) : null;
+      if (schema && categories.includes(schema.category)) {
+        entities.push(typeName);
       }
     }
 
@@ -124,23 +118,19 @@ class DynamicOntologyActivation {
 
   /**
    * Get world entities for specific categories
+   * Uses ontology module instead of hardcoded mapping
    */
   _getWorldEntities(categories) {
-    const entities = [];
-    const categoryMap = {
-      'earth-object': ['Region', 'Basin', 'Watershed', 'Glacier', 'Lake', 'Aquifer', 'Coastline', 'MountainRange'],
-      'earth-variable': ['EarthVariable', 'Streamflow', 'Precipitation', 'Temperature', 'SoilMoisture', 'GroundwaterLevel', 'Evapotranspiration'],
-      'earth-process': ['EarthProcess', 'WaterCycle', 'CarbonCycle', 'Erosion', 'Sedimentation'],
-      'hazard': ['Hazard', 'FloodEvent', 'DroughtEvent', 'Heatwave', 'Wildfire', 'Landslide'],
-      'risk': ['EarthRisk', 'FloodRisk', 'DroughtRisk', 'Exposure', 'Vulnerability'],
-      'infrastructure': ['Infrastructure', 'Dam', 'Reservoir', 'PowerGrid', 'WaterSupplySystem'],
-      'model-output': ['ModelOutput', 'Forecast', 'Projection'],
-      'scenario': ['EarthScenario', 'ClimateScenario', 'DevelopmentScenario']
-    };
+    const module = this.layerModules.world;
+    if (!module) return [];
 
-    for (const cat of categories) {
-      if (categoryMap[cat]) {
-        entities.push(...categoryMap[cat]);
+    const entities = [];
+    const worldTypes = module.getWorldTypeNames ? module.getWorldTypeNames() : [];
+
+    for (const typeName of worldTypes) {
+      const schema = module.getMergedSchema ? module.getMergedSchema(typeName) : null;
+      if (schema && categories.includes(schema.category)) {
+        entities.push(typeName);
       }
     }
 
@@ -149,21 +139,22 @@ class DynamicOntologyActivation {
 
   /**
    * Get domain entities
+   * Uses domain module instead of hardcoded mapping
    */
   _getDomainEntities(categories) {
-    // Map categories to domains
-    const domainMap = {
-      'hydrology': ['River', 'StreamReach', 'GaugeStation', 'HydrologicalModel', 'RainfallRunoffModel', 'FlashFlood', 'RiverineFlood'],
-      'climate': ['ClimateZone', 'ClimateIndex', 'ENSO', 'ClimateModel', 'GCM', 'RCM', 'ClimateProjection'],
-      'urban': ['City', 'Building', 'DrainageNetwork', 'UrbanFlood', 'UrbanHeatIsland'],
-      'energy': ['Substation', 'TransmissionLine', 'RenewableGeneration', 'EnergyStorage', 'HydropowerPlant'],
-      'ecology': ['Ecosystem', 'Vegetation', 'Habitat', 'Species', 'BiodiversityIndex', 'CarbonSink']
-    };
+    const module = this.layerModules.domain;
+    if (!module) return [];
 
     const entities = [];
-    for (const [domain, types] of Object.entries(domainMap)) {
-      if (categories.includes(domain)) {
-        entities.push(...types);
+
+    // Get entities from loaded domains that match categories
+    const loadedDomains = module.getLoadedDomainNames ? module.getLoadedDomainNames() : [];
+    for (const domainName of loadedDomains) {
+      if (categories.includes(domainName)) {
+        const domainDef = module.getDomain ? module.getDomain(domainName) : null;
+        if (domainDef && domainDef.entities) {
+          entities.push(...Object.keys(domainDef.entities));
+        }
       }
     }
 
@@ -425,42 +416,38 @@ class DynamicOntologyActivation {
 
   /**
    * Prioritize entity types based on source role
-   * Returns { primary, secondary, foundation }
+   * Uses ontology layer information instead of hardcoded lists
    */
   _prioritizeEntityTypes(activated, primaryRole) {
     const allTypes = activated.entityTypes;
     const categories = activated.categories;
 
-    // Define primary types for each role
-    const rolePrimaryTypes = {
-      'earth_content': ['Claim', 'Evidence', 'EarthVariable', 'Region', 'Basin', 'EarthProcess'],
-      'data_capability': ['Dataset', 'Variable', 'Coverage', 'Resolution', 'DataQuality', 'DataProduct'],
-      'observation_capability': ['Sensor', 'Satellite', 'Gauge', 'Station', 'RemoteSensingSystem', 'InSituNetwork'],
-      'modeling_capability': ['Model', 'Algorithm', 'Simulation', 'Forecasting', 'Calibration', 'Validation'],
-      'computing_capability': ['Software', 'API', 'Workflow', 'Pipeline', 'Interface', 'CloudService'],
-      'governance_capability': ['Policy', 'Regulation', 'Institution', 'Stakeholder', 'Standard', 'Agreement'],
-      'evidence_assessment': ['Assessment', 'Indicator', 'Index', 'EvidenceChain', 'EvaluationFramework'],
-      'action_capability': ['Intervention', 'AdaptationMeasure', 'MitigationMeasure', 'ManagementAction', 'EmergencyResponse'],
-      'event_signal': ['Hazard', 'FloodEvent', 'DroughtEvent', 'Region', 'Exposure', 'Vulnerability']
-    };
-
-    // Foundation types (always available)
-    const foundationTypes = ['Entity', 'Claim', 'Evidence', 'Method', 'Data', 'Process', 'Event', 'Location', 'Time', 'Result', 'Metric', 'Uncertainty'];
-
-    // Source types
-    const sourceTypes = ['Paper', 'Repository', 'Dataset', 'Report', 'News'];
-
-    // Get primary types for this role
-    const primaryForRole = rolePrimaryTypes[primaryRole] || [];
-
-    // Build prioritized lists
+    // Get types by layer from ontology
     const primary = [];
     const secondary = [];
+    const foundation = [];
 
+    // Use categories to determine priority
+    // Types matching activated categories are primary
     for (const type of allTypes) {
-      if (primaryForRole.includes(type)) {
+      const schema = ontology.getEntitySchema(type);
+      if (!schema) continue;
+
+      // Foundation layer types
+      if (schema.layer === 'foundation') {
+        foundation.push(type);
+        continue;
+      }
+
+      // Source layer types
+      if (schema.layer === 'source') {
+        continue; // Skip source types in prioritization
+      }
+
+      // Types matching activated categories are primary
+      if (categories.includes(schema.category)) {
         primary.push(type);
-      } else if (!foundationTypes.includes(type) && !sourceTypes.includes(type)) {
+      } else {
         secondary.push(type);
       }
     }
@@ -473,7 +460,7 @@ class DynamicOntologyActivation {
     return {
       primary: [...new Set(primary)],
       secondary: [...new Set(secondary)],
-      foundation: [...new Set(foundationTypes.filter(t => allTypes.includes(t)))]
+      foundation: [...new Set(foundation)]
     };
   }
 
