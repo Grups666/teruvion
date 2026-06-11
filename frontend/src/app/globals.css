@@ -557,6 +557,27 @@ html, body {
   color: var(--secondary);
 }
 
+.quality-copy {
+  margin-top: 10px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--primary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quality-copy:hover {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--surface);
+}
+
 .quality-notes {
   display: flex;
   flex-wrap: wrap;

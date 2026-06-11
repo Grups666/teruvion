@@ -293,6 +293,33 @@ export default function Home() {
   const projectStats = getProjectStats(projectEntities);
   const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
 
+  async function copyProjectSummary() {
+    if (!selectedProject || !projectQuality) return;
+
+    const lines = [
+      `# ${selectedProject.name}`,
+      '',
+      `Quality: ${projectQuality.label}`,
+      `Extraction: ${projectQuality.method}`,
+      `Objects: ${projectEntities.length}`,
+      `Layers: ${projectStats.source} source, ${projectStats.capability} capability, ${projectStats.world} world, ${projectStats.foundation} other`,
+      `Relations: ${projectQuality.relations}`,
+      `Summary: ${projectQuality.summary}`
+    ];
+
+    if (projectQuality.notes.length > 0) {
+      lines.push('', 'Notes:', ...projectQuality.notes.map(note => `- ${note}`));
+    }
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setStatus('Project summary copied');
+    } catch (err) {
+      console.error('Failed to copy project summary:', err);
+      setStatus('Copy failed');
+    }
+  }
+
   return (
     <div className="app-shell">
       {/* ===== Sidebar ===== */}
@@ -460,6 +487,13 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="quality-summary">{projectQuality.summary}</div>
+                  <button
+                    type="button"
+                    className="quality-copy"
+                    onClick={copyProjectSummary}
+                  >
+                    Copy summary
+                  </button>
                   {projectQuality.notes.length > 0 && (
                     <div className="quality-notes">
                       {projectQuality.notes.slice(0, 3).map(note => (
