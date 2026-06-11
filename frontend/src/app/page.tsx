@@ -568,11 +568,22 @@ export default function Home() {
                 ) : lensSummaries.length > 0 ? (
                   <div className="lens-grid">
                     {lensSummaries.map(lens => (
-                      <div className={`lens-card ${lens.status}`} key={lens.name}>
+                      <button
+                        type="button"
+                        className={`lens-card ${lens.status}`}
+                        key={lens.name}
+                        disabled={!lens.targetId}
+                        onClick={() => {
+                          if (lens.targetId) {
+                            setSelectedEntityId(lens.targetId);
+                            setStatus(`${lens.name} focus selected`);
+                          }
+                        }}
+                      >
                         <div className="lens-name">{lens.name}</div>
                         <div className="lens-value">{lens.value}</div>
                         <div className="lens-detail">{lens.detail}</div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 ) : (
@@ -930,59 +941,72 @@ function getLensSummaries(lenses: Record<string, any> | null) {
           name,
           value: 'Unavailable',
           detail: lens.error,
-          status: 'empty'
+          status: 'empty',
+          targetId: null
         };
       }
 
       if (name === 'map') {
         const featureCount = lens.features?.length || 0;
         const regionCount = lens.regions?.length || 0;
+        const targetId = lens.regions?.[0]?.id || lens.features?.[0]?.id || null;
         return {
           name: 'Map',
           value: `${featureCount} feature${featureCount !== 1 ? 's' : ''}`,
           detail: regionCount > 0 ? `${regionCount} region${regionCount !== 1 ? 's' : ''}` : 'No spatial feature',
-          status: featureCount > 0 ? 'ready' : 'empty'
+          status: featureCount > 0 ? 'ready' : 'empty',
+          targetId
         };
       }
 
       if (name === 'workflow') {
         const nodeCount = lens.metadata?.stats?.totalNodes || lens.graph?.nodes?.length || 0;
         const stageCount = lens.stages?.length || lens.metadata?.stats?.stageCount || 0;
+        const targetId = lens.stages?.find((stage: any) => stage.entities?.length > 0)?.entities?.[0]?.id
+          || lens.graph?.nodes?.[0]?.id
+          || null;
         return {
           name: 'Workflow',
           value: `${nodeCount} node${nodeCount !== 1 ? 's' : ''}`,
           detail: stageCount > 0 ? `${stageCount} stage${stageCount !== 1 ? 's' : ''}` : 'No pipeline stage',
-          status: nodeCount > 0 ? 'ready' : 'empty'
+          status: nodeCount > 0 ? 'ready' : 'empty',
+          targetId
         };
       }
 
       if (name === 'evidence') {
         const claims = lens.summary?.totalClaims || 0;
         const chains = lens.metadata?.stats?.totalChains || lens.chains?.length || 0;
+        const targetId = lens.chains?.[0]?.entityId || lens.graph?.nodes?.[0]?.id || null;
         return {
           name: 'Evidence',
           value: `${claims} claim${claims !== 1 ? 's' : ''}`,
           detail: chains > 0 ? `${chains} chain${chains !== 1 ? 's' : ''}` : 'No evidence chain',
-          status: claims > 0 ? 'ready' : 'empty'
+          status: claims > 0 ? 'ready' : 'empty',
+          targetId
         };
       }
 
       if (name === 'timeline') {
         const events = lens.events?.length || lens.metadata?.stats?.totalEvents || 0;
+        const targetId = lens.events?.[0]?.entityId || null;
         return {
           name: 'Timeline',
           value: `${events} event${events !== 1 ? 's' : ''}`,
           detail: lens.timeline?.span ? String(lens.timeline.span) : 'No temporal span',
-          status: events > 0 ? 'ready' : 'empty'
+          status: events > 0 ? 'ready' : 'empty',
+          targetId
         };
       }
 
       const compared = lens.metadata?.stats?.comparedCount || lens.entities?.length || 0;
+      const targetId = lens.entities?.[0]?.id || null;
       return {
         name: 'Comparison',
         value: `${compared} object${compared !== 1 ? 's' : ''}`,
         detail: compared >= 2 ? 'Comparable set' : 'Needs at least 2 objects',
-        status: compared >= 2 ? 'ready' : 'empty'
+        status: compared >= 2 ? 'ready' : 'empty',
+        targetId
       };
     });
 }
