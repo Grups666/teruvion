@@ -158,9 +158,11 @@ function renderAdminNewApplication(application) {
   const fields = [
     ['Email', application.email],
     ['Name', application.name || '-'],
-    ['Organization', application.organization || '-'],
-    ['Use Case', application.useCase || '-'],
-    ['Applied At', new Date().toISOString()],
+    ['Affiliation', application.affiliation || '-'],
+    ['Research Field', application.researchField || '-'],
+    ['Intended Use', application.intendedUse || '-'],
+    ['Website/Profile', application.websiteOrProfile || '-'],
+    ['Applied At', application.createdAt || new Date().toISOString()],
   ];
 
   const rows = fields.map(([label, value]) => `

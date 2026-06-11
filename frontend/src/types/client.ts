@@ -11,7 +11,10 @@ import type {
   EntitiesResponse,
   ProjectsResponse,
   ImportResponse,
-  SSEEvent
+  SSEEvent,
+  AlphaApplication,
+  AlphaApplicationInput,
+  AlphaMembership
 } from './api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
@@ -94,6 +97,54 @@ class APIClient {
   // Clear all
   async clearAll(): Promise<void> {
     await this.request('/registry/clear', { method: 'POST' });
+  }
+
+  // Alpha Access
+  async submitAlphaApplication(data: AlphaApplicationInput): Promise<{ success: boolean; applicationId: string }> {
+    return this.request('/alpha/apply', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAlphaApplications(adminSecret: string): Promise<{ applications: AlphaApplication[]; count: number }> {
+    return this.request('/alpha/applications', {
+      headers: { 'X-Admin-Secret': adminSecret },
+    });
+  }
+
+  async approveApplication(id: string, adminSecret: string): Promise<{ success: boolean; inviteCode: string }> {
+    return this.request(`/alpha/applications/${id}/approve`, {
+      method: 'POST',
+      headers: { 'X-Admin-Secret': adminSecret },
+    });
+  }
+
+  async rejectApplication(id: string, adminSecret: string): Promise<{ success: boolean }> {
+    return this.request(`/alpha/applications/${id}/reject`, {
+      method: 'POST',
+      headers: { 'X-Admin-Secret': adminSecret },
+    });
+  }
+
+  async verifyInviteCode(code: string): Promise<{ valid: boolean; email?: string; error?: string }> {
+    return this.request('/alpha/invites/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  }
+
+  async activateMembership(code: string, email: string, name?: string): Promise<{ success: boolean; membershipId: string }> {
+    return this.request('/alpha/memberships/activate', {
+      method: 'POST',
+      body: JSON.stringify({ code, email, name }),
+    });
+  }
+
+  async getAlphaMemberships(adminSecret: string): Promise<{ memberships: AlphaMembership[]; count: number }> {
+    return this.request('/alpha/memberships', {
+      headers: { 'X-Admin-Secret': adminSecret },
+    });
   }
 }
 

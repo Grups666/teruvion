@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "updated": "2024-01-01T00:00:00.000Z",
+  "invites": [
+    {
+      "code": "ABCD1234",
+      "email": "example@example.com",
+      "applicationId": "app-example-001",
+      "status": "active",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "usedAt": null
+    }
+  ]
+}

@@ -12,7 +12,8 @@
     "dev": "cd frontend && npm run dev",
     "test": "node tests/run-tests.js",
     "check": "node --check cli/teruvion.js && node --check core/registry/TripleStore.js && node --check src/server/api.js && node --check src/server/digital-earth-importer.js && node --check src/email/client.js && node --check src/email/templates.js",
-    "test:email": "node scripts/test-email.js"
+    "test:email": "node scripts/test-email.js",
+    "test:alpha": "node scripts/test-alpha-apply.js"
   },
   "keywords": [
     "digital-earth",

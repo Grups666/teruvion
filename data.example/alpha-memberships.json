@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "updated": "2024-01-01T00:00:00.000Z",
+  "memberships": [
+    {
+      "id": "member-example-001",
+      "email": "activated@example.com",
+      "name": "Activated User",
+      "role": "alpha_user",
+      "plan": "alpha_preview",
+      "quota": {
+        "maxJobsPerMonth": 10,
+        "maxSourcesPerJob": 5
+      },
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}

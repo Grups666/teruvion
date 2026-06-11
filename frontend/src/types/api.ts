@@ -128,3 +128,47 @@ export function getEntityLayer(type: string): EntityLayer {
   if (sourceTypes.includes(type)) return 'source';
   return 'foundation';
 }
+
+// Alpha Access types
+export interface AlphaApplication {
+  id: string;
+  name: string;
+  email: string;
+  affiliation: string;
+  researchField: string;
+  intendedUse: string;
+  websiteOrProfile?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AlphaApplicationInput {
+  name: string;
+  email: string;
+  affiliation: string;
+  researchField: string;
+  intendedUse: string;
+  websiteOrProfile?: string;
+}
+
+export interface AlphaInvite {
+  code: string;
+  email: string;
+  status: 'active' | 'used';
+  createdAt: string;
+  usedAt?: string;
+}
+
+export interface AlphaMembership {
+  id: string;
+  email: string;
+  name: string;
+  role: 'alpha_user' | 'admin';
+  plan: 'alpha_preview';
+  quota: {
+    maxJobsPerMonth: number;
+    maxSourcesPerJob: number;
+  };
+  createdAt: string;
+}

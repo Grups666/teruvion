@@ -753,4 +753,325 @@ router.post('/admission/evaluate', async (req, res) => {
   }
 });
 
+// ============================================================================
+// ALPHA ACCESS API
+// ============================================================================
+
+const {
+  AlphaApplicationStore,
+  AlphaInviteStore,
+  AlphaMembershipStore
+} = require('../alpha');
+
+const {
+  sendApplicationReceivedEmail,
+  sendAlphaInviteEmail,
+  sendAdminNewApplicationEmail
+} = require('../email/client');
+
+// Initialize alpha stores
+let applicationStore = null;
+let inviteStore = null;
+let membershipStore = null;
+
+async function initializeAlphaStores() {
+  if (applicationStore) return;
+
+  applicationStore = new AlphaApplicationStore();
+  inviteStore = new AlphaInviteStore();
+  membershipStore = new AlphaMembershipStore();
+
+  await applicationStore.load().catch(() => console.log('[API] No existing applications'));
+  await inviteStore.load().catch(() => console.log('[API] No existing invites'));
+  await membershipStore.load().catch(() => console.log('[API] No existing memberships'));
+
+  console.log('[API] Alpha stores initialized');
+}
+
+// Initialize alpha stores
+initializeAlphaStores();
+
+// Rate limiter for applications
+const applyRateLimiter = {
+  attempts: new Map(),
+
+  check(ip) {
+    const now = Date.now();
+    const attempts = this.attempts.get(ip) || [];
+    const recent = attempts.filter(t => now - t < 3600000); // 1 hour window
+
+    if (recent.length >= 3) return false;
+    recent.push(now);
+    this.attempts.set(ip, recent);
+    return true;
+  }
+};
+
+// Helper: Validate email format
+function validateEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// Helper: Check admin secret
+function requireAdmin(req, res) {
+  const secret = req.headers['x-admin-secret'];
+  if (!secret || secret !== process.env.ADMIN_SECRET) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+// POST /api/alpha/apply - Submit application
+router.post('/alpha/apply', async (req, res) => {
+  try {
+    const { name, email, affiliation, researchField, intendedUse, websiteOrProfile } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !affiliation || !researchField || !intendedUse) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate email format
+    if (!validateEmail(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Rate limit check
+    const clientIp = req.ip || req.connection.remoteAddress;
+    if (!applyRateLimiter.check(clientIp)) {
+      return res.status(429).json({ error: 'Too many applications. Please try again later.' });
+    }
+
+    // Check for duplicate email
+    const existing = applicationStore.findByEmail(email);
+    if (existing) {
+      return res.status(400).json({ error: 'An application with this email already exists' });
+    }
+
+    // Create application
+    const application = applicationStore.create({
+      name,
+      email,
+      affiliation,
+      researchField,
+      intendedUse,
+      websiteOrProfile
+    });
+
+    await applicationStore.save();
+
+    // Send confirmation email (non-blocking)
+    sendApplicationReceivedEmail(email, name).catch(err =>
+      console.error('[Alpha] Failed to send confirmation email:', err.message)
+    );
+
+    // Send admin notification (non-blocking)
+    sendAdminNewApplicationEmail(application).catch(err =>
+      console.error('[Alpha] Failed to send admin notification:', err.message)
+    );
+
+    console.log(`[Alpha] New application: ${application.id} from ${email}`);
+
+    res.json({
+      success: true,
+      applicationId: application.id
+    });
+  } catch (err) {
+    console.error('[Alpha] Apply error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/alpha/applications - List all applications (admin only)
+router.get('/alpha/applications', async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const applications = applicationStore.getAll();
+    res.json({ applications, count: applications.length });
+  } catch (err) {
+    console.error('[Alpha] Get applications error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/alpha/applications/:id/approve - Approve application (admin only)
+router.post('/alpha/applications/:id/approve', async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { id } = req.params;
+    const application = applicationStore.findById(id);
+
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    if (application.status !== 'pending') {
+      return res.status(400).json({ error: `Application already ${application.status}` });
+    }
+
+    // Update status
+    applicationStore.updateStatus(id, 'approved');
+
+    // Create invite code
+    const invite = inviteStore.create(application.email, id);
+
+    await applicationStore.save();
+    await inviteStore.save();
+
+    // Send invite email (non-blocking)
+    sendAlphaInviteEmail(application.email, invite.code).catch(err =>
+      console.error('[Alpha] Failed to send invite email:', err.message)
+    );
+
+    console.log(`[Alpha] Application ${id} approved, invite: ${invite.code}`);
+
+    res.json({
+      success: true,
+      inviteCode: invite.code
+    });
+  } catch (err) {
+    console.error('[Alpha] Approve error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/alpha/applications/:id/reject - Reject application (admin only)
+router.post('/alpha/applications/:id/reject', async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { id } = req.params;
+    const application = applicationStore.findById(id);
+
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    if (application.status !== 'pending') {
+      return res.status(400).json({ error: `Application already ${application.status}` });
+    }
+
+    applicationStore.updateStatus(id, 'rejected');
+    await applicationStore.save();
+
+    console.log(`[Alpha] Application ${id} rejected`);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Alpha] Reject error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/alpha/invites/verify - Verify invite code
+router.post('/alpha/invites/verify', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ error: 'Missing invite code' });
+    }
+
+    // Validate code format (8 chars, alphanumeric)
+    const normalizedCode = code.toUpperCase().trim();
+    if (!/^[A-Z0-9]{8}$/.test(normalizedCode)) {
+      return res.json({ valid: false, error: 'Invalid code format' });
+    }
+
+    const invite = inviteStore.findByCode(normalizedCode);
+
+    if (!invite) {
+      return res.json({ valid: false, error: 'Invite code not found' });
+    }
+
+    if (invite.status === 'used') {
+      return res.json({ valid: false, error: 'Invite code already used' });
+    }
+
+    if (inviteStore.isExpired(invite)) {
+      return res.json({ valid: false, error: 'Invite code has expired' });
+    }
+
+    res.json({
+      valid: true,
+      email: invite.email
+    });
+  } catch (err) {
+    console.error('[Alpha] Verify error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/alpha/memberships/activate - Activate membership
+router.post('/alpha/memberships/activate', async (req, res) => {
+  try {
+    const { code, email, name } = req.body;
+
+    if (!code || !email) {
+      return res.status(400).json({ error: 'Missing code or email' });
+    }
+
+    const normalizedCode = code.toUpperCase().trim();
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const invite = inviteStore.findByCode(normalizedCode);
+
+    if (!invite) {
+      return res.status(400).json({ error: 'Invalid invite code' });
+    }
+
+    if (invite.status === 'used') {
+      return res.status(400).json({ error: 'Invite code already used' });
+    }
+
+    if (inviteStore.isExpired(invite)) {
+      return res.status(400).json({ error: 'Invite code has expired' });
+    }
+
+    if (invite.email !== normalizedEmail) {
+      return res.status(400).json({ error: 'Email does not match invite' });
+    }
+
+    // Check if already a member
+    if (membershipStore.hasMembership(normalizedEmail)) {
+      return res.status(400).json({ error: 'Email already has an active membership' });
+    }
+
+    // Mark invite as used
+    inviteStore.markUsed(normalizedCode);
+
+    // Create membership
+    const membership = membershipStore.create(normalizedEmail, name || email.split('@')[0]);
+
+    await inviteStore.save();
+    await membershipStore.save();
+
+    console.log(`[Alpha] Membership activated: ${membership.id} for ${normalizedEmail}`);
+
+    res.json({
+      success: true,
+      membershipId: membership.id
+    });
+  } catch (err) {
+    console.error('[Alpha] Activate error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/alpha/memberships - List all memberships (admin only)
+router.get('/alpha/memberships', async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const memberships = membershipStore.getAll();
+    res.json({ memberships, count: memberships.length });
+  } catch (err) {
+    console.error('[Alpha] Get memberships error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
