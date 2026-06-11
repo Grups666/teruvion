@@ -262,100 +262,84 @@ class DynamicOntologyActivation {
   }
 
   /**
-   * Generate extraction hints for LLM based on primary role
+   * Generate extraction hints based on ontology schemas
+   *
+   * IMPORTANT: Hints are derived from ontology descriptions, not hardcoded lists.
+   * This allows the ontology to define what to extract, not the code.
    */
   _generateExtractionHints(primaryRole, categories) {
     const hints = [];
 
-    const roleHints = {
-      'earth_content': [
-        'Extract key Earth system concepts and claims',
-        'Identify Earth variables, regions, and processes studied',
-        'Link evidence to specific sections (figures, tables, results)'
-      ],
-      'data_capability': [
-        'Focus on dataset metadata: variables, coverage, resolution',
-        'Identify data sources and access information',
-        'Note data quality and temporal coverage'
-      ],
-      'observation_capability': [
-        'Extract observation systems: sensors, satellites, gauges',
-        'Identify spatial coverage and resolution of observations',
-        'Note data products derived from observations'
-      ],
-      'modeling_capability': [
-        'Extract model architecture and parameters',
-        'Identify training data and validation approach',
-        'Note model performance metrics and limitations'
-      ],
-      'computing_capability': [
-        'Extract software dependencies and APIs',
-        'Identify workflows and pipelines',
-        'Note computing requirements and platforms'
-      ],
-      'governance_capability': [
-        'Extract policies and regulations',
-        'Identify institutions and jurisdictions',
-        'Note compliance requirements and standards'
-      ],
-      'socioeconomic_capability': [
-        'Extract population and economic data',
-        'Identify exposure and vulnerability indicators',
-        'Note demographic and infrastructure information'
-      ],
-      'evidence_assessment': [
-        'Extract key assessments and findings',
-        'Identify indicators and confidence levels',
-        'Link evidence to specific claims'
-      ],
-      'action_capability': [
-        'Extract interventions and measures',
-        'Identify targets and outcomes',
-        'Note implementation details and timeline'
-      ],
-      'event_signal': [
-        'Extract event details: location, date, magnitude',
-        'Identify affected regions and populations',
-        'Note early warning signals and responses'
-      ]
-    };
-
-    if (primaryRole && roleHints[primaryRole]) {
-      hints.push(...roleHints[primaryRole]);
+    // Add role-specific hint based on ontology role definition
+    if (primaryRole) {
+      // Get role description from SOURCE_ROLES if available
+      const roleDescription = this._getRoleDescription(primaryRole);
+      if (roleDescription) {
+        hints.push(`Primary focus: ${roleDescription}`);
+      }
     }
 
-    // Add category-specific hints
+    // Add category-specific hints derived from ontology schemas
     for (const cat of categories) {
-      const catHint = this._getCategoryHint(cat);
+      const catHint = this._getCategoryHintFromOntology(cat);
       if (catHint) {
         hints.push(catHint);
       }
     }
 
+    // Add general provenance hint (always needed)
+    hints.push('For each extracted object, include provenance with exact sourceText span');
+
     return hints;
   }
 
   /**
-   * Get extraction hint for a category
+   * Get role description from ontology (not hardcoded)
    */
-  _getCategoryHint(category) {
-    const hints = {
-      'data': 'Extract all datasets with their variables, spatial/temporal coverage, and access information',
-      'observation': 'Identify observation systems and their spatial coverage',
-      'modeling': 'Extract models, algorithms, and their configurations',
-      'computing': 'List software, workflows, and computing resources used',
-      'governance': 'Extract policies, regulations, and institutional arrangements',
-      'socioeconomic': 'Identify population, economic, and exposure data',
-      'evidence': 'Extract assessments, indicators, and evidence chains',
-      'action': 'Extract interventions, measures, and their targets',
-      'earth-object': 'Identify geographic regions, basins, and Earth features',
-      'earth-variable': 'Extract Earth variables studied (streamflow, precipitation, etc.)',
-      'hazard': 'Identify hazard events and their characteristics',
-      'risk': 'Extract risk assessments, exposure, and vulnerability',
-      'model-output': 'Identify forecasts and projections'
-    };
+  _getRoleDescription(roleName) {
+    // Import role definitions dynamically from source-role evaluator
+    try {
+      const { SOURCE_ROLES } = require('../admission/evaluators/source-role');
+      return SOURCE_ROLES[roleName]?.description || null;
+    } catch {
+      return null;
+    }
+  }
 
-    return hints[category] || null;
+  /**
+   * Get extraction hint for a category from ontology schemas
+   * Generates hint from entity descriptions in that category
+   */
+  _getCategoryHintFromOntology(category) {
+    // Find entity types in this category and build hint from their descriptions
+    const entityTypes = this._getEntityTypesByCategory(category);
+
+    if (entityTypes.length === 0) return null;
+
+    // Build hint from entity descriptions
+    const typeDescriptions = entityTypes.slice(0, 3).map(t => {
+      const schema = ontology.getEntitySchema(t);
+      return schema?.description || t;
+    });
+
+    return `Extract ${category} entities (${entityTypes.slice(0, 5).join(', ')}) with their key attributes`;
+  }
+
+  /**
+   * Get entity types belonging to a specific category
+   */
+  _getEntityTypesByCategory(category) {
+    const types = [];
+    const allTypes = Object.keys(ontology.ENTITY_TYPES || {});
+
+    for (const type of allTypes) {
+      const schema = ontology.getEntitySchema(type);
+      if (schema?.category === category) {
+        types.push(type);
+      }
+    }
+
+    return types;
   }
 
   /**

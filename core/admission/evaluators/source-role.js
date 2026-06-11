@@ -160,13 +160,22 @@ class SourceRoleEvaluator {
 
   /**
    * Check if source is explicitly Earth-related
-   * Uses LLM assessment when available
+   *
+   * IMPORTANT: This uses structural indicators only, NOT semantic keyword matching.
+   * The actual Earth-relevance determination is done by LLM in evaluateRoles().
+   *
+   * Structural indicators (deterministic):
+   * - Has hazards metadata field (structured data, not keywords)
+   * - Has regions metadata field (indicates geographic scope)
+   * - Has institutions metadata field (indicates organizational context)
+   *
+   * This method returns a weak structural signal. LLM makes the final semantic judgment.
    */
   _checkExplicitEarthSource(metadata) {
-    // Check for Earth-related metadata fields
+    // Structural indicators only - presence of structured fields, not content matching
     if (metadata.hazards?.length > 0) return true;
-    if (metadata.regions?.some(r => ['Global', 'Africa', 'Asia', 'Europe', 'Americas'].includes(r))) return true;
-    if (metadata.institutions?.some(i => ['WMO', 'IPCC', 'UNEP', 'FAO'].includes(i.name))) return true;
+    if (metadata.regions?.length > 0) return true;  // Has geographic scope
+    if (metadata.institutions?.length > 0) return true;  // Has organizational context
     return false;
   }
 
@@ -334,32 +343,67 @@ function getActivatedOntology(roles) {
 }
 
 /**
- * Detect source type
- * Uses LLM evaluator when available, otherwise minimal structural detection
+ * Detect source type from input
+ *
+ * IMPORTANT: This function only identifies STRUCTURAL patterns (DOI, GitHub URL).
+ * Domain patterns like data portals are routing hints, NOT final type determination.
+ *
+ * Final source type should be determined by:
+ * 1. Explicit metadata.type if provided
+ * 2. LLM semantic classification when available
+ * 3. Fallback to generic 'Source' type
+ *
+ * Separation of concerns:
+ * - detectSourceType: identifies URL/DOI structure → connector routing
+ * - LLMRoleEvaluator.detectSourceTypeWithLLM(): semantic classification → entity type
  */
 function detectSourceType(input, metadata = {}) {
-  // Use metadata type if provided
+  // Use metadata type if explicitly provided
   if (metadata.type) return metadata.type;
 
   const inputStr = (input || '').toLowerCase();
 
-  // DOI pattern (structural)
+  // Structural patterns (deterministic, safe to use)
+  // DOI pattern - identifies academic paper structure
   if (/10\.\d{4,}\/\S+/.test(inputStr)) return 'Paper';
 
-  // GitHub pattern (structural)
+  // GitHub pattern - identifies code repository structure
   if (/github\.com\/[\w-]+\/[\w-]+/.test(inputStr)) return 'Repository';
 
-  // Dataset portals (structural URL patterns)
-  if (/data\.gov|copernicus|cds\.climate|pangea|earthdata/.test(inputStr)) return 'DatasetPage';
+  // Domain routing hints removed - these should be connector routing logic
+  // not type detection. LLM will decide actual type based on content.
+  // e.g., cds.climate.copernicus.eu could be DatasetPage, APIPage, or Documentation
 
   // For other inputs, return generic type
-  // LLM will refine this
+  // LLM or metadata will refine this
   return 'Source';
+}
+
+/**
+ * Get connector routing hint from URL
+ * This is separate from type detection - it suggests which connector to use
+ *
+ * @param {string} input - URL or input
+ * @returns {string|null} Connector name hint
+ */
+function getConnectorRoutingHint(input) {
+  const inputStr = (input || '').toLowerCase();
+
+  // Routing hints based on domain patterns
+  if (/data\.gov|copernicus|cds\.climate|pangea|earthdata|catalog/.test(inputStr)) return 'dataset_portal';
+  if (/github\.com/.test(inputStr)) return 'github';
+  if (/doi\.org|10\.\d{4,}/.test(inputStr)) return 'doi';
+  if (/arxiv\.org/.test(inputStr)) return 'arxiv';
+  if (/news|bbc|reuters|guardian/.test(inputStr)) return 'news';
+  if (/policy|regulation|gov\/policy/.test(inputStr)) return 'policy';
+
+  return null;
 }
 
 module.exports = {
   SourceRoleEvaluator,
   SOURCE_ROLES,
   getActivatedOntology,
-  detectSourceType
+  detectSourceType,
+  getConnectorRoutingHint
 };

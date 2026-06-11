@@ -338,4 +338,8 @@ class SourceAdmission {
   }
 }
 
-module.exports = { SourceAdmission, PROCESSING_DEPTHS: PROCESSING_DEPTHS_DE };
+module.exports = {
+  SourceAdmission,
+  PROCESSING_DEPTHS: PROCESSING_DEPTHS_DE,
+  getConnectorRoutingHint: require('./evaluators/source-role').getConnectorRoutingHint
+};

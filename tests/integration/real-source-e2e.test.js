@@ -45,7 +45,25 @@ const REAL_SOURCES = {
       year: 2022,
       venue: 'Water Resources Research',
       keywords: ['deep learning', 'flood forecasting', 'LSTM', 'neural network', 'hydrology', 'prediction'],
-      abstract: 'This paper reviews deep learning approaches for flood forecasting, comparing LSTM, CNN, and Transformer models across multiple basins. We analyze performance metrics including Nash-Sutcliffe Efficiency, peak timing accuracy, and extreme event detection. Results show LSTM ensemble achieves best overall performance for lead times up to 7 days.'
+      abstract: 'This paper reviews deep learning approaches for flood forecasting, comparing LSTM, CNN, and Transformer models across multiple basins. We analyze performance metrics including Nash-Sutcliffe Efficiency, peak timing accuracy, and extreme event detection. Results show LSTM ensemble achieves best overall performance for lead times up to 7 days.',
+      // Structured metadata for extraction
+      datasets: [
+        { name: 'ERA5-Land', acronym: 'ERA5-Land', role: 'input', spatialCoverage: 'Global', temporalCoverage: '2000-2020' },
+        { name: 'GRDC', acronym: 'GRDC', role: 'input', spatialCoverage: 'Global' },
+        { name: 'CAMELS', acronym: 'CAMELS', role: 'input', spatialCoverage: 'CONUS' }
+      ],
+      models: [
+        { name: 'LSTM ensemble', type: 'machine_learning', architecture: '3-layer LSTM with 128 hidden units' },
+        { name: 'CNN-1D', type: 'machine_learning', architecture: '5-layer convolutional network' },
+        { name: 'Transformer', type: 'machine_learning', architecture: '6-layer transformer with attention' }
+      ],
+      regions: [
+        { name: 'Yangtze River Basin', type: 'basin', area: '1.8 million km²' },
+        { name: 'Rhine River Basin', type: 'basin', area: '185,000 km²' },
+        { name: 'Mississippi River Basin', type: 'basin', area: '3.2 million km²' },
+        { name: 'Ganges River Basin', type: 'basin', area: '1.1 million km²' },
+        { name: 'Amazon River Basin', type: 'basin', area: '7 million km²' }
+      ]
     },
     text: `
 # Deep Learning for Flood Forecasting: A Review and Comparison of Models
@@ -131,7 +149,20 @@ Data provided by ECMWF (ERA5-Land), GRDC, and USGS (CAMELS).
       year: 2021,
       venue: 'Geoscientific Model Development',
       keywords: ['ERA5-Land', 'reanalysis', 'land surface', 'meteorological data', 'precipitation', 'temperature', 'soil moisture', 'evapotranspiration'],
-      abstract: "ERA5-Land is a reanalysis dataset providing hourly data for land surface variables at 9km resolution globally. It combines ECMWF's land surface model with atmospheric forcing from ERA5, offering improved representation of soil moisture, evapotranspiration, and surface runoff compared to ERA5."
+      abstract: "ERA5-Land is a reanalysis dataset providing hourly data for land surface variables at 9km resolution globally. It combines ECMWF's land surface model with atmospheric forcing from ERA5, offering improved representation of soil moisture, evapotranspiration, and surface runoff compared to ERA5.",
+      // Structured metadata for extraction
+      datasets: [
+        { name: 'ERA5-Land', acronym: 'ERA5-Land', spatialCoverage: 'Global', temporalCoverage: '1950-present', resolution: '9km' }
+      ],
+      variables: [
+        { name: 'precipitation', unit: 'mm' },
+        { name: 'temperature', unit: 'K' },
+        { name: 'soil moisture', unit: 'm³/m³' },
+        { name: 'evapotranspiration', unit: 'mm' }
+      ],
+      institutions: [
+        { name: 'ECMWF', type: 'organization' }
+      ]
     },
     text: `
 # ERA5-Land: A State-of-the-Art Dataset for Land Surface Applications
@@ -227,7 +258,18 @@ Muñoz-Sabater, J., et al. (2021). ERA5-Land: A state-of-the-art dataset for lan
       description: 'A Python library for deep learning hydrological modeling, including LSTM, EA-LSTM, and transformer architectures for rainfall-runoff prediction.',
       keywords: ['deep learning', 'hydrology', 'LSTM', 'streamflow', 'prediction', 'pytorch'],
       dependencies: ['pytorch', 'numpy', 'pandas', 'xarray'],
-      architecture: 'LSTM ensemble with attention mechanism'
+      architecture: 'LSTM ensemble with attention mechanism',
+      // Structured metadata for extraction
+      models: [
+        { name: 'LSTM', type: 'machine_learning', architecture: 'LSTM with attention' },
+        { name: 'EA-LSTM', type: 'machine_learning', architecture: 'Entity-Aware LSTM' }
+      ],
+      packages: [
+        { name: 'pytorch', version: 'latest' },
+        { name: 'numpy' },
+        { name: 'pandas' },
+        { name: 'xarray' }
+      ]
     },
     text: `
 # NeuralHydrology
@@ -278,7 +320,18 @@ Kratzert, F., et al. (2019). NeuralHydrology - Interpreting LSTM hydrological mo
       description: 'Global Flood Awareness System operational forecasting suite',
       keywords: ['flood forecasting', 'global', 'ECMWF', 'hydrology', 'early warning'],
       dependencies: ['ecmwflibs', 'pyhon', 'xarray'],
-      architecture: 'Hydrological model + hydraulic routing'
+      architecture: 'Hydrological model + hydraulic routing',
+      // Structured metadata for extraction
+      models: [
+        { name: 'GloFAS', type: 'hydrological', architecture: 'Hydrological model + hydraulic routing' }
+      ],
+      packages: [
+        { name: 'ecmwflibs' },
+        { name: 'xarray' }
+      ],
+      institutions: [
+        { name: 'ECMWF', type: 'organization' }
+      ]
     },
     text: `
 # GloFAS - Global Flood Awareness System
@@ -392,7 +445,17 @@ Addor, N., et al. (2017). The CAMELS data set: catchment attributes and meteorol
       reportType: 'Assessment Report',
       jurisdiction: 'Global',
       topics: ['climate change', 'impacts', 'adaptation', 'vulnerability', 'risk'],
-      keywords: ['IPCC', 'climate', 'adaptation', 'vulnerability', 'risk assessment', 'policy']
+      keywords: ['IPCC', 'climate', 'adaptation', 'vulnerability', 'risk assessment', 'policy'],
+      // Structured metadata for extraction
+      institutions: [
+        { name: 'IPCC', type: 'organization' }
+      ],
+      policies: [
+        { name: 'Climate adaptation measures', jurisdiction: 'Global' }
+      ],
+      assessments: [
+        { name: 'Climate risk assessment', type: 'global', scope: 'Impacts and vulnerability' }
+      ]
     },
     text: `
 # IPCC Sixth Assessment Report - Working Group II: Impacts, Adaptation and Vulnerability
@@ -472,7 +535,21 @@ Addor, N., et al. (2017). The CAMELS data set: catchment attributes and meteorol
       jurisdiction: 'Global',
       topics: ['early warning systems', 'disaster risk reduction', 'climate adaptation'],
       hazards: ['flood', 'drought', 'cyclone', 'heatwave', 'wildfire'],
-      keywords: ['early warning', 'WMO', 'disaster risk', 'adaptation', 'hazard', 'monitoring']
+      keywords: ['early warning', 'WMO', 'disaster risk', 'adaptation', 'hazard', 'monitoring'],
+      // Structured metadata for extraction
+      institutions: [
+        { name: 'WMO', type: 'organization' }
+      ],
+      interventions: [
+        { name: 'Early warning systems', type: 'adaptation', entityType: 'AdaptationMeasure' }
+      ],
+      hazards: [
+        { type: 'flood' },
+        { type: 'drought' },
+        { type: 'cyclone' },
+        { type: 'heatwave' },
+        { type: 'wildfire' }
+      ]
     },
     text: `
 # Early Warnings for All: Global Status Report 2023
@@ -544,7 +621,17 @@ The initiative operates under the Sendai Framework for Disaster Risk Reduction a
       venue: 'Reuters',
       location: 'Pakistan',
       event: 'flood',
-      keywords: ['flood', 'Pakistan', 'disaster', 'displaced', 'monsoon', 'climate']
+      keywords: ['flood', 'Pakistan', 'disaster', 'displaced', 'monsoon', 'climate'],
+      // Structured metadata for extraction
+      hazards: [
+        { type: 'flood', name: 'Pakistan Floods 2022', location: 'Pakistan', date: '2022-08-30' }
+      ],
+      regions: [
+        { name: 'Pakistan', type: 'country' }
+      ],
+      interventions: [
+        { name: 'Emergency response', type: 'emergency', entityType: 'EmergencyResponse' }
+      ]
     },
     text: `
 # Devastating Floods Hit Pakistan, Leaving Millions Displaced
@@ -624,7 +711,17 @@ Experts warn that Pakistan faces increasing flood risks due to climate change. T
       venue: 'BBC',
       location: 'Europe',
       event: 'heatwave',
-      keywords: ['heatwave', 'Europe', 'temperature', 'climate', 'record', 'health']
+      keywords: ['heatwave', 'Europe', 'temperature', 'climate', 'record', 'health'],
+      // Structured metadata for extraction
+      hazards: [
+        { type: 'heatwave', name: 'Europe Heatwave 2023', location: 'Europe', date: '2023-07-18' }
+      ],
+      regions: [
+        { name: 'Europe', type: 'region' }
+      ],
+      interventions: [
+        { name: 'Heat action plan', type: 'adaptation', entityType: 'AdaptationMeasure' }
+      ]
     },
     text: `
 # Record Heatwave Sweeps Europe, Breaking Temperature Records

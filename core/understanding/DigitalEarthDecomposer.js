@@ -28,6 +28,9 @@ class DigitalEarthDecomposer {
       confidenceThreshold: options.confidenceThreshold || 0.6,
       useLLM: options.useLLM !== false, // Default to true
       maxChunkSize: options.maxChunkSize || 8000,
+      // Fallback bridge relations are disabled by default
+      // LLM-extracted relations are preferred
+      allowFallbackBridgeRelations: options.allowFallbackBridgeRelations || false,
       ...options
     };
     this.ontologyActivator = new DynamicOntologyActivation();
@@ -140,13 +143,17 @@ class DigitalEarthDecomposer {
         // First, collect LLM-extracted relations from merge result
         const llmRelations = merged.bridgeRelations || [];
 
-        // Then, add inferred fallback relations (only for metadata-extracted objects)
-        const inferredRelations = this._buildBridgeRelations(
-          result.capabilityObjects,
-          result.worldObjects,
-          result.evidenceObjects,
-          llmRelations // Pass LLM relations to avoid duplicates
-        );
+        // Only build fallback relations if explicitly allowed
+        // Default is disabled — LLM should provide semantic relations
+        let inferredRelations = [];
+        if (this.options.allowFallbackBridgeRelations) {
+          inferredRelations = this._buildBridgeRelations(
+            result.capabilityObjects,
+            result.worldObjects,
+            result.evidenceObjects,
+            llmRelations // Pass LLM relations to avoid duplicates
+          );
+        }
 
         // Combine: LLM relations first (higher priority), then inferred
         result.bridgeRelations = this._validateAndMergeBridgeRelations(llmRelations, inferredRelations);
@@ -1132,23 +1139,34 @@ Return JSON with this structure:`;
 
   /**
    * Extract action capabilities (Intervention, AdaptationMeasure, EmergencyResponse)
+   *
+   * IMPORTANT: This method does NOT use pattern matching to determine entity type.
+   * The type comes from:
+   * 1. Explicit metadata.type field (preferred)
+   * 2. LLM extraction (semantic understanding)
+   * 3. Default to base 'Intervention' type (no keyword guessing)
    */
   _extractActionCapabilities(metadata, text) {
     const objects = [];
 
     const interventions = metadata.interventions || metadata.measures || [];
     for (const interv of interventions) {
-      const interventionType = interv.type || 'intervention';
-      const entityType = interventionType.includes('adaptation') ? 'AdaptationMeasure' :
-                         interventionType.includes('mitigation') ? 'MitigationMeasure' :
-                         interventionType.includes('emergency') ? 'EmergencyResponse' : 'Intervention';
+      // Use explicit type if provided, otherwise default to Intervention
+      // LLM extraction will provide specific types like AdaptationMeasure
+      let entityType = interv.entityType || interv.type;
+
+      // If type is not a valid ontology type, use base Intervention
+      // Do NOT use pattern matching like .includes('adaptation')
+      if (!entityType || !this._isValidInterventionType(entityType)) {
+        entityType = 'Intervention';
+      }
 
       objects.push({
         type: entityType,
         id: this._generateId('intervention', interv.name || interv),
         attributes: {
           name: interv.name || interv,
-          type: interventionType,
+          type: interv.type, // Keep original type as attribute for LLM to classify
           target: interv.target,
           status: interv.status
         },
@@ -1158,6 +1176,15 @@ Return JSON with this structure:`;
     }
 
     return objects;
+  }
+
+  /**
+   * Check if a type is a valid Intervention subtype in ontology
+   */
+  _isValidInterventionType(type) {
+    const validTypes = ['Intervention', 'AdaptationMeasure', 'MitigationMeasure',
+                        'EmergencyResponse', 'ManagementAction'];
+    return validTypes.includes(type);
   }
 
   /**
@@ -1242,22 +1269,26 @@ Return JSON with this structure:`;
   }
 
   /**
-   * Map region type string to entity type
+   * Map region type string to entity type using ontology
+   *
+   * IMPORTANT: No hardcoded type lists. Uses ontology.validateEntityType().
+   * If type not found in ontology, defaults to base 'Region' type.
    */
   _mapRegionType(regionType) {
-    const mapping = {
-      'basin': 'Basin',
-      'watershed': 'Watershed',
-      'river': 'River',
-      'lake': 'Lake',
-      'glacier': 'Glacier',
-      'aquifer': 'Aquifer',
-      'coastline': 'Coastline',
-      'region': 'Region',
-      'country': 'Region',
-      'continent': 'Region'
-    };
-    return mapping[regionType.toLowerCase()] || 'Region';
+    if (!regionType) return 'Region';
+
+    // Normalize type name
+    const normalizedType = regionType.charAt(0).toUpperCase() + regionType.slice(1).toLowerCase();
+
+    // Use ontology to validate entity type
+    try {
+      ontology.validateEntityType(normalizedType);
+      return normalizedType;
+    } catch {
+      // Type not in ontology, default to Region
+      // LLM can refine this during semantic extraction
+      return 'Region';
+    }
   }
 
   /**
@@ -1316,20 +1347,32 @@ Return JSON with this structure:`;
   }
 
   /**
-   * Map hazard type to entity type
+   * Map hazard type to entity type using ontology
+   *
+   * IMPORTANT: No hardcoded type lists. Uses ontology.validateEntityType().
+   * If type not found in ontology, defaults to base 'Hazard' type.
    */
   _mapHazardType(hazardType) {
-    const mapping = {
-      'flood': 'FloodEvent',
-      'drought': 'DroughtEvent',
-      'heatwave': 'Heatwave',
-      'wildfire': 'Wildfire',
-      'landslide': 'Landslide',
-      'earthquake': 'EarthEvent',
-      'cyclone': 'EarthEvent',
-      'hurricane': 'EarthEvent'
-    };
-    return mapping[hazardType.toLowerCase()] || 'Hazard';
+    if (!hazardType) return 'Hazard';
+
+    // Normalize type name
+    const normalizedType = hazardType.charAt(0).toUpperCase() + hazardType.slice(1).toLowerCase();
+
+    // Use ontology to validate entity type
+    try {
+      ontology.validateEntityType(normalizedType);
+      return normalizedType;
+    } catch {
+      // Try with 'Event' suffix for common hazard naming
+      const eventTypeName = normalizedType + 'Event';
+      try {
+        ontology.validateEntityType(eventTypeName);
+        return eventTypeName;
+      } catch {
+        // Type not in ontology, default to Hazard
+        return 'Hazard';
+      }
+    }
   }
 
   /**
@@ -1487,8 +1530,10 @@ Return JSON with this structure:`;
     // Use relation semantics for fallback relations
     // Instead of hardcoded type arrays, check against relation semantics
     for (const cap of capabilityObjects) {
-      // Skip LLM-extracted objects (they should already have relations)
-      if (cap.extractionSource === 'llm') continue;
+      // Skip if LLM already provided relations for this object
+      // (check if any LLM relation involves this object)
+      const hasLLMRelation = llmRelations.some(r => r.from === cap.id || r.to === cap.id);
+      if (hasLLMRelation) continue;
 
       for (const world of worldObjects) {
         // Get valid relations between these types using semantics
@@ -1523,7 +1568,9 @@ Return JSON with this structure:`;
 
     // Evidence → World Object support (use semantics)
     for (const ev of evidenceObjects) {
-      if (ev.extractionSource === 'llm') continue;
+      // Skip if LLM already provided relations for this object
+      const hasLLMRelation = llmRelations.some(r => r.from === ev.id || r.to === ev.id);
+      if (hasLLMRelation) continue;
 
       for (const world of worldObjects) {
         const validRels = getValidRelations(ev.type, world.type);

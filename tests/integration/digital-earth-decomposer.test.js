@@ -90,7 +90,8 @@ describe('Digital Earth Decomposer', () => {
   });
 
   it('should build bridge relations between capabilities and world objects', async () => {
-    const decomposer = new DigitalEarthDecomposer();
+    // Enable fallback bridge relations for testing
+    const decomposer = new DigitalEarthDecomposer(null, { allowFallbackBridgeRelations: true });
     const admissionResult = {
       sourceType: 'Paper',
       depth: 'deep',
