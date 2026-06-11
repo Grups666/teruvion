@@ -684,12 +684,16 @@ Return JSON with this structure:`;
     const metadata = content.metadata || {};
     const text = content.text || '';
 
+    // Get name from content (GitHub returns name at top level)
+    const name = content.name || metadata.title || metadata.name || 'Untitled';
+
     const sourceObject = {
       type: sourceType,
       id: this._generateId(sourceType, input),
+      name: name,
       attributes: {
         identifier: input,
-        title: metadata.title || metadata.name || 'Untitled',
+        title: name,
         type: sourceType.toLowerCase()
       },
       metadata: {

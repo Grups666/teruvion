@@ -177,11 +177,10 @@ export default function Home() {
             <span className="section-title">Projects</span>
             {projects.length > 0 && (
               <button
-                className="text-xs text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
                 onClick={clearAll}
-                style={{ background: 'none', border: 'none', font: 'inherit' }}
+                style={{ background: 'none', border: 'none', font: 'inherit', fontSize: '10px', color: 'var(--muted)', cursor: 'pointer' }}
               >
-                Clear
+                Clear all
               </button>
             )}
           </div>
@@ -338,17 +337,6 @@ export default function Home() {
             </>
           )}
         </div>
-
-        {/* Empty state overlay when no entities */}
-        {entities.length === 0 && (
-          <div className="empty-state" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50 }}>
-            <div className="empty-icon" aria-hidden="true" />
-            <div className="empty-title">No objects yet</div>
-            <div className="empty-text">
-              Import a research source to populate the Digital Earth graph
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
