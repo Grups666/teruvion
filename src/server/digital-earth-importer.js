@@ -290,11 +290,21 @@ class DigitalEarthImporter {
    * Create a TripleStore Entity from decomposition object
    */
   _createEntity(obj, source, projectId) {
-    return new Entity(obj.type, {
-      name: obj.name,
+    // Merge attributes, ensuring name is preserved
+    const attrs = {
       ...obj.attributes,
-      ...obj
-    }, {
+      ...obj,
+      name: obj.name || obj.attributes?.name || obj.id?.split('/').pop() || 'Unnamed',
+    };
+
+    // Remove internal fields from attributes
+    delete attrs.id;
+    delete attrs.type;
+    delete attrs.confidence;
+    delete attrs.provenance;
+    delete attrs.metadata;
+
+    return new Entity(obj.type, attrs, {
       source,
       projectId,
       extractedBy: 'DigitalEarthDecomposer',
