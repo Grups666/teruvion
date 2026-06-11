@@ -27,6 +27,8 @@ export default function MapComponent({ entities, selectedEntityId, onSelectEntit
       zoom: 2,
       minZoom: 2,
       maxZoom: 12,
+      maxBounds: [[-90, -Infinity], [90, Infinity]],
+      maxBoundsViscosity: 1.0,
       zoomControl: true,
       attributionControl: false,
     });
