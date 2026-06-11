@@ -2,14 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import api from '../../../types/client';
-import type { AlphaApplication } from '../../../types/api';
+import type { AlphaApplication, AlphaMembership } from '../../../types/api';
 
 export default function AdminAlphaPage() {
   const [adminSecret, setAdminSecret] = useState('');
   const [applications, setApplications] = useState<AlphaApplication[]>([]);
+  const [memberships, setMemberships] = useState<AlphaMembership[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [view, setView] = useState<'applications' | 'members'>('applications');
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [lastInviteCode, setLastInviteCode] = useState<string | null>(null);
 
@@ -30,10 +32,17 @@ export default function AdminAlphaPage() {
     setError(null);
 
     try {
-      const result = await api.getAlphaApplications(adminSecret);
-      setApplications(result.applications);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load applications');
+      const [applicationResult, membershipResult] = await Promise.all([
+        api.getAlphaApplications(adminSecret),
+        api.getAlphaMemberships(adminSecret)
+      ]);
+      setApplications(applicationResult.applications);
+      setMemberships(membershipResult.memberships);
+      if (applicationResult.applications.length === 0 && membershipResult.memberships.length > 0) {
+        setView('members');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load alpha data');
     } finally {
       setLoading(false);
     }
@@ -48,8 +57,8 @@ export default function AdminAlphaPage() {
       const result = await api.approveApplication(id, adminSecret);
       setLastInviteCode(result.inviteCode);
       await loadApplications();
-    } catch (err: any) {
-      setError(err.message || 'Failed to approve');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to approve');
     } finally {
       setProcessingId(null);
     }
@@ -63,8 +72,8 @@ export default function AdminAlphaPage() {
     try {
       await api.rejectApplication(id, adminSecret);
       await loadApplications();
-    } catch (err: any) {
-      setError(err.message || 'Failed to reject');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reject');
     } finally {
       setProcessingId(null);
     }
@@ -80,6 +89,7 @@ export default function AdminAlphaPage() {
     pending: applications.filter(a => a.status === 'pending').length,
     approved: applications.filter(a => a.status === 'approved').length,
     rejected: applications.filter(a => a.status === 'rejected').length,
+    members: memberships.length,
   };
 
   return (
@@ -124,8 +134,25 @@ export default function AdminAlphaPage() {
           </div>
         )}
 
+        {(applications.length > 0 || memberships.length > 0) && (
+          <div className="flex gap-2 mb-6 text-sm">
+            <button
+              onClick={() => setView('applications')}
+              className={`px-3 py-2 rounded-md ${view === 'applications' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}
+            >
+              Applications ({stats.total})
+            </button>
+            <button
+              onClick={() => setView('members')}
+              className={`px-3 py-2 rounded-md ${view === 'members' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}
+            >
+              Members ({stats.members})
+            </button>
+          </div>
+        )}
+
         {/* Stats */}
-        {applications.length > 0 && (
+        {view === 'applications' && applications.length > 0 && (
           <div className="flex gap-4 mb-6 text-sm">
             <button
               onClick={() => setFilter('all')}
@@ -155,7 +182,7 @@ export default function AdminAlphaPage() {
         )}
 
         {/* Applications List */}
-        {applications.length > 0 && (
+        {view === 'applications' && applications.length > 0 && (
           <div className="space-y-4">
             {filteredApplications.map(app => (
               <div key={app.id} className="border border-gray-200 rounded-lg p-4">
@@ -208,9 +235,51 @@ export default function AdminAlphaPage() {
           </div>
         )}
 
-        {applications.length === 0 && adminSecret && !loading && (
+        {view === 'members' && memberships.length > 0 && (
+          <div className="space-y-4">
+            {memberships.map(member => (
+              <div key={member.id} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <h3 className="font-medium">{member.name}</h3>
+                    <p className="text-sm text-gray-500">{member.email}</p>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-800">
+                    {member.plan}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm text-gray-600 mb-3">
+                  <div className="bg-gray-50 rounded-md px-3 py-2">
+                    <div className="text-xs text-gray-400 mb-1">Role</div>
+                    <div className="font-medium text-gray-800">{member.role}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-md px-3 py-2">
+                    <div className="text-xs text-gray-400 mb-1">Quota</div>
+                    <div className="font-medium text-gray-800">
+                      {member.quota.maxJobsPerMonth} jobs/mo - {member.quota.maxSourcesPerJob} sources/job
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center text-xs text-gray-400">
+                  <span>{member.id}</span>
+                  <span>{new Date(member.createdAt).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {view === 'applications' && applications.length === 0 && adminSecret && !loading && (
           <div className="text-center py-12 text-gray-500">
             No applications found.
+          </div>
+        )}
+
+        {view === 'members' && memberships.length === 0 && adminSecret && !loading && (
+          <div className="text-center py-12 text-gray-500">
+            No activated members yet.
           </div>
         )}
       </div>
