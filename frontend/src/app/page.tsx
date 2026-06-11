@@ -32,6 +32,7 @@ export default function Home() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [importInput, setImportInput] = useState('');
   const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [status, setStatus] = useState('Ready');
   const [selectedExplore, setSelectedExplore] = useState<EntityExploreResponse | null>(null);
   const [exploreLoading, setExploreLoading] = useState(false);
@@ -104,6 +105,7 @@ export default function Home() {
     if (!input) return;
 
     setImporting(true);
+    setImportError(null);
     setStatus('Importing...');
 
     try {
@@ -122,7 +124,9 @@ export default function Home() {
       setupSSE(result.projectId);
       startProjectPoll(result.projectId);
 
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Import failed';
+      setImportError(message);
       setStatus('Failed');
     } finally {
       setImporting(false);
@@ -356,6 +360,7 @@ export default function Home() {
                 className="source-example"
                 onClick={() => {
                   setImportInput(example.value);
+                  setImportError(null);
                   setStatus(`${example.label} example selected`);
                 }}
                 disabled={importing}
@@ -365,6 +370,15 @@ export default function Home() {
               </button>
             ))}
           </div>
+
+          {importError && (
+            <div className="import-error" role="alert">
+              <span>{importError}</span>
+              <button type="button" onClick={() => setImportError(null)} aria-label="Dismiss import error">
+                x
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="sidebar-body">
@@ -391,6 +405,7 @@ export default function Home() {
             <div className="project-list">
               {projects.map(project => {
                 const isImporting = project.analysis?.status === 'importing';
+                const isFailed = project.analysis?.status === 'failed';
                 const isReady = !!project.metadata?.decomposition;
 
                 return (
@@ -405,8 +420,8 @@ export default function Home() {
                     <div className="project-info">
                       <div className="project-name">{project.name}</div>
                       <div className="project-status">
-                        <span className={`dot ${isImporting ? 'importing' : isReady ? 'ready' : ''}`} />
-                        <span>{isImporting ? 'Analyzing' : isReady ? 'Ready' : 'Processing'}</span>
+                        <span className={`dot ${isFailed ? 'failed' : isImporting ? 'importing' : isReady ? 'ready' : ''}`} />
+                        <span>{isFailed ? 'Failed' : isImporting ? 'Analyzing' : isReady ? 'Ready' : 'Processing'}</span>
                       </div>
                     </div>
                     <button

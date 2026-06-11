@@ -204,6 +204,30 @@ html, body {
   cursor: not-allowed;
 }
 
+.import-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.06);
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.import-error button {
+  border: none;
+  background: transparent;
+  color: #b91c1c;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
 /* ===== Section Headers ===== */
 .section-header {
   display: flex;
@@ -301,6 +325,10 @@ html, body {
 
 .project-status .dot.ready {
   background: var(--world);
+}
+
+.project-status .dot.failed {
+  background: #ef4444;
 }
 
 @keyframes pulse {

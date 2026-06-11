@@ -57,7 +57,13 @@ class APIClient {
     });
 
     if (!res.ok) {
-      throw new Error(`API Error: ${res.status} ${res.statusText}`);
+      let detail = '';
+      try {
+        const body = await res.json();
+        detail = body?.error || body?.message || '';
+      } catch {}
+
+      throw new Error(detail || `API Error: ${res.status} ${res.statusText}`);
     }
 
     return res.json();
