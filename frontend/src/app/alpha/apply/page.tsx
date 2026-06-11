@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import api from '../../types/client';
-import type { AlphaApplicationInput } from '../../types/api';
+import api from '../../../types/client';
+import type { AlphaApplicationInput } from '../../../types/api';
 
 export default function AlphaApplyPage() {
   const [formData, setFormData] = useState<AlphaApplicationInput>({

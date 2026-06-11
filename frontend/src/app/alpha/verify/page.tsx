@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import api from '../../types/client';
+import api from '../../../types/client';
 
 function VerifyContent() {
   const searchParams = useSearchParams();

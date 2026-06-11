@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import api from '../../types/client';
-import type { AlphaApplication } from '../../types/api';
+import api from '../../../types/client';
+import type { AlphaApplication } from '../../../types/api';
 
 export default function AdminAlphaPage() {
   const [adminSecret, setAdminSecret] = useState('');
