@@ -12,6 +12,7 @@ import type {
   ProjectsResponse,
   ImportResponse,
   SSEEvent,
+  EntityExploreResponse,
   AlphaApplication,
   AlphaApplicationInput,
   AlphaMembership
@@ -73,6 +74,10 @@ class APIClient {
 
   async getEntityRelations(id: string): Promise<any> {
     return this.request(`/entities/${id}/relations`);
+  }
+
+  async exploreEntity(id: string): Promise<EntityExploreResponse> {
+    return this.request(`/entities/${id}/explore`);
   }
 
   // Projects

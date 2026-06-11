@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import api from '../types/client';
-import type { Entity, Project, SSEEvent, AnalysisProgress } from '../types/api';
+import type { Entity, Project, SSEEvent, AnalysisProgress, EntityExploreResponse, RelatedEntity } from '../types/api';
 import { getEntityLayer } from '../types/api';
 
 const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
@@ -16,10 +16,48 @@ export default function Home() {
   const [importInput, setImportInput] = useState('');
   const [importing, setImporting] = useState(false);
   const [status, setStatus] = useState('Ready');
+  const [selectedExplore, setSelectedExplore] = useState<EntityExploreResponse | null>(null);
+  const [exploreLoading, setExploreLoading] = useState(false);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { loadData(); }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadExplore(entityId: string) {
+      setExploreLoading(true);
+      setSelectedExplore(null);
+
+      try {
+        const result = await api.exploreEntity(entityId);
+        if (!cancelled) {
+          setSelectedExplore(result);
+        }
+      } catch (err) {
+        console.error('Failed to load entity graph:', err);
+        if (!cancelled) {
+          setSelectedExplore(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setExploreLoading(false);
+        }
+      }
+    }
+
+    if (selectedEntityId) {
+      loadExplore(selectedEntityId);
+    } else {
+      setSelectedExplore(null);
+      setExploreLoading(false);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEntityId]);
 
   useEffect(() => {
     return () => {
@@ -437,6 +475,17 @@ export default function Home() {
               </div>
 
               <div className="detail-body">
+                {/* Object Graph */}
+                <div className="detail-section">
+                  <div className="detail-label">Object Graph</div>
+                  <EntityGraphView
+                    selectedEntity={selectedEntity}
+                    explore={selectedExplore}
+                    loading={exploreLoading}
+                    onSelectEntity={setSelectedEntityId}
+                  />
+                </div>
+
                 {/* Key Attributes */}
                 <div className="detail-section">
                   <div className="detail-label">Properties</div>
@@ -487,6 +536,105 @@ export default function Home() {
         </div>
       </main>
     </div>
+  );
+}
+
+function EntityGraphView({
+  selectedEntity,
+  explore,
+  loading,
+  onSelectEntity
+}: {
+  selectedEntity: Entity;
+  explore: EntityExploreResponse | null;
+  loading: boolean;
+  onSelectEntity: (id: string) => void;
+}) {
+  if (loading) {
+    return <div className="graph-empty">Loading graph...</div>;
+  }
+
+  const related = explore?.relatedEntities || [];
+  const capabilities = explore?.capabilities || [];
+  const sources = explore?.sources || [];
+
+  if (related.length === 0 && capabilities.length === 0 && sources.length === 0) {
+    return <div className="graph-empty">No graph connections found yet.</div>;
+  }
+
+  return (
+    <div className="graph-view">
+      {related.length > 0 && (
+        <div className="graph-block">
+          <div className="graph-block-title">Connections</div>
+          <div className="relation-list">
+            {related.slice(0, 12).map(item => (
+              <RelationRow
+                key={`${item.direction}-${item.relation}-${item.id}`}
+                item={item}
+                selectedEntity={selectedEntity}
+                onSelectEntity={onSelectEntity}
+              />
+            ))}
+          </div>
+          {related.length > 12 && (
+            <div className="graph-more">
+              {related.length - 12} more connection{related.length - 12 !== 1 ? 's' : ''}
+            </div>
+          )}
+        </div>
+      )}
+
+      {capabilities.length > 0 && (
+        <div className="graph-block">
+          <div className="graph-block-title">Available Actions</div>
+          <div className="action-list">
+            {capabilities.slice(0, 6).map(action => (
+              <span className="action-chip" key={action}>{action}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {sources.length > 0 && (
+        <div className="graph-block">
+          <div className="graph-block-title">Sources</div>
+          <div className="source-list">
+            {sources.slice(0, 4).map(source => (
+              <div className="source-item" key={source}>{source}</div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RelationRow({
+  item,
+  selectedEntity,
+  onSelectEntity
+}: {
+  item: RelatedEntity;
+  selectedEntity: Entity;
+  onSelectEntity: (id: string) => void;
+}) {
+  const selectedName = selectedEntity.attributes.name || selectedEntity.id;
+  const left = item.direction === 'outgoing' ? selectedName : item.name;
+  const right = item.direction === 'outgoing' ? item.name : selectedName;
+
+  return (
+    <button className="relation-row" onClick={() => onSelectEntity(item.id)}>
+      <span className={`object-dot ${getEntityLayer(item.type)}`} />
+      <span className="relation-main">
+        <span className="relation-line">
+          <span className="relation-node">{left}</span>
+          <span className="relation-predicate">{item.relation}</span>
+          <span className="relation-node">{right}</span>
+        </span>
+        <span className="relation-type">{item.type}</span>
+      </span>
+    </button>
   );
 }
 

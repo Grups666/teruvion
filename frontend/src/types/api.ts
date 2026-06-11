@@ -85,6 +85,34 @@ export interface ImportResponse {
   status: string;
 }
 
+export interface RelatedEntity {
+  id: string;
+  type: string;
+  name: string;
+  relation: string;
+  direction: 'incoming' | 'outgoing';
+}
+
+export interface EntityExploreResponse {
+  entity: {
+    id: string;
+    type: string;
+    name: string;
+    layer: EntityLayer;
+    category?: string;
+    attributes: Record<string, any>;
+  };
+  relatedEntities: RelatedEntity[];
+  sources: string[];
+  capabilities: string[];
+  relations: Array<{
+    type: string;
+    from: string;
+    to: string;
+    confidence: number;
+  }>;
+}
+
 export interface SSEStatusEvent {
   type: 'status' | 'progress';
   data: {

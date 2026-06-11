@@ -647,6 +647,138 @@ html, body {
   word-break: break-word;
 }
 
+/* ===== Object Graph Inspector ===== */
+.graph-view {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.graph-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.graph-block-title {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.relation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.relation-row {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.relation-row:hover {
+  background: var(--background);
+}
+
+.relation-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.relation-line {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.relation-node {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary);
+}
+
+.relation-predicate {
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--background);
+  color: var(--secondary);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.relation-type {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.action-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.action-chip {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.source-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-empty,
+.graph-more {
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* ===== Empty State ===== */
 .empty-state {
   display: flex;
