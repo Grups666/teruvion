@@ -130,7 +130,7 @@ class SourceRoleEvaluator {
    */
   _addContentBonuses(roles, metadata) {
     // Data capability: presence of structured variables
-    if (metadata.variables?.length > 0) {
+    if (metadata.datasets?.length > 0 || metadata.variables?.length > 0) {
       roles.data_capability = Math.min(1.0, roles.data_capability + 0.3);
     }
     if (metadata.spatialCoverage || metadata.temporalCoverage) {
@@ -138,7 +138,7 @@ class SourceRoleEvaluator {
     }
 
     // Modeling capability: presence of model metadata
-    if (metadata.architecture || metadata.hyperparameters || metadata.performance) {
+    if (metadata.models?.length > 0 || metadata.architecture || metadata.hyperparameters || metadata.performance) {
       roles.modeling_capability = Math.min(1.0, roles.modeling_capability + 0.3);
     }
 

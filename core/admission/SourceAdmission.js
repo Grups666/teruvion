@@ -51,6 +51,7 @@ class SourceAdmission {
 
     const combinedMetadata = {
       ...metadata,
+      ...(content.metadata || {}),
       ...content,
       type: sourceType
     };

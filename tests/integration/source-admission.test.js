@@ -228,6 +228,23 @@ describe('Source Admission Integration', () => {
     assert.ok(result.activatedOntologyLayers.includes('capability'), 'Should activate capability layer');
   });
 
+  it('should use connector metadata nested under content.metadata', async () => {
+    const admission = new SourceAdmission(null);
+
+    const result = await admission.evaluate('https://github.com/google/flood-forecasting', {
+      type: 'Repository',
+      name: 'flood-forecasting',
+      metadata: {
+        datasets: [{ name: 'ERA5-Land' }],
+        models: [{ name: 'flood-forecasting' }],
+        dependencies: [{ name: 'torch' }]
+      }
+    });
+
+    assert.ok(result.sourceRoles.data_capability >= 0.2, 'Should detect nested dataset metadata');
+    assert.ok(result.activatedCategories.includes('data'), 'Should activate data category');
+  });
+
   it('should evaluate dataset with data capability', async () => {
     // Use admission without LLM to test fallback mode
     const admission = new SourceAdmission(null);

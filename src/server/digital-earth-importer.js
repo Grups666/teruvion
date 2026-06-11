@@ -139,7 +139,7 @@ class DigitalEarthImporter {
 
       project.updateProgress('decomposition', 'completed', {
         capabilities: decomposition.capabilityObjects?.length || 0,
-        world: decomposition.worldObjects?.worldObjects?.length || 0
+        world: decomposition.worldObjects?.length || 0
       });
       await this.projectRegistry.save();
 
@@ -353,7 +353,11 @@ class DigitalEarthImporter {
    */
   _notifyProgress(projectId, phase, status) {
     if (this.sseNotify) {
-      this.sseNotify(projectId, 'progress', { phase, status, timestamp: Date.now() });
+      const payload = typeof status === 'object' && status !== null
+        ? { phase, ...status, timestamp: Date.now() }
+        : { phase, status, timestamp: Date.now() };
+
+      this.sseNotify(projectId, 'progress', payload);
     }
   }
 

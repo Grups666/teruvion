@@ -166,6 +166,44 @@ describe('Digital Earth Decomposer', () => {
 
     const software = result.capabilityObjects.filter(o => o.type === 'Software');
     assert.ok(software.length >= 2, 'Should have software packages');
+
+    const models = result.capabilityObjects.filter(o => o.type === 'Model');
+    assert.ok(models.length >= 1, 'Should have model capabilities');
+  });
+
+  it('should extract GitHub datasets and workflows from normalized connector metadata', async () => {
+    const decomposer = new DigitalEarthDecomposer();
+    const admissionResult = {
+      sourceType: 'Repository',
+      depth: 'structured',
+      activatedCategories: ['data', 'computing', 'modeling'],
+      activatedOntologyLayers: ['source', 'capability'],
+      sourceRoles: { data_capability: 0.5, computing_capability: 0.7, modeling_capability: 0.5 },
+      primaryRole: 'computing_capability',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('https://github.com/google/flood-forecasting', {
+      name: 'flood-forecasting',
+      metadata: {
+        name: 'flood-forecasting',
+        language: 'Python',
+        datasets: [
+          { name: 'ERA5-Land reanalysis data' },
+          { name: 'GRDC streamflow observations' }
+        ],
+        models: [{ name: 'flood-forecasting', type: 'repository_model' }],
+        dependencies: [{ name: 'torch' }, { name: 'numpy' }],
+        workflows: [{ name: 'Script workflow', purpose: 'repository scripts' }]
+      }
+    }, admissionResult);
+
+    const types = result.capabilityObjects.map(o => o.type);
+    assert.ok(types.includes('Dataset'), 'Should extract datasets');
+    assert.ok(types.includes('Model'), 'Should extract model');
+    assert.ok(types.includes('Software'), 'Should extract dependencies');
+    assert.ok(types.includes('Workflow'), 'Should extract workflows');
+    assert.strictEqual(result.sourceObject.name, 'flood-forecasting');
   });
 
   it('should extract dataset capabilities', async () => {
