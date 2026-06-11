@@ -17,11 +17,15 @@ export default function Home() {
   const [importing, setImporting] = useState(false);
   const [status, setStatus] = useState('Ready');
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
   useEffect(() => {
-    return () => { unsubscribeRef.current?.(); };
+    return () => {
+      unsubscribeRef.current?.();
+      clearProjectPoll();
+    };
   }, []);
 
   async function loadData() {
@@ -61,6 +65,7 @@ export default function Home() {
 
       // Setup SSE for progress updates
       setupSSE(result.projectId);
+      startProjectPoll(result.projectId);
 
     } catch (err: any) {
       setStatus('Failed');
@@ -78,6 +83,7 @@ export default function Home() {
         if (event.type === 'completed') {
           unsubscribeRef.current?.();
           unsubscribeRef.current = null;
+          clearProjectPoll();
           loadData();
           setStatus('Updated');
           return;
@@ -86,6 +92,7 @@ export default function Home() {
         if (event.type === 'error') {
           unsubscribeRef.current?.();
           unsubscribeRef.current = null;
+          clearProjectPoll();
           setProjects(prev => prev.map(p => (
             p.id === projectId
               ? {
@@ -111,6 +118,7 @@ export default function Home() {
           if (projectStatus === 'completed') {
             unsubscribeRef.current?.();
             unsubscribeRef.current = null;
+            clearProjectPoll();
             loadData();
             return;
           }
@@ -138,6 +146,64 @@ export default function Home() {
         loadData();
       }
     );
+  }
+
+  function clearProjectPoll() {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }
+
+  function startProjectPoll(projectId: string) {
+    clearProjectPoll();
+
+    const poll = async () => {
+      try {
+        const { project } = await api.getProject(projectId);
+        const projectStatus = project.analysis?.status;
+        const currentPhase = project.analysis?.currentPhase || project.analysis?.progress?.inProgress;
+
+        setProjects(prev => prev.map(p => (
+          p.id === projectId
+            ? {
+                ...p,
+                ...project,
+                name: project.name || p.name,
+                analysis: project.analysis || p.analysis,
+              }
+            : p
+        )));
+
+        if (project.metadata?.decomposition || projectStatus === 'completed') {
+          clearProjectPoll();
+          unsubscribeRef.current?.();
+          unsubscribeRef.current = null;
+          await loadData();
+          setStatus('Updated');
+          return;
+        }
+
+        if (projectStatus === 'failed') {
+          clearProjectPoll();
+          unsubscribeRef.current?.();
+          unsubscribeRef.current = null;
+          await loadData();
+          setStatus('Import failed');
+          return;
+        }
+
+        if (currentPhase) {
+          setStatus(`Processing: ${currentPhase}`);
+        }
+      } catch (err) {
+        console.warn('[Import Poll] Failed to poll project:', err);
+      }
+
+      pollTimerRef.current = setTimeout(poll, 2000);
+    };
+
+    pollTimerRef.current = setTimeout(poll, 1500);
   }
 
   async function deleteProject(projectId: string) {
