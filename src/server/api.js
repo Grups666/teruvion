@@ -1,16 +1,18 @@
 /**
  * Teruvion REST API
- * Connects Core Engine (TripleStore, Projects, Connectors) with web frontend
+ * Connects Core Engine (TripleStore, Projects, Decomposer) with web frontend
+ *
+ * Unified Digital Earth Pipeline:
+ * SourceAdmission → DigitalEarthDecomposer → TripleStore
  */
 
 const express = require('express');
-const path = require('path');
+const llm = require('../../core/utils/llm');
 const { TripleStore } = require('../../core/registry/TripleStore');
 const { ProjectRegistry } = require('../../core/project/Project');
 const EventLog = require('../../core/events/EventLog');
-const UnifiedIngest = require('../../core/ingest/UnifiedIngest');
 const Exporter = require('../../core/project/Exporter');
-const ResearchImporter = require('./research-importer');
+const DigitalEarthImporter = require('./digital-earth-importer');
 const { LensRegistry } = require('../../core/lenses');
 const { SourceAdmission } = require('../../core/admission/SourceAdmission');
 const ontology = require('../../core/registry/ontology');
@@ -24,15 +26,14 @@ const router = express.Router();
 let store = null;
 let eventLog = null;
 let projectRegistry = null;
-let ingest = null;
 let exporter = null;
-let researchImporter = null;
+let importer = null;
 let lensRegistry = null;
 
-// SSE连接管理
-const sseClients = new Map(); // projectId → Set of response objects
+// SSE connection management
+const sseClients = new Map();
 
-// SSE通知函数
+// SSE notification function
 function notifySSEClients(projectId, eventType, data) {
   const clients = sseClients.get(projectId);
   if (!clients || clients.size === 0) return;
@@ -49,7 +50,7 @@ function notifySSEClients(projectId, eventType, data) {
 }
 
 async function initializeCoreEngine() {
-  if (store) return; // Already initialized
+  if (store) return;
 
   store = new TripleStore();
   eventLog = new EventLog();
@@ -59,11 +60,8 @@ async function initializeCoreEngine() {
   await eventLog.load().catch(() => console.log('[API] No existing event log, starting fresh'));
   await projectRegistry.load().catch(() => console.log('[API] No existing projects, starting fresh'));
 
-  ingest = new UnifiedIngest(store, eventLog);
   exporter = new Exporter(store, eventLog, projectRegistry);
-  researchImporter = new ResearchImporter(store, eventLog, projectRegistry, notifySSEClients);
-
-  // Initialize lens registry
+  importer = new DigitalEarthImporter(store, eventLog, projectRegistry, notifySSEClients);
   lensRegistry = new LensRegistry(store, ontology, projectRegistry);
 
   console.log('[API] Core Engine initialized');
@@ -107,29 +105,230 @@ router.get('/entities/:id', async (req, res) => {
   }
 });
 
+// GET /api/entities/:id/relations - Get all relations for an entity
+router.get('/entities/:id/relations', async (req, res) => {
+  try {
+    const entityId = req.params.id;
+    const entity = store.getEntity(entityId);
+
+    if (!entity) {
+      return res.status(404).json({ error: 'Entity not found' });
+    }
+
+    const relations = store.getRelations(entityId);
+
+    res.json({
+      entityId,
+      entityType: entity.type,
+      relations: [
+        ...relations.outgoing.map(r => ({
+          type: r.predicate,
+          from: entityId,
+          to: r.object,
+          confidence: r.confidence || 0.7,
+          isFallback: r.metadata?.isFallback || false,
+          provenance: r.provenance
+        })),
+        ...relations.incoming.map(r => ({
+          type: r.predicate,
+          from: r.subject,
+          to: entityId,
+          confidence: r.confidence || 0.7,
+          isFallback: r.metadata?.isFallback || false,
+          provenance: r.provenance
+        }))
+      ]
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/entities/:id/explore - Get full explore data for an entity
+router.get('/entities/:id/explore', async (req, res) => {
+  try {
+    const entityId = req.params.id;
+    const entity = store.getEntity(entityId);
+
+    if (!entity) {
+      return res.status(404).json({ error: 'Entity not found' });
+    }
+
+    const relations = store.getRelations(entityId);
+
+    const relatedEntities = [];
+    const sources = [];
+    const capabilities = [];
+
+    // Process outgoing relations
+    for (const rel of relations.outgoing) {
+      const target = store.getEntity(rel.object);
+      if (target) {
+        relatedEntities.push({
+          id: target.id,
+          type: target.type,
+          name: target.attributes?.name || target.id,
+          relation: rel.predicate,
+          direction: 'outgoing'
+        });
+
+        if (target.type === 'Paper' || target.type === 'Repository') {
+          sources.push(target.attributes?.title || target.id);
+        }
+      }
+    }
+
+    // Process incoming relations
+    for (const rel of relations.incoming) {
+      const source = store.getEntity(rel.subject);
+      if (source) {
+        relatedEntities.push({
+          id: source.id,
+          type: source.type,
+          name: source.attributes?.name || source.id,
+          relation: rel.predicate,
+          direction: 'incoming'
+        });
+
+        if (source.type === 'Paper' || source.type === 'Repository') {
+          sources.push(source.attributes?.title || source.id);
+        }
+      }
+    }
+
+    const entityCapabilities = determineCapabilities(entity, relations);
+
+    res.json({
+      entity: {
+        id: entity.id,
+        type: entity.type,
+        name: entity.attributes?.name || entity.id,
+        layer: getEntityLayer(entity.type),
+        category: getEntityCategory(entity.type),
+        attributes: entity.attributes
+      },
+      relatedEntities,
+      sources: [...new Set(sources)],
+      capabilities: entityCapabilities,
+      relations: [
+        ...relations.outgoing.map(r => ({
+          type: r.predicate,
+          from: entityId,
+          to: r.object,
+          confidence: r.confidence || 0.7
+        })),
+        ...relations.incoming.map(r => ({
+          type: r.predicate,
+          from: r.subject,
+          to: entityId,
+          confidence: r.confidence || 0.7
+        }))
+      ]
+    });
+  } catch (err) {
+    console.error('[API] Explore error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper functions
+function getEntityLayer(type) {
+  const worldTypes = ['Basin', 'Region', 'Watershed', 'River', 'Lake', 'Glacier', 'Hazard', 'FloodEvent', 'DroughtEvent'];
+  const capabilityTypes = ['Dataset', 'Model', 'Sensor', 'Gauge', 'Algorithm', 'Claim', 'Evidence', 'Assessment'];
+  const sourceTypes = ['Paper', 'Repository', 'Report', 'News', 'DatasetPage'];
+
+  if (worldTypes.includes(type)) return 'world';
+  if (capabilityTypes.includes(type)) return 'capability';
+  if (sourceTypes.includes(type)) return 'source';
+  return 'foundation';
+}
+
+function getEntityCategory(type) {
+  const categories = {
+    'Basin': 'earth-object',
+    'Watershed': 'earth-object',
+    'Region': 'earth-object',
+    'Dataset': 'data',
+    'Model': 'modeling',
+    'Sensor': 'observation',
+    'Gauge': 'observation',
+    'Claim': 'evidence',
+    'Evidence': 'evidence',
+    'FloodEvent': 'hazard',
+    'DroughtEvent': 'hazard',
+    'Paper': 'earth-content',
+    'Repository': 'computing'
+  };
+  return categories[type] || 'general';
+}
+
+function determineCapabilities(entity, relations) {
+  const caps = [];
+  const type = entity.type;
+
+  if (type === 'Basin' || type === 'Watershed') {
+    caps.push('View datasets covering this basin');
+    caps.push('Find models validated here');
+    caps.push('See flood/drought history');
+    caps.push('Compare with similar basins');
+  }
+
+  if (type === 'Dataset') {
+    caps.push('Download data');
+    caps.push('View coverage map');
+    caps.push('See data quality metrics');
+    caps.push('Find papers using this data');
+  }
+
+  if (type === 'Model') {
+    caps.push('View model architecture');
+    caps.push('See validation results');
+    caps.push('Compare with other models');
+    caps.push('Run simulation');
+  }
+
+  const outgoingTypes = relations.outgoing.map(r => r.predicate);
+
+  if (outgoingTypes.includes('simulates')) {
+    caps.push('Run model simulation');
+    caps.push('Compare model performance');
+  }
+
+  if (outgoingTypes.includes('covers')) {
+    caps.push('Download dataset');
+    caps.push('View data quality');
+  }
+
+  if (outgoingTypes.includes('observes')) {
+    caps.push('View observation data');
+    caps.push('Check station status');
+  }
+
+  if (outgoingTypes.includes('supports')) {
+    caps.push('View evidence chain');
+    caps.push('Check claim confidence');
+  }
+
+  return [...new Set(caps)];
+}
+
 // POST /api/registry/clear - Clear all entities AND projects
 router.post('/registry/clear', async (req, res) => {
   try {
     console.log('[API] Clearing all data');
 
-    // Clear entities
     store.entities.clear();
     store.triples = [];
     store.indexes.spo.clear();
     store.indexes.pos.clear();
     store.indexes.ops.clear();
     store.indexes.typeIndex.clear();
-
-    // Clear projects
     projectRegistry.projects.clear();
 
     await store.save();
     await projectRegistry.save();
 
-    res.json({
-      success: true,
-      message: 'All data cleared'
-    });
+    res.json({ success: true, message: 'All data cleared' });
   } catch (err) {
     console.error('[API] Clear error:', err);
     res.status(500).json({ error: err.message });
@@ -159,7 +358,6 @@ router.get('/entities/type/:type', async (req, res) => {
 // TRIPLES API
 // ============================================================================
 
-// GET /api/triples - Get all triples
 router.get('/triples', async (req, res) => {
   try {
     const triples = store.getAllTriples();
@@ -169,7 +367,6 @@ router.get('/triples', async (req, res) => {
   }
 });
 
-// GET /api/triples/:entityId - Get triples for an entity
 router.get('/triples/:entityId', async (req, res) => {
   try {
     const outgoing = store.query(req.params.entityId);
@@ -181,33 +378,94 @@ router.get('/triples/:entityId', async (req, res) => {
 });
 
 // ============================================================================
-// INGEST API
+// IMPORT API (Unified Digital Earth Pipeline)
 // ============================================================================
 
-// POST /api/ingest - Import research object
-router.post('/ingest', async (req, res) => {
+// POST /api/import - Import a source through the Digital Earth pipeline
+router.post('/import', async (req, res) => {
   try {
     const { input } = req.body;
     if (!input) {
       return res.status(400).json({ error: 'Missing input field' });
     }
 
-    console.log(`[API] Ingesting: ${input}`);
-    const result = await ingest.ingest(input);
-
-    await store.save();
-    await eventLog.save();
+    console.log(`[API] Starting import: ${input}`);
+    const result = await importer.import(input);
 
     res.json({
       success: true,
-      understanding: result.understanding,
-      entityIds: result.entityIds,
-      tripleIds: result.tripleIds,
-      message: `Imported ${result.entityIds?.length || 0} entities`
+      projectId: result.projectId,
+      status: result.status
     });
   } catch (err) {
-    console.error('[API] Ingest error:', err);
+    console.error('[API] Import error:', err);
     res.status(400).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:projectId/events - SSE stream for real-time updates
+router.get('/projects/:projectId/events', (req, res) => {
+  const { projectId } = req.params;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  });
+
+  if (!sseClients.has(projectId)) {
+    sseClients.set(projectId, new Set());
+  }
+  sseClients.get(projectId).add(res);
+
+  console.log(`[SSE] Client connected for project ${projectId}`);
+
+  const project = projectRegistry.getProject(projectId);
+  if (project) {
+    const summary = project.getAnalysisSummary();
+    res.write(`data: ${JSON.stringify({ type: 'status', data: summary })}\n\n`);
+  }
+
+  req.on('close', () => {
+    const clients = sseClients.get(projectId);
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) {
+        sseClients.delete(projectId);
+      }
+    }
+    console.log(`[SSE] Client disconnected for project ${projectId}`);
+  });
+});
+
+// POST /api/projects/:projectId/cancel - Cancel import
+router.post('/projects/:projectId/cancel', (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const cancelled = importer.cancelImport(projectId);
+
+    if (cancelled) {
+      res.json({ success: true, message: 'Import cancelled' });
+    } else {
+      res.status(404).json({ error: 'No active import found for this project' });
+    }
+  } catch (err) {
+    console.error('[API] Cancel error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:projectId/decomposition - Get decomposition result
+router.get('/projects/:projectId/decomposition', (req, res) => {
+  try {
+    const decomposition = importer.getDecompositionByProject(req.params.projectId);
+    if (!decomposition) {
+      return res.status(404).json({ error: 'Decomposition not found' });
+    }
+    res.json({ decomposition });
+  } catch (err) {
+    console.error('[API] Get decomposition error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -215,7 +473,6 @@ router.post('/ingest', async (req, res) => {
 // PROJECTS API
 // ============================================================================
 
-// GET /api/projects - List all projects
 router.get('/projects', async (req, res) => {
   try {
     const projects = projectRegistry.getAllProjects().map(p => p.toJSON());
@@ -225,33 +482,26 @@ router.get('/projects', async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:projectId - Delete project and clean up files
 router.delete('/projects/:projectId', async (req, res) => {
   try {
     const { projectId } = req.params;
 
-    // Cancel if analyzing
-    researchImporter.cancelAnalysis(projectId);
+    importer.cancelImport(projectId);
 
-    // Get project to check entities
     const project = projectRegistry.getProject(projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // Remove all entities associated with this project
     project.entities.forEach(entityId => {
       store.entities.delete(entityId);
-      // Remove triples referencing this entity
       store.triples = store.triples.filter(t =>
         t.subject !== entityId && t.object !== entityId
       );
     });
 
-    // Delete project
     projectRegistry.deleteProject(projectId);
 
-    // Save changes
     await store.save();
     await projectRegistry.save();
 
@@ -264,7 +514,6 @@ router.delete('/projects/:projectId', async (req, res) => {
   }
 });
 
-// GET /api/projects/:id - Get project details
 router.get('/projects/:id', async (req, res) => {
   try {
     const project = projectRegistry.getProject(req.params.id);
@@ -277,7 +526,6 @@ router.get('/projects/:id', async (req, res) => {
   }
 });
 
-// POST /api/projects - Create new project
 router.post('/projects', async (req, res) => {
   try {
     const { name, description, author } = req.body;
@@ -297,7 +545,6 @@ router.post('/projects', async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/entities - Add entity to project
 router.post('/projects/:id/entities', async (req, res) => {
   try {
     const project = projectRegistry.getProject(req.params.id);
@@ -324,7 +571,6 @@ router.post('/projects/:id/entities', async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/export - Export project
 router.post('/projects/:id/export', async (req, res) => {
   try {
     const project = projectRegistry.getProject(req.params.id);
@@ -344,109 +590,6 @@ router.post('/projects/:id/export', async (req, res) => {
   }
 });
 
-// ============================================================================
-// STATS API
-// ============================================================================
-
-// GET /api/stats - Get registry statistics
-router.get('/stats', async (req, res) => {
-  try {
-    const stats = store.stats();
-    const projects = projectRegistry.getAllProjects();
-
-    res.json({
-      entities: stats.totalEntities,
-      triples: stats.totalTriples,
-      projects: projects.length,
-      entitiesByType: stats.entitiesByType,
-      triplesByRelation: stats.triplesByRelation,
-      verificationStates: stats.verificationStates
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================================================
-// EVENTS API
-// ============================================================================
-
-// GET /api/events - Get event log
-router.get('/events', async (req, res) => {
-  try {
-    const events = eventLog.events;
-    res.json({ events, count: events.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================================================
-// RESEARCH IMPORT API
-// ============================================================================
-
-// POST /api/research/analyze - Start background analysis (returns immediately)
-router.post('/research/analyze', async (req, res) => {
-  try {
-    const { input } = req.body;
-    if (!input) {
-      return res.status(400).json({ error: 'Missing input field' });
-    }
-
-    console.log(`[API] Starting research import: ${input}`);
-    const result = await researchImporter.analyze(input);
-
-    res.json({
-      success: true,
-      projectId: result.projectId,
-      status: result.status
-    });
-  } catch (err) {
-    console.error('[API] Research import error:', err);
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// GET /api/projects/:projectId/events - SSE stream for real-time updates
-router.get('/projects/:projectId/events', (req, res) => {
-  const { projectId } = req.params;
-
-  // 设置SSE headers
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive'
-  });
-
-  // 注册client
-  if (!sseClients.has(projectId)) {
-    sseClients.set(projectId, new Set());
-  }
-  sseClients.get(projectId).add(res);
-
-  console.log(`[SSE] Client connected for project ${projectId}`);
-
-  // 发送初始状态
-  const project = projectRegistry.getProject(projectId);
-  if (project) {
-    const summary = project.getAnalysisSummary();
-    res.write(`data: ${JSON.stringify({ type: 'status', data: summary })}\n\n`);
-  }
-
-  // 客户端断开连接时清理
-  req.on('close', () => {
-    const clients = sseClients.get(projectId);
-    if (clients) {
-      clients.delete(res);
-      if (clients.size === 0) {
-        sseClients.delete(projectId);
-      }
-    }
-    console.log(`[SSE] Client disconnected for project ${projectId}`);
-  });
-});
-
-// GET /api/projects/:projectId/status - Get analysis progress
 router.get('/projects/:projectId/status', (req, res) => {
   try {
     const { projectId } = req.params;
@@ -475,34 +618,37 @@ router.get('/projects/:projectId/status', (req, res) => {
   }
 });
 
-// POST /api/projects/:projectId/cancel - Cancel analysis
-router.post('/projects/:projectId/cancel', (req, res) => {
-  try {
-    const { projectId } = req.params;
-    const cancelled = researchImporter.cancelAnalysis(projectId);
+// ============================================================================
+// STATS API
+// ============================================================================
 
-    if (cancelled) {
-      res.json({ success: true, message: 'Analysis cancelled' });
-    } else {
-      res.status(404).json({ error: 'No active analysis found for this project' });
-    }
+router.get('/stats', async (req, res) => {
+  try {
+    const stats = store.stats();
+    const projects = projectRegistry.getAllProjects();
+
+    res.json({
+      entities: stats.totalEntities,
+      triples: stats.totalTriples,
+      projects: projects.length,
+      entitiesByType: stats.entitiesByType,
+      triplesByRelation: stats.triplesByRelation,
+      verificationStates: stats.verificationStates
+    });
   } catch (err) {
-    console.error('[API] Cancel error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// DELETE /api/projects/:projectId - Delete project and clean up files
-// GET /api/research/understanding/:projectId - 获取完整的研究理解
-router.get('/research/understanding/:projectId', (req, res) => {
+// ============================================================================
+// EVENTS API
+// ============================================================================
+
+router.get('/events', async (req, res) => {
   try {
-    const understanding = researchImporter.getUnderstandingByProject(req.params.projectId);
-    if (!understanding) {
-      return res.status(404).json({ error: 'Understanding not found' });
-    }
-    res.json({ understanding });
+    const events = eventLog.events;
+    res.json({ events, count: events.length });
   } catch (err) {
-    console.error('[API] Get understanding error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -511,7 +657,6 @@ router.get('/research/understanding/:projectId', (req, res) => {
 // LENS API
 // ============================================================================
 
-// GET /api/lenses - List available lenses
 router.get('/lenses', (req, res) => {
   try {
     const lenses = lensRegistry.getAvailableLenses();
@@ -521,7 +666,6 @@ router.get('/lenses', (req, res) => {
   }
 });
 
-// GET /api/projects/:projectId/lens/:lensName - Render a specific lens
 router.get('/projects/:projectId/lens/:lensName', async (req, res) => {
   try {
     const { projectId, lensName } = req.params;
@@ -535,7 +679,6 @@ router.get('/projects/:projectId/lens/:lensName', async (req, res) => {
   }
 });
 
-// GET /api/projects/:projectId/lens - Render all lenses
 router.get('/projects/:projectId/lens', async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -547,7 +690,6 @@ router.get('/projects/:projectId/lens', async (req, res) => {
   }
 });
 
-// GET /api/projects/:projectId/recommended-lens - Get recommended lens
 router.get('/projects/:projectId/recommended-lens', (req, res) => {
   try {
     const { projectId } = req.params;
@@ -562,7 +704,6 @@ router.get('/projects/:projectId/recommended-lens', (req, res) => {
 // ONTOLOGY API
 // ============================================================================
 
-// GET /api/ontology/types - Get all entity types
 router.get('/ontology/types', (req, res) => {
   try {
     const types = ontology.getAllEntityTypes();
@@ -573,7 +714,6 @@ router.get('/ontology/types', (req, res) => {
   }
 });
 
-// GET /api/ontology/relations - Get all relation types
 router.get('/ontology/relations', (req, res) => {
   try {
     const relations = ontology.getAllRelationTypes();
@@ -583,7 +723,6 @@ router.get('/ontology/relations', (req, res) => {
   }
 });
 
-// GET /api/ontology/domains - Get loaded domain extensions
 router.get('/ontology/domains', (req, res) => {
   try {
     const domains = ontology.domainOntology.getLoadedDomainNames();
@@ -597,15 +736,12 @@ router.get('/ontology/domains', (req, res) => {
 // SOURCE ADMISSION API
 // ============================================================================
 
-// POST /api/admission/evaluate - Evaluate source for admission
 router.post('/admission/evaluate', async (req, res) => {
   try {
     const { input, content, metadata } = req.body;
 
-    // Create admission instance (without LLM for now, using heuristics only)
-    const admission = new SourceAdmission(null, { skipEvaluators: ['researchRelevance'] });
+    const admission = new SourceAdmission(llm);
 
-    // Use quick check if no content provided
     const result = content
       ? await admission.evaluate(input, content, metadata || {})
       : await admission.quickCheck(input);

@@ -9,10 +9,12 @@ const { Command } = require('commander');
 const { TripleStore, VERIFICATION_STATES } = require('../core/registry/TripleStore');
 const EventLog = require('../core/events/EventLog');
 const EvidenceChain = require('../core/evidence/Chain');
-const UnifiedIngest = require('../core/ingest/UnifiedIngest');
-const { ENTITY_TYPES } = require('../core/registry/ontology');
+const { SourceAdmission } = require('../core/admission/SourceAdmission');
+const DigitalEarthDecomposer = require('../core/understanding/DigitalEarthDecomposer');
 const { Project, ProjectRegistry } = require('../core/project/Project');
 const Exporter = require('../core/project/Exporter');
+const llm = require('../core/utils/llm');
+const ConnectorRegistry = require('../core/connectors/ConnectorRegistry');
 
 const program = new Command();
 
@@ -49,24 +51,90 @@ program
 
 program
   .command('ingest <input>')
-  .description('Ingest research: DOI, GitHub URL, paper title, etc.')
+  .description('Import a source through the Digital Earth pipeline')
   .action(async (input) => {
     try {
-      const { store, eventLog } = await initializeStore();
+      const { store, eventLog, projectRegistry } = await initializeStore();
 
-      console.log('Starting ingest...\n');
+      console.log('Starting Digital Earth import...\n');
 
-      const ingest = new UnifiedIngest(store, eventLog);
-      const result = await ingest.ingest(input);
+      // Step 1: Fetch content
+      console.log('Fetching content...');
+      const config = {
+        githubToken: llm.getGitHubToken(),
+        openAlexKey: llm.getOpenAlexKey()
+      };
+      const connectorRegistry = new ConnectorRegistry(config);
+      const content = await connectorRegistry.fetch(input);
 
-      console.log('\n✓ Ingest complete:');
-      console.log(`  Understanding: ${result.understanding}`);
-      console.log(`  Entities created: ${result.stats.entities}`);
-      console.log(`  Relations created: ${result.stats.triples}`);
-      console.log(`  Entity IDs: ${result.entityIds.slice(0, 3).join(', ')}${result.entityIds.length > 3 ? '...' : ''}`);
+      // Step 2: Source Admission
+      console.log('Evaluating source admission...');
+      const admission = new SourceAdmission(llm);
+      const admissionResult = await admission.evaluate(input, content, {});
+
+      if (!admissionResult.admitted) {
+        console.log(`\n✗ Source rejected: ${admissionResult.reasoning}`);
+        process.exit(1);
+      }
+
+      console.log(`  Depth: ${admissionResult.depth}`);
+      console.log(`  Primary role: ${admissionResult.primaryRole}`);
+
+      // Step 3: Decomposition
+      console.log('Decomposing source...');
+      const decomposer = new DigitalEarthDecomposer(llm);
+      const decomposition = await decomposer.decompose(input, content, admissionResult);
+
+      console.log(`  Capabilities: ${decomposition.capabilityObjects?.length || 0}`);
+      console.log(`  World objects: ${decomposition.worldObjects?.length || 0}`);
+      console.log(`  Evidence: ${decomposition.evidenceObjects?.length || 0}`);
+      console.log(`  Bridge relations: ${decomposition.bridgeRelations?.length || 0}`);
+
+      // Step 4: Store entities
+      console.log('Storing entities...');
+      const entityCount = store.entities.size;
+
+      // Store source object
+      if (decomposition.sourceObject) {
+        const { Entity } = require('../core/registry/TripleStore');
+        const sourceEntity = new Entity(
+          decomposition.sourceObject.type,
+          decomposition.sourceObject,
+          { source: input, extractedBy: 'DigitalEarthDecomposer' }
+        );
+        store.addEntity(sourceEntity);
+      }
+
+      // Store capability objects
+      for (const cap of (decomposition.capabilityObjects || [])) {
+        const { Entity } = require('../core/registry/TripleStore');
+        const entity = new Entity(
+          cap.type,
+          cap,
+          { source: input, extractedBy: 'DigitalEarthDecomposer', confidence: cap.confidence }
+        );
+        store.addEntity(entity);
+      }
+
+      // Store world objects
+      for (const world of (decomposition.worldObjects || [])) {
+        const { Entity } = require('../core/registry/TripleStore');
+        const entity = new Entity(
+          world.type,
+          world,
+          { source: input, extractedBy: 'DigitalEarthDecomposer', confidence: world.confidence }
+        );
+        store.addEntity(entity);
+      }
+
+      const newEntityCount = store.entities.size - entityCount;
 
       await store.save();
-      console.log('\n✓ Registry saved');
+      console.log('\n✓ Import complete:');
+      console.log(`  New entities: ${newEntityCount}`);
+      console.log(`  Total entities in store: ${store.entities.size}`);
+      console.log(`  Processing time: ${decomposition.processingTime}ms`);
+
     } catch (err) {
       console.error('Error:', err.message);
       process.exit(1);
