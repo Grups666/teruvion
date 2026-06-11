@@ -335,6 +335,7 @@ export default function Home() {
   const projectStats = getProjectStats(projectEntities);
   const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
   const lensSummaries = getLensSummaries(projectLenses);
+  const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
 
   async function copyProjectSummary() {
     if (!selectedProject || !projectQuality) return;
@@ -654,6 +655,20 @@ export default function Home() {
               </div>
 
               <div className="detail-body">
+                {selectedEntitySignals.length > 0 && (
+                  <div className="detail-section">
+                    <div className="detail-label">Object Signals</div>
+                    <div className="signal-grid">
+                      {selectedEntitySignals.map(signal => (
+                        <div className={`signal-card ${signal.level}`} key={signal.label}>
+                          <div className="signal-label">{signal.label}</div>
+                          <div className="signal-value">{signal.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Object Graph */}
                 <div className="detail-section">
                   <div className="detail-label">Object Graph</div>
@@ -1009,6 +1024,78 @@ function getLensSummaries(lenses: Record<string, any> | null) {
         targetId
       };
     });
+}
+
+function getEntitySignals(entity: Entity, explore: EntityExploreResponse | null) {
+  const signals: Array<{ label: string; value: string; level: 'strong' | 'normal' | 'weak' }> = [];
+  const confidence = typeof entity.metadata?.confidence === 'number' ? entity.metadata.confidence : null;
+  const verification = entity.verificationState || 'unverified';
+  const connectionCount = explore?.relatedEntities?.length || 0;
+
+  signals.push({
+    label: 'Confidence',
+    value: confidence === null ? 'Unknown' : `${Math.round(confidence * 100)}%`,
+    level: confidence === null ? 'weak' : confidence >= 0.7 ? 'strong' : confidence >= 0.45 ? 'normal' : 'weak'
+  });
+
+  signals.push({
+    label: 'Verification',
+    value: formatSignalText(verification),
+    level: verification === 'verified' ? 'strong' : verification === 'rejected' ? 'weak' : 'normal'
+  });
+
+  signals.push({
+    label: 'Connections',
+    value: `${connectionCount}`,
+    level: connectionCount > 2 ? 'strong' : connectionCount > 0 ? 'normal' : 'weak'
+  });
+
+  if (entity.metadata?.source || explore?.sources?.length) {
+    signals.push({
+      label: 'Source',
+      value: entity.metadata?.source ? 'Recorded' : `${explore?.sources?.length || 0} link${explore?.sources?.length === 1 ? '' : 's'}`,
+      level: 'strong'
+    });
+  } else {
+    signals.push({
+      label: 'Source',
+      value: 'Missing',
+      level: 'weak'
+    });
+  }
+
+  const hasSpatial =
+    Boolean(entity.attributes.bbox)
+    || Boolean(entity.attributes.location)
+    || Boolean(entity.attributes.centroid)
+    || Boolean(entity.attributes.coordinates)
+    || Boolean(entity.attributes.spatialCoverage);
+  const hasTemporal =
+    Boolean(entity.attributes.year)
+    || Boolean(entity.attributes.date)
+    || Boolean(entity.attributes.time)
+    || Boolean(entity.attributes.temporalCoverage)
+    || Boolean(entity.attributes.start);
+
+  signals.push({
+    label: 'Spatial',
+    value: hasSpatial ? 'Present' : 'None',
+    level: hasSpatial ? 'strong' : 'normal'
+  });
+
+  signals.push({
+    label: 'Temporal',
+    value: hasTemporal ? 'Present' : 'None',
+    level: hasTemporal ? 'strong' : 'normal'
+  });
+
+  return signals;
+}
+
+function formatSignalText(value: string) {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase());
 }
 
 /** Format entity attributes for display */
