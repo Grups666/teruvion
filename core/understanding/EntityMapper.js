@@ -858,7 +858,7 @@ class EntityMapper {
     const attributes = {};
     const metadata = {
       source: input,
-      extractedBy: 'ResearchUnderstanding',
+      extractedBy: 'DigitalEarthDecomposer',
       confidence: data.confidence || 0.8
     };
 
@@ -929,7 +929,7 @@ class EntityMapper {
 
   /**
    * Map entire understanding output to multiple entities
-   * @param {Object} understanding - Full ResearchUnderstanding output
+   * @param {Object} understanding - Full decomposition output
    * @param {string} input - Original input
    * @param {string} inputType - Type of input (paper, github, etc.)
    * @returns {Object} Mapped entities with type collections
@@ -1053,7 +1053,7 @@ class EntityMapper {
       attributes,
       metadata: {
         source: input,
-        extractedBy: 'ResearchUnderstanding',
+        extractedBy: 'DigitalEarthDecomposer',
         domain: overview.domain,
         worthReading: overview.worthReading,
         complexity: overview.complexity

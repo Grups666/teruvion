@@ -4,7 +4,7 @@
  */
 
 const PROCESSING_DEPTHS = {
-  DEEP: 'deep',           // Full ResearchUnderstanding (8 LLM calls)
+  DEEP: 'deep',           // Full DigitalEarthDecomposer (5-layer ontology extraction)
   STRUCTURED: 'structured', // Essential extraction (methods, datasets, results)
   LIGHT: 'light',         // Metadata only (title, type, summary)
   REJECT: 'reject'        // Not research-relevant, skip processing

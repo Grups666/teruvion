@@ -51,6 +51,7 @@ export default function Home() {
       const result = await api.importSource(input);
       setImportInput('');
 
+      // Add temporary project
       setProjects(prev => [...prev, {
         id: result.projectId,
         name: 'Importing...',
@@ -58,7 +59,9 @@ export default function Home() {
         analysis: { status: 'importing' }
       }]);
 
+      // Setup SSE for progress updates
       setupSSE(result.projectId);
+
     } catch (err: any) {
       setStatus('Failed');
     } finally {
@@ -69,38 +72,45 @@ export default function Home() {
   function setupSSE(projectId: string) {
     unsubscribeRef.current?.();
 
-    unsubscribeRef.current = api.subscribeToProject(projectId, (event: SSEEvent) => {
-      if (event.type === 'status' || event.type === 'progress') {
-        const projectStatus = event.data.status;
-        const phase = event.data.phase || event.data.currentPhase;
+    unsubscribeRef.current = api.subscribeToProject(
+      projectId,
+      (event: SSEEvent) => {
+        // Handle status/progress events
+        if (event.type === 'status' || event.type === 'progress') {
+          const projectStatus = event.data.status;
+          const phase = event.data.phase || event.data.currentPhase;
 
-        if (projectStatus === 'completed') {
-          unsubscribeRef.current?.();
-          unsubscribeRef.current = null;
-          loadData();
-          return;
-        }
-
-        setProjects(prev => prev.map(p => {
-          if (p.id === projectId) {
-            return {
-              ...p,
-              name: phase ? `Processing: ${phase}` : 'Importing...',
-              analysis: {
-                ...p.analysis,
-                status: (projectStatus || 'importing') as AnalysisProgress['status'],
-                currentPhase: phase,
-              }
-            };
+          // If completed, reload data
+          if (projectStatus === 'completed') {
+            unsubscribeRef.current?.();
+            unsubscribeRef.current = null;
+            loadData();
+            return;
           }
-          return p;
-        }));
-      } else if (event.type === 'completed' || event.type === 'error') {
-        unsubscribeRef.current?.();
-        unsubscribeRef.current = null;
+
+          // Update project in list
+          setProjects(prev => prev.map(p => {
+            if (p.id === projectId) {
+              return {
+                ...p,
+                name: phase ? `Processing: ${phase}` : 'Importing...',
+                analysis: {
+                  ...p.analysis,
+                  status: (projectStatus || 'importing') as AnalysisProgress['status'],
+                  currentPhase: phase,
+                }
+              };
+            }
+            return p;
+          }));
+        }
+      },
+      // onError callback - reload data when SSE disconnects
+      () => {
+        console.log('[SSE] Disconnected, reloading data');
         loadData();
       }
-    });
+    );
   }
 
   async function deleteProject(projectId: string) {

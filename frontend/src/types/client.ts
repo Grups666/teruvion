@@ -67,20 +67,28 @@ class APIClient {
     });
   }
 
-  // SSE
-  subscribeToProject(projectId: string, onEvent: (event: SSEEvent) => void): () => void {
+  // SSE - Subscribe to project events
+  // Returns unsubscribe function
+  subscribeToProject(
+    projectId: string,
+    onEvent: (event: SSEEvent) => void,
+    onError?: () => void
+  ): () => void {
     const es = new EventSource(`${API_BASE}/api/projects/${projectId}/events`);
 
     es.onmessage = (event) => {
-      const data = JSON.parse(event.data) as SSEEvent;
-      onEvent(data);
+      const parsed = JSON.parse(event.data) as SSEEvent;
+      onEvent(parsed);
     };
 
     es.onerror = () => {
       es.close();
+      onError?.();
     };
 
-    return () => es.close();
+    return () => {
+      try { es.close(); } catch {}
+    };
   }
 
   // Clear all
