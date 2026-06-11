@@ -17,7 +17,33 @@ import type {
   AlphaMembership
 } from './api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+function resolveApiBase(): string {
+  if (process.env.NEXT_PUBLIC_API_BASE) {
+    return process.env.NEXT_PUBLIC_API_BASE.replace(/\/$/, '');
+  }
+
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+
+    if (hostname === 'teruvion.com' || hostname === 'www.teruvion.com') {
+      return 'https://api.teruvion.com';
+    }
+
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:3000';
+    }
+
+    if (hostname.startsWith('api.')) {
+      return '';
+    }
+
+    return `${protocol}//${hostname}`;
+  }
+
+  return '';
+}
+
+const API_BASE = resolveApiBase();
 
 class APIClient {
   private async request<T>(path: string, options?: RequestInit): Promise<T> {

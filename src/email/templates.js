@@ -91,7 +91,7 @@ function renderAlphaInvite(inviteCode) {
         </td>
       </tr>
     </table>
-    ${button('Activate Your Account', 'https://teruvion.com/activate?code=' + inviteCode)}
+    ${button('Activate Your Account', 'https://teruvion.com/alpha/verify?code=' + inviteCode)}
     <p style="font-size: 12px; color: #a3a3a3; margin: 0;">
       This invite code expires in 7 days.
     </p>
