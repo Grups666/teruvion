@@ -137,6 +137,17 @@ Create `_local/config/llm.local.jsonc` with your LLM API credentials:
 }
 ```
 
+Optional: Create `_local/config/email.local.json` for email notifications:
+
+```json
+{
+  "provider": "resend",
+  "apiKey": "re_xxx",
+  "from": "Teruvion <alpha@teruvion.com>",
+  "adminEmail": "admin@example.com"
+}
+```
+
 ---
 
 ## Quick Start

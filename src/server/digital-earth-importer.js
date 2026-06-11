@@ -205,10 +205,11 @@ class DigitalEarthImporter {
     const entityMap = new Map(); // name → entityId
     let entityCount = 0;
     let relationCount = 0;
+    const projectId = project.id;
 
     // 1. Store source object
     if (decomposition.sourceObject) {
-      const sourceEntity = this._createEntity(decomposition.sourceObject, input);
+      const sourceEntity = this._createEntity(decomposition.sourceObject, input, projectId);
       this.store.addEntity(sourceEntity);
       entityMap.set(decomposition.sourceObject.name || decomposition.sourceObject.id, sourceEntity.id);
       project.addEntity(sourceEntity.id, decomposition.sourceObject.type);
@@ -217,7 +218,7 @@ class DigitalEarthImporter {
 
     // 2. Store capability objects
     for (const cap of (decomposition.capabilityObjects || [])) {
-      const entity = this._createEntity(cap, input);
+      const entity = this._createEntity(cap, input, projectId);
       this.store.addEntity(entity);
       entityMap.set(cap.name, entity.id);
       project.addEntity(entity.id, cap.type);
@@ -237,7 +238,7 @@ class DigitalEarthImporter {
 
     // 3. Store world objects
     for (const world of (decomposition.worldObjects || [])) {
-      const entity = this._createEntity(world, input);
+      const entity = this._createEntity(world, input, projectId);
       this.store.addEntity(entity);
       entityMap.set(world.name, entity.id);
       project.addEntity(entity.id, world.type);
@@ -257,7 +258,7 @@ class DigitalEarthImporter {
 
     // 4. Store evidence objects
     for (const evidence of (decomposition.evidenceObjects || [])) {
-      const entity = this._createEntity(evidence, input);
+      const entity = this._createEntity(evidence, input, projectId);
       this.store.addEntity(entity);
       entityMap.set(evidence.name || evidence.statement?.substring(0, 50), entity.id);
       project.addEntity(entity.id, evidence.type);
@@ -288,13 +289,14 @@ class DigitalEarthImporter {
   /**
    * Create a TripleStore Entity from decomposition object
    */
-  _createEntity(obj, source) {
+  _createEntity(obj, source, projectId) {
     return new Entity(obj.type, {
       name: obj.name,
       ...obj.attributes,
       ...obj
     }, {
       source,
+      projectId,
       extractedBy: 'DigitalEarthDecomposer',
       confidence: obj.confidence || 0.8,
       provenance: obj.provenance

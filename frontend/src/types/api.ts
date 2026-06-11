@@ -1,0 +1,130 @@
+/**
+ * API Types - Contract between frontend and backend
+ *
+ * These types define the API response shapes.
+ * Frontend should only depend on these types, not backend internals.
+ */
+
+// Entity types
+export interface Entity {
+  id: string;
+  type: string;
+  attributes: {
+    name?: string;
+    bbox?: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+    [key: string]: any;
+  };
+  metadata?: {
+    projectId?: string;
+    confidence?: number;
+    source?: string;
+    [key: string]: any;
+  };
+  verificationState?: string;
+  createdAt?: string;
+}
+
+// Project types
+export interface Project {
+  id: string;
+  name: string;
+  description?: string;
+  entities: string[];
+  metadata?: {
+    decomposition?: Decomposition;
+    admission?: AdmissionResult;
+    [key: string]: any;
+  };
+  analysis?: AnalysisProgress;
+}
+
+export interface AnalysisProgress {
+  status: 'pending' | 'importing' | 'analyzing' | 'completed' | 'failed';
+  currentPhase?: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string | null;
+  progress?: {
+    completed: string[];
+    inProgress: string | null;
+    pending: string[];
+    details: Record<string, any>;
+  };
+}
+
+export interface Decomposition {
+  sourceObject?: any;
+  capabilityObjects?: any[];
+  worldObjects?: any[];
+  evidenceObjects?: any[];
+  bridgeRelations?: any[];
+}
+
+export interface AdmissionResult {
+  admitted: boolean;
+  depth: 'deep' | 'structured' | 'light' | 'reject';
+  primaryRole?: string;
+  sourceRoles?: Record<string, number>;
+  reasoning?: string;
+}
+
+// API Response types
+export interface EntitiesResponse {
+  entities: Entity[];
+  count: number;
+}
+
+export interface ProjectsResponse {
+  projects: Project[];
+  count: number;
+}
+
+export interface ImportResponse {
+  success: boolean;
+  projectId: string;
+  status: string;
+}
+
+export interface SSEStatusEvent {
+  type: 'status' | 'progress';
+  data: {
+    status: string;
+    phase?: string;
+    currentPhase?: string;
+    progress?: AnalysisProgress;
+    [key: string]: any;
+  };
+}
+
+export interface SSECompletedEvent {
+  type: 'completed';
+  data: {
+    status: 'completed';
+    entities: number;
+    relations: number;
+  };
+}
+
+export interface SSEErrorEvent {
+  type: 'error';
+  data: {
+    status: 'failed';
+    error: string;
+  };
+}
+
+export type SSEEvent = SSEStatusEvent | SSECompletedEvent | SSEErrorEvent;
+
+// Entity layer classification
+export type EntityLayer = 'world' | 'capability' | 'source' | 'foundation';
+
+export function getEntityLayer(type: string): EntityLayer {
+  const worldTypes = ['Basin', 'Region', 'Watershed', 'River', 'Lake', 'Glacier', 'Hazard', 'FloodEvent'];
+  const capabilityTypes = ['Dataset', 'Model', 'Sensor', 'Gauge', 'Algorithm', 'Claim', 'Evidence'];
+  const sourceTypes = ['Paper', 'Repository', 'Report', 'News', 'Source'];
+
+  if (worldTypes.includes(type)) return 'world';
+  if (capabilityTypes.includes(type)) return 'capability';
+  if (sourceTypes.includes(type)) return 'source';
+  return 'foundation';
+}
