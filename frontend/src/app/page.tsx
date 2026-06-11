@@ -143,7 +143,7 @@ export default function Home() {
   const selectedEntity = entities.find(e => e.id === selectedEntityId);
 
   return (
-    <div className="flex h-screen">
+    <div className="app-shell">
       {/* ===== Sidebar ===== */}
       <aside className="sidebar">
         <div className="sidebar-header">
@@ -216,9 +216,10 @@ export default function Home() {
                     </div>
                     <button
                       className="project-delete"
+                      aria-label={`Delete ${project.name}`}
                       onClick={e => { e.stopPropagation(); deleteProject(project.id); }}
                     >
-                      ×
+                      x
                     </button>
                   </div>
                 );
@@ -283,8 +284,8 @@ export default function Home() {
                     </span>
                   </div>
                 </div>
-                <button className="detail-close" onClick={() => setSelectedEntityId(null)}>
-                  ×
+                <button className="detail-close" aria-label="Close details" onClick={() => setSelectedEntityId(null)}>
+                  x
                 </button>
               </div>
 
@@ -341,7 +342,7 @@ export default function Home() {
         {/* Empty state overlay when no entities */}
         {entities.length === 0 && (
           <div className="empty-state" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 50 }}>
-            <div className="empty-icon">○</div>
+            <div className="empty-icon" aria-hidden="true" />
             <div className="empty-title">No objects yet</div>
             <div className="empty-text">
               Import a research source to populate the Digital Earth graph

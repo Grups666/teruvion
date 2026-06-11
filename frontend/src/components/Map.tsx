@@ -31,11 +31,23 @@ export default function MapComponent({ entities, selectedEntityId, onSelectEntit
       attributionControl: false,
     });
 
-    // Minimalist tile layer
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd',
+    // Carto provides a clean global basemap. If an edge server misses a tile,
+    // retry the same z/x/y coordinate from OpenStreetMap instead of leaving a gap.
+    const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      subdomains: 'bcd',
       maxZoom: 19,
-    }).addTo(map);
+      crossOrigin: true,
+    });
+
+    tileLayer.on('tileerror', (event: L.TileErrorEvent) => {
+      const tile = event.tile as HTMLImageElement & { dataset: DOMStringMap };
+      if (tile.dataset.fallbackApplied) return;
+
+      tile.dataset.fallbackApplied = 'true';
+      tile.src = `https://tile.openstreetmap.org/${event.coords.z}/${event.coords.x}/${event.coords.y}.png`;
+    });
+
+    tileLayer.addTo(map);
 
     mapRef.current = map;
 
