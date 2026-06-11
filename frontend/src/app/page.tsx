@@ -10,6 +10,21 @@ const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
 
 type ProjectQualityLevel = 'excellent' | 'useful' | 'partial' | 'limited' | 'pending';
 
+const EXAMPLE_SOURCES = [
+  {
+    label: 'DOI',
+    value: '10.1038/s41586-024-07145-8'
+  },
+  {
+    label: 'GitHub',
+    value: 'https://github.com/Deltares/hydromt'
+  },
+  {
+    label: 'Title',
+    value: 'ERA5-Land: a state-of-the-art global reanalysis dataset for land applications'
+  }
+];
+
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -305,6 +320,24 @@ export default function Home() {
               {importing ? '...' : 'Go'}
             </button>
           </div>
+
+          <div className="source-examples" aria-label="Example research sources">
+            {EXAMPLE_SOURCES.map(example => (
+              <button
+                key={example.label}
+                type="button"
+                className="source-example"
+                onClick={() => {
+                  setImportInput(example.value);
+                  setStatus(`${example.label} example selected`);
+                }}
+                disabled={importing}
+                title={example.value}
+              >
+                {example.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="sidebar-body">
@@ -322,9 +355,9 @@ export default function Home() {
           </div>
 
           {projects.length === 0 ? (
-            <div style={{ padding: '24px 0', textAlign: 'center' }}>
-              <p style={{ fontSize: '13px', color: 'var(--muted)', lineHeight: 1.6 }}>
-                Import a research source<br />to begin exploration
+            <div className="empty-projects">
+              <p>
+                Import a DOI, paper title, or repository to build the first object graph.
               </p>
             </div>
           ) : (
