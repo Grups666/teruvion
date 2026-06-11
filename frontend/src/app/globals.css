@@ -934,6 +934,28 @@ html, body {
   font-weight: 650;
 }
 
+.review-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-note {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.review-note.warning {
+  border-color: rgba(217, 119, 6, 0.2);
+  background: rgba(217, 119, 6, 0.06);
+  color: #92400e;
+}
+
 /* ===== Object Graph Inspector ===== */
 .graph-view {
   display: flex;

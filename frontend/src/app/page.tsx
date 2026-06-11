@@ -336,6 +336,7 @@ export default function Home() {
   const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
   const lensSummaries = getLensSummaries(projectLenses);
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
+  const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
 
   async function copyProjectSummary() {
     if (!selectedProject || !projectQuality) return;
@@ -663,6 +664,19 @@ export default function Home() {
                         <div className={`signal-card ${signal.level}`} key={signal.label}>
                           <div className="signal-label">{signal.label}</div>
                           <div className="signal-value">{signal.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedEntityReviewNotes.length > 0 && (
+                  <div className="detail-section">
+                    <div className="detail-label">Review Notes</div>
+                    <div className="review-notes">
+                      {selectedEntityReviewNotes.map(note => (
+                        <div className={`review-note ${note.level}`} key={note.text}>
+                          {note.text}
                         </div>
                       ))}
                     </div>
@@ -1090,6 +1104,65 @@ function getEntitySignals(entity: Entity, explore: EntityExploreResponse | null)
   });
 
   return signals;
+}
+
+function getEntityReviewNotes(
+  entity: Entity,
+  explore: EntityExploreResponse | null,
+  signals: Array<{ label: string; value: string; level: 'strong' | 'normal' | 'weak' }>
+) {
+  const notes: Array<{ text: string; level: 'warning' | 'info' }> = [];
+  const signalByLabel = new Map(signals.map(signal => [signal.label, signal]));
+  const confidenceSignal = signalByLabel.get('Confidence');
+  const sourceSignal = signalByLabel.get('Source');
+  const connectionsSignal = signalByLabel.get('Connections');
+  const spatialSignal = signalByLabel.get('Spatial');
+  const temporalSignal = signalByLabel.get('Temporal');
+  const layer = getEntityLayer(entity.type);
+
+  if (confidenceSignal?.level === 'weak') {
+    notes.push({
+      text: 'Treat this object as tentative until confidence improves or a human reviews it.',
+      level: 'warning'
+    });
+  }
+
+  if (sourceSignal?.level === 'weak') {
+    notes.push({
+      text: 'Source evidence is missing; check the original import or linked paper/repository before relying on it.',
+      level: 'warning'
+    });
+  }
+
+  if (connectionsSignal?.value === '0') {
+    notes.push({
+      text: 'No graph connections yet; this object is not contributing much to reasoning or comparison.',
+      level: 'info'
+    });
+  }
+
+  if (layer === 'world' && spatialSignal?.value === 'None') {
+    notes.push({
+      text: 'World object has no spatial footprint; map behavior may be limited.',
+      level: 'warning'
+    });
+  }
+
+  if (['Paper', 'Dataset', 'Report'].includes(entity.type) && temporalSignal?.value === 'None') {
+    notes.push({
+      text: 'No temporal metadata detected; timeline views may stay sparse.',
+      level: 'info'
+    });
+  }
+
+  if ((explore?.capabilities?.length || 0) > 0) {
+    notes.push({
+      text: `Available actions: ${explore!.capabilities.slice(0, 3).join(', ')}.`,
+      level: 'info'
+    });
+  }
+
+  return notes.slice(0, 4);
 }
 
 function formatSignalText(value: string) {
