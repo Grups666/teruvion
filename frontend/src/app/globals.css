@@ -623,6 +623,67 @@ html, body {
   line-height: 1;
 }
 
+.project-lenses {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lens-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.lens-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lens-card {
+  min-height: 72px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.lens-card.ready {
+  border-color: rgba(34, 197, 94, 0.24);
+}
+
+.lens-name {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lens-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.lens-detail,
+.lens-empty {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .object-groups {
   overflow-y: auto;
   padding: 14px;

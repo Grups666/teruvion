@@ -36,6 +36,8 @@ export default function Home() {
   const [status, setStatus] = useState('Ready');
   const [selectedExplore, setSelectedExplore] = useState<EntityExploreResponse | null>(null);
   const [exploreLoading, setExploreLoading] = useState(false);
+  const [projectLenses, setProjectLenses] = useState<Record<string, any> | null>(null);
+  const [lensesLoading, setLensesLoading] = useState(false);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -83,6 +85,42 @@ export default function Home() {
       clearProjectPoll();
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjectLenses(projectId: string) {
+      setLensesLoading(true);
+      setProjectLenses(null);
+
+      try {
+        const result = await api.getProjectLenses(projectId);
+        if (!cancelled) {
+          setProjectLenses(result);
+        }
+      } catch (err) {
+        console.warn('Failed to load project lenses:', err);
+        if (!cancelled) {
+          setProjectLenses(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLensesLoading(false);
+        }
+      }
+    }
+
+    if (selectedProjectId) {
+      loadProjectLenses(selectedProjectId);
+    } else {
+      setProjectLenses(null);
+      setLensesLoading(false);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId, projects]);
 
   async function loadData() {
     try {
@@ -296,6 +334,7 @@ export default function Home() {
   const groupedProjectEntities = groupEntitiesByLayer(projectEntities);
   const projectStats = getProjectStats(projectEntities);
   const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
+  const lensSummaries = getLensSummaries(projectLenses);
 
   async function copyProjectSummary() {
     if (!selectedProject || !projectQuality) return;
@@ -518,6 +557,28 @@ export default function Home() {
                   )}
                 </div>
               )}
+
+              <div className="project-lenses">
+                <div className="lens-head">
+                  <span>Views</span>
+                  <span>{lensesLoading ? 'Loading' : `${lensSummaries.length} view${lensSummaries.length !== 1 ? 's' : ''}`}</span>
+                </div>
+                {lensesLoading ? (
+                  <div className="lens-empty">Building project views...</div>
+                ) : lensSummaries.length > 0 ? (
+                  <div className="lens-grid">
+                    {lensSummaries.map(lens => (
+                      <div className={`lens-card ${lens.status}`} key={lens.name}>
+                        <div className="lens-name">{lens.name}</div>
+                        <div className="lens-value">{lens.value}</div>
+                        <div className="lens-detail">{lens.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="lens-empty">No lens output yet.</div>
+                )}
+              </div>
 
               <div className="object-groups">
                 {projectEntities.length === 0 ? (
@@ -855,6 +916,75 @@ function getProjectQuality(project: Project, entities: Entity[]) {
     summary,
     notes
   };
+}
+
+function getLensSummaries(lenses: Record<string, any> | null) {
+  if (!lenses) return [];
+
+  return ['map', 'workflow', 'evidence', 'timeline', 'comparison']
+    .filter(name => lenses[name])
+    .map(name => {
+      const lens = lenses[name];
+      if (lens.error) {
+        return {
+          name,
+          value: 'Unavailable',
+          detail: lens.error,
+          status: 'empty'
+        };
+      }
+
+      if (name === 'map') {
+        const featureCount = lens.features?.length || 0;
+        const regionCount = lens.regions?.length || 0;
+        return {
+          name: 'Map',
+          value: `${featureCount} feature${featureCount !== 1 ? 's' : ''}`,
+          detail: regionCount > 0 ? `${regionCount} region${regionCount !== 1 ? 's' : ''}` : 'No spatial feature',
+          status: featureCount > 0 ? 'ready' : 'empty'
+        };
+      }
+
+      if (name === 'workflow') {
+        const nodeCount = lens.metadata?.stats?.totalNodes || lens.graph?.nodes?.length || 0;
+        const stageCount = lens.stages?.length || lens.metadata?.stats?.stageCount || 0;
+        return {
+          name: 'Workflow',
+          value: `${nodeCount} node${nodeCount !== 1 ? 's' : ''}`,
+          detail: stageCount > 0 ? `${stageCount} stage${stageCount !== 1 ? 's' : ''}` : 'No pipeline stage',
+          status: nodeCount > 0 ? 'ready' : 'empty'
+        };
+      }
+
+      if (name === 'evidence') {
+        const claims = lens.summary?.totalClaims || 0;
+        const chains = lens.metadata?.stats?.totalChains || lens.chains?.length || 0;
+        return {
+          name: 'Evidence',
+          value: `${claims} claim${claims !== 1 ? 's' : ''}`,
+          detail: chains > 0 ? `${chains} chain${chains !== 1 ? 's' : ''}` : 'No evidence chain',
+          status: claims > 0 ? 'ready' : 'empty'
+        };
+      }
+
+      if (name === 'timeline') {
+        const events = lens.events?.length || lens.metadata?.stats?.totalEvents || 0;
+        return {
+          name: 'Timeline',
+          value: `${events} event${events !== 1 ? 's' : ''}`,
+          detail: lens.timeline?.span ? String(lens.timeline.span) : 'No temporal span',
+          status: events > 0 ? 'ready' : 'empty'
+        };
+      }
+
+      const compared = lens.metadata?.stats?.comparedCount || lens.entities?.length || 0;
+      return {
+        name: 'Comparison',
+        value: `${compared} object${compared !== 1 ? 's' : ''}`,
+        detail: compared >= 2 ? 'Comparable set' : 'Needs at least 2 objects',
+        status: compared >= 2 ? 'ready' : 'empty'
+      };
+    });
 }
 
 /** Format entity attributes for display */

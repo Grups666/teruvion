@@ -95,6 +95,10 @@ class APIClient {
     return this.request(`/projects/${id}`);
   }
 
+  async getProjectLenses(id: string): Promise<Record<string, any>> {
+    return this.request(`/projects/${id}/lens`);
+  }
+
   async deleteProject(id: string): Promise<void> {
     await this.request(`/projects/${id}`, { method: 'DELETE' });
   }
