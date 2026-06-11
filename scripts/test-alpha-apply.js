@@ -11,10 +11,44 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 process.chdir(path.join(__dirname, '..'));
 
 const API_BASE = process.env.API_BASE || 'http://localhost:3000';
-const ADMIN_SECRET = process.env.ADMIN_SECRET || 'test-admin-secret';
+const ADMIN_SECRET = process.env.ADMIN_SECRET || loadLocalAdminSecret();
+
+function parseJSONC(content) {
+  const lines = content.split('\n');
+  const cleanedLines = lines.map(line => {
+    const commentIndex = line.indexOf('//');
+    if (commentIndex === -1) return line;
+
+    const beforeComment = line.substring(0, commentIndex);
+    const quoteCount = (beforeComment.match(/"/g) || []).length;
+    return quoteCount % 2 === 0 ? line.substring(0, commentIndex) : line;
+  });
+
+  return JSON.parse(cleanedLines.join('\n').replace(/\/\*[\s\S]*?\*\//g, ''));
+}
+
+function loadLocalAdminSecret() {
+  const candidates = [
+    path.join(process.cwd(), '_local/config/admin.local.json'),
+    path.join(process.cwd(), '_local/config/llm.local.jsonc')
+  ];
+
+  for (const file of candidates) {
+    try {
+      const content = fs.readFileSync(file, 'utf8');
+      const parsed = file.endsWith('.jsonc') ? parseJSONC(content) : JSON.parse(content);
+      if (parsed.adminSecret) return parsed.adminSecret;
+    } catch {
+      // Try the next local config candidate.
+    }
+  }
+
+  return '';
+}
 
 // Test data
 const testApplication = {
@@ -44,6 +78,11 @@ async function request(path, options = {}) {
 }
 
 async function test() {
+  if (!ADMIN_SECRET) {
+    console.error('Missing admin secret. Set ADMIN_SECRET or _local/config/admin.local.json.');
+    process.exit(1);
+  }
+
   console.log('='.repeat(60));
   console.log('Testing Alpha Access Flow');
   console.log('='.repeat(60));

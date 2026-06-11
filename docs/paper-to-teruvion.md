@@ -1,335 +1,181 @@
 # Paper-to-Teruvion Pipeline
 
-## Overview
+## Current Scope
 
-The Paper-to-Teruvion pipeline transforms a paper reference (DOI, title, or GitHub repository) into a structured set of research objects that can be inspected, displayed on a map, assessed for reproducibility, and compared with other research.
+Paper-to-Teruvion is currently implemented as part of the unified Digital Earth import pipeline. The public API does not expose separate lookup, inspect, extract, or compare endpoints. Instead, the system accepts a source through one import endpoint, runs admission, connector fetching, LLM-assisted decomposition, and storage, then exposes the resulting entities through project, entity, relation, and lens APIs.
 
-## Pipeline Flow
+Current source types:
 
-```
-Input: DOI / Title / GitHub URL
-       │
-       ▼
-┌─────────────────────┐
-│ Paper Lookup        │  ← OpenAlex API
-│ (metadata)          │
-└─────────────────────┘
-       │
-       ▼
-┌─────────────────────┐
-│ GitHub Inspection   │  ← GitHub API
-│ (code artifacts)    │
-└─────────────────────┘
-       │
-       ▼
-┌─────────────────────┐
-│ Object Extraction   │  ← LLM (Anthropic Claude)
-│ (structuring)       │     or rule-based fallback
-└─────────────────────┘
-       │
-       ▼
-┌─────────────────────┐
-│ Reproducibility     │  ← Static analysis
-│ Assessment          │
-└─────────────────────┘
-       │
-       ▼
-   Research Objects
-   (PaperObject, DataObject,
-    WorkflowObject, RegionObject)
+- DOI
+- paper title
+- paper publisher URL
+- GitHub repository URL
+
+## Current Flow
+
+```text
+Input: DOI / Title / Paper URL / GitHub URL
+  -> POST /api/import
+  -> SourceAdmission
+  -> ConnectorRegistry
+     -> PaperConnector for DOI, title, or paper URLs
+     -> GitHubConnector for GitHub repositories
+  -> DigitalEarthDecomposer
+  -> TripleStore
+  -> ProjectRegistry
+  -> LensRegistry
 ```
 
-## API Endpoints
+The pipeline is intentionally source-centric and object-centric. It stores extracted entities and relations rather than returning a single fixed PaperObject payload.
 
-### POST /api/paper/lookup
+## Actual API Surface
 
-Look up paper metadata from OpenAlex by DOI or title.
+### Import
 
-**Request:**
-```json
-{
-  "doi": "10.1038/s41586-018-0123-y",
-  "title": "Optional paper title for search"
-}
+```http
+POST /api/import
+Content-Type: application/json
 ```
-
-**Response:**
-```json
-{
-  "paper": {
-    "type": "PaperObject",
-    "id": "doi:10.1038/...",
-    "doi": "...",
-    "title": "...",
-    "authors": [...],
-    "year": 2018,
-    "venue": "...",
-    "abstract": "...",
-    "keywords": [...],
-    "url": "...",
-    "provenance": {
-      "source": "OpenAlex",
-      "extractedAt": "2026-01-15T...",
-      "confidence": "high"
-    }
-  },
-  "warnings": []
-}
-```
-
-**Configuration:**
-- Requires `OPENALEX_API_KEY` and `OPENALEX_EMAIL` (recommended for politeness pool)
-- Falls back to public OpenAlex API without authentication
-
-### POST /api/github/inspect
-
-Statically inspect a GitHub repository for reproducibility artifacts.
-
-**Request:**
-```json
-{
-  "repoUrl": "https://github.com/owner/repo",
-  "branch": "main"
-}
-```
-
-**Response:**
-```json
-{
-  "repository": {
-    "owner": "owner",
-    "name": "repo",
-    "url": "...",
-    "description": "...",
-    "stars": 42,
-    "license": "MIT",
-    "lastUpdated": "2025-01-01T..."
-  },
-  "artifacts": {
-    "hasReadme": true,
-    "hasLicense": true,
-    "hasDependencies": true,
-    "dependencyFiles": ["requirements.txt", "environment.yml"],
-    "hasNotebooks": true,
-    "notebookCount": 5,
-    "hasScripts": true,
-    "hasData": false,
-    "hasDataInstructions": true,
-    "hasDockerfile": false,
-    "hasTests": true,
-    "hasRunInstructions": true
-  },
-  "reproducibility": {
-    "grade": "B",
-    "confidence": "medium",
-    "reasons": [...],
-    "warnings": [...]
-  }
-}
-```
-
-**Configuration:**
-- Requires `GITHUB_TOKEN` for higher rate limits and private repo access
-- Works without token but with stricter rate limits (60 req/hour)
-
-**Safety:**
-- Read-only inspection - never executes repository code
-- Only reads file metadata and small text files (README, license)
-- Does not download large data files or binaries
-
-### POST /api/object/extract
-
-Combine paper metadata + GitHub analysis into structured research objects.
-
-**Request:**
-```json
-{
-  "paper": { ... PaperObject from lookup ... },
-  "githubAnalysis": { ... result from /api/github/inspect ... },
-  "extractionMode": "llm" | "rules" | "auto"
-}
-```
-
-**Response:**
-```json
-{
-  "objects": [
-    { "type": "PaperObject", ... },
-    { "type": "RegionObject", ... },
-    { "type": "DataObject", ... },
-    { "type": "WorkflowObject", ... }
-  ],
-  "extractionMethod": "llm" | "rules",
-  "warnings": [],
-  "confidence": "high" | "medium" | "low"
-}
-```
-
-**LLM Extraction:**
-- Uses Anthropic Claude when `ANTHROPIC_API_KEY` is configured
-- Extracts study regions from abstract/title
-- Identifies datasets and methods
-- Assesses reproducibility narrative
-
-**Rule-based Fallback:**
-- Pattern matching for region names, dataset references
-- Conservative extraction with clear "inferred" markers
-- No fabricated information
-
-### POST /api/object/compare
-
-Compare two research objects and produce structured comparison.
-
-**Request:**
-```json
-{
-  "objectA": { ... },
-  "objectB": { ... },
-  "compareMode": "llm" | "rules" | "auto"
-}
-```
-
-**Response:**
-```json
-{
-  "comparison": {
-    "type": "ComparisonResult",
-    "objectAType": "PaperObject",
-    "objectBType": "PaperObject",
-    "similarities": [...],
-    "differences": [...],
-    "fieldComparison": {
-      "title": { "a": "...", "b": "..." },
-      "year": { "a": 2020, "b": 2024 },
-      ...
-    },
-    "summary": "...",
-    "method": "llm" | "rules"
-  }
-}
-```
-
-## Reproducibility Assessment
-
-### Grading Rubric
-
-| Grade | Description | Required Components |
-|-------|-------------|---------------------|
-| A | Likely runnable | README + License + Deps + Code + (Data or Instructions) + Run Instructions |
-| B | Partially runnable | README + Code + Deps OR Data, missing some component |
-| C | Code/data incomplete | README + (Code OR Data), missing major artifacts |
-| D | Description only | README only, no executable code or data |
-| E | Insufficient info | No assessable artifacts |
-
-### Component Weights
-
-The grader evaluates these components:
-- **Documentation**: README, run instructions, examples (weight: high)
-- **Dependencies**: requirements.txt, environment.yml, package.json (weight: high)
-- **Code**: Scripts, notebooks, source code (weight: high)
-- **Data**: Data files or clear data acquisition instructions (weight: high)
-- **Containerization**: Dockerfile, docker-compose (weight: medium)
-- **License**: Open source license (weight: medium)
-- **Tests**: Test suite, CI configuration (weight: low)
-
-### Output Format
 
 ```json
 {
-  "grade": "B",
-  "confidence": "medium",
-  "score": 0.65,
-  "reasons": [
-    "README documentation present",
-    "Python dependencies declared in requirements.txt",
-    "Multiple Jupyter notebooks for analysis"
-  ],
-  "warnings": [
-    "No data files or download instructions found",
-    "No automated tests detected",
-    "License file missing"
-  ],
-  "checklist": {
-    "hasReadme": true,
-    "hasLicense": false,
-    "hasDependencies": true,
-    "hasCode": true,
-    "hasNotebooks": true,
-    "hasData": false,
-    "hasDataInstructions": false,
-    "hasDockerfile": false,
-    "hasTests": false,
-    "hasRunInstructions": true
-  },
-  "assessedAt": "2026-01-15T...",
-  "assessmentMethod": "static-analysis"
+  "input": "10.1038/s41586-024-07145-8"
 }
 ```
 
-## Safety Constraints
-
-The pipeline operates under strict safety constraints:
-
-1. **No code execution**: GitHub repos are inspected statically only
-2. **No data fabrication**: Missing fields are explicitly marked as such
-3. **No silent failures**: Failed lookups return clear error states
-4. **No PII in logs**: API keys and tokens are never logged
-5. **Rate limiting**: Respects upstream API rate limits
-6. **Caching**: Results cached briefly to reduce API load
-7. **Timeout**: Network operations have reasonable timeouts
-
-## Error Handling
-
-Each pipeline stage handles errors gracefully:
-
-- **Network failures**: Return partial results with clear warnings
-- **API errors**: Distinguish 4xx (request issue) from 5xx (provider issue)
-- **Missing keys**: Fall back to mock/limited mode with clear notice
-- **Malformed input**: Validate and return descriptive error
-- **Quota exceeded**: Inform user, suggest waiting or alternative
-
-## Provenance Tracking
-
-Every produced object includes provenance:
+Returns a project id immediately while the background pipeline runs:
 
 ```json
 {
-  "provenance": {
-    "pipeline": "paper-to-teruvion",
-    "version": "0.1.0",
-    "stages": [
-      {
-        "stage": "openalex-lookup",
-        "timestamp": "2026-01-15T...",
-        "source": "https://api.openalex.org/...",
-        "confidence": "high"
-      },
-      {
-        "stage": "github-inspection",
-        "timestamp": "2026-01-15T...",
-        "source": "https://api.github.com/...",
-        "confidence": "high"
-      },
-      {
-        "stage": "llm-extraction",
-        "timestamp": "2026-01-15T...",
-        "model": "claude-3-5-sonnet-latest",
-        "confidence": "medium"
-      }
-    ]
-  }
+  "success": true,
+  "projectId": "project_...",
+  "status": "importing"
 }
 ```
+
+### Project Status
+
+```http
+GET /api/projects
+GET /api/projects/:projectId
+GET /api/projects/:projectId/events
+GET /api/projects/:projectId/decomposition
+POST /api/projects/:projectId/cancel
+```
+
+These endpoints are the current way to inspect import progress, stored project metadata, decomposition output, and event history.
+
+### Entities And Relations
+
+```http
+GET /api/entities
+GET /api/entities/:id
+GET /api/entities/:id/relations
+GET /api/entities/:id/explore
+GET /api/triples
+GET /api/triples/:entityId
+```
+
+These endpoints expose the object graph produced by import. The system currently stores ontology entities such as source, dataset, method, claim, evidence, region, process, and related Digital Earth objects.
+
+### Lenses
+
+```http
+GET /api/lenses
+GET /api/projects/:projectId/lens/:lensName
+```
+
+Available lenses are provided by `LensRegistry`. Current lens output is derived from the stored graph; it is not a separate compare-object API.
+
+### Admission
+
+```http
+POST /api/admission/evaluate
+```
+
+This performs the lightweight source relevance and processing-depth decision used by the import pipeline.
+
+## Connectors
+
+### PaperConnector
+
+`PaperConnector` handles DOI, paper URLs, and title-like text. It uses OpenAlex metadata and `FullTextBroker` when full text is available. If only abstract-level content is available, the output should remain marked as limited by source coverage.
+
+Configuration:
+
+- `OPENALEX_API_KEY` is optional.
+- `OPENALEX_EMAIL` is available for integrations that need a contact email.
+- `_local/config/llm.local.jsonc` may provide local-only overrides, but public behavior should rely on environment variables.
+
+### GitHubConnector
+
+`GitHubConnector` handles `github.com/owner/repo` URLs. It reads repository metadata, README content, the repository tree, and selected small text files that help the decomposer understand dependencies, code entry points, paper references, and dataset notes.
+
+Safety constraints:
+
+- It performs static inspection only.
+- It does not execute remote repository code.
+- It skips inaccessible or large files.
+
+Configuration:
+
+- `GITHUB_TOKEN` is optional but recommended for rate limits.
+
+## LLM Use
+
+`core/utils/llm.js` reads configuration from environment variables first and optional local config second:
+
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_MODEL`
+- `ANTHROPIC_BASE_URL`
+- `GITHUB_TOKEN`
+- `OPENALEX_API_KEY`
+- `OPENALEX_EMAIL`
+
+If the LLM is unavailable, callers must surface the failure or fall back explicitly. The system should not silently label speculative extraction as verified.
+
+## Reproducibility Status
+
+The current code supports provenance, verification state, and graph inspection, but there is not yet a standalone `/api/github/inspect` reproducibility endpoint. Any documentation or UI should describe reproducibility as graph/provenance state unless a dedicated static checker endpoint is reintroduced.
+
+Future static reproducibility checks should remain read-only and may inspect:
+
+- README
+- license
+- dependency files
+- notebooks
+- scripts
+- data or data instructions
+- Dockerfile
+- run instructions
+
+Suggested grades remain:
+
+| Grade | Meaning |
+|-------|---------|
+| A | likely runnable |
+| B | partially runnable |
+| C | code/data incomplete |
+| D | description only |
+| E | insufficient information |
+
+Do not claim runnable status without evidence.
+
+## Removed Legacy Contract
+
+Earlier MVP notes mentioned these separate endpoints:
+
+- `POST /api/paper/lookup`
+- `POST /api/github/inspect`
+- `POST /api/object/extract`
+- `POST /api/object/compare`
+
+They are not part of the current API. Use `/api/import`, project APIs, entity APIs, and lens APIs as the current contract.
 
 ## Limitations
 
-The current pipeline has known limitations:
-
-- **OpenAlex coverage**: Some papers may not be indexed
-- **GitHub-only**: Other code hosts (GitLab, Bitbucket) not yet supported
-- **Single repo**: Multi-repo papers handled as primary repo only
-- **Static analysis**: Cannot verify code actually runs
-- **English bias**: LLM extraction works best on English content
-- **Rate limits**: Free tier APIs limit throughput
-
-These limitations are documented in object provenance and reproducibility warnings.
+- OpenAlex coverage may be incomplete.
+- Full text is not guaranteed.
+- GitHub import is static inspection only.
+- Compare behavior is currently lens/graph based, not a dedicated object comparison endpoint.
+- Automatic monitoring and Exploration Agent behavior are future-stage concepts, not current runtime behavior.

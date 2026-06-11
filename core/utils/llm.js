@@ -1,6 +1,6 @@
 /**
- * LLM Wrapper - Paratera API Integration
- * Handles API calls, JSON cleaning, error handling
+ * LLM Wrapper
+ * Handles API calls, JSON cleaning, error handling, and optional local config.
  */
 
 const fs = require('fs');
@@ -12,11 +12,53 @@ class LLM {
   }
 
   /**
-   * Load configuration from _local/config/llm.local.jsonc
+   * Load configuration from environment variables, with optional _local overrides.
+   * Public clones should work without _local/config/llm.local.jsonc.
    */
   loadConfig() {
     if (this.config) return this.config;
 
+    const localConfig = this._loadLocalConfig();
+    const localModels = localConfig.models || {};
+    const localIntegrations = localConfig.integrations || {};
+    const localGitHub = localIntegrations.github || {};
+    const localOpenAlex = localIntegrations.openAlex || {};
+    const baseUrl = process.env.ANTHROPIC_BASE_URL
+      || localConfig.apiUrl
+      || localConfig.baseUrl
+      || 'https://api.anthropic.com';
+
+    this.config = {
+      ...localConfig,
+      apiKey: process.env.ANTHROPIC_API_KEY || localConfig.apiKey || '',
+      adminSecret: process.env.ADMIN_SECRET || localConfig.adminSecret || '',
+      apiUrl: baseUrl,
+      baseUrl,
+      models: {
+        ...localModels,
+        engineering: process.env.ANTHROPIC_MODEL
+          || localModels.engineering
+          || localModels.default
+          || 'claude-3-5-sonnet-latest'
+      },
+      integrations: {
+        ...localIntegrations,
+        github: {
+          ...localGitHub,
+          token: process.env.GITHUB_TOKEN || localGitHub.token || ''
+        },
+        openAlex: {
+          ...localOpenAlex,
+          apiKey: process.env.OPENALEX_API_KEY || localOpenAlex.apiKey || '',
+          email: process.env.OPENALEX_EMAIL || localOpenAlex.email || ''
+        }
+      }
+    };
+
+    return this.config;
+  }
+
+  _loadLocalConfig() {
     const configPath = path.join(__dirname, '../../_local/config/llm.local.jsonc');
 
     try {
@@ -42,10 +84,12 @@ class LLM {
       const cleaned = cleanedLines.join('\n')
         .replace(/\/\*[\s\S]*?\*\//g, ''); // Remove /* */ comments
 
-      this.config = JSON.parse(cleaned);
-      return this.config;
+      return JSON.parse(cleaned);
     } catch (err) {
-      throw new Error(`Failed to load LLM config from ${configPath}: ${err.message}`);
+      if (err.code === 'ENOENT') {
+        return {};
+      }
+      throw new Error(`Failed to load local LLM config from ${configPath}: ${err.message}`);
     }
   }
 
@@ -128,7 +172,7 @@ class LLM {
         max_tokens: maxTokens,
         messages: [{ role: 'user', content: prompt }]
       }),
-      signal: AbortSignal.timeout(options.timeout || 180000)  // 默认3分钟，深度理解需要时间
+      signal: AbortSignal.timeout(options.timeout || 180000)
     });
 
     if (!response.ok) {
@@ -266,6 +310,22 @@ class LLM {
   getOpenAlexKey() {
     const config = this.loadConfig();
     return config.integrations?.openAlex?.apiKey;
+  }
+
+  /**
+   * Get OpenAlex email from config
+   */
+  getOpenAlexEmail() {
+    const config = this.loadConfig();
+    return config.integrations?.openAlex?.email;
+  }
+
+  /**
+   * Get local admin secret for protected admin API routes
+   */
+  getAdminSecret() {
+    const config = this.loadConfig();
+    return config.adminSecret;
   }
 }
 

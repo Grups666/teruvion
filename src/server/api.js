@@ -7,6 +7,7 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const llm = require('../../core/utils/llm');
 const { TripleStore } = require('../../core/registry/TripleStore');
 const { ProjectRegistry } = require('../../core/project/Project');
@@ -814,8 +815,24 @@ function validateEmail(email) {
 
 // Helper: Check admin secret
 function requireAdmin(req, res) {
-  const secret = req.headers['x-admin-secret'];
-  if (!secret || secret !== process.env.ADMIN_SECRET) {
+  const secret = Array.isArray(req.headers['x-admin-secret'])
+    ? req.headers['x-admin-secret'][0]
+    : req.headers['x-admin-secret'];
+  const expectedSecret = llm.getAdminSecret();
+
+  if (!expectedSecret) {
+    console.error('[Alpha] ADMIN_SECRET or local adminSecret is not configured');
+    res.status(401).json({ error: 'Unauthorized' });
+    return false;
+  }
+
+  const secretBuffer = Buffer.from(String(secret || ''));
+  const expectedBuffer = Buffer.from(expectedSecret);
+
+  if (
+    secretBuffer.length !== expectedBuffer.length
+    || !crypto.timingSafeEqual(secretBuffer, expectedBuffer)
+  ) {
     res.status(401).json({ error: 'Unauthorized' });
     return false;
   }

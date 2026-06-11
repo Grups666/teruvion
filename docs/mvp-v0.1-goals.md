@@ -1,138 +1,83 @@
-# MVP v0.1 Goals: Deep Decomposition for Digital Earth
+# MVP v0.1 Goals: Source-To-Object Graph Foundation
 
 ## Vision
 
-Build the **research-source layer of Digital Earth** — proving that a single source (paper + GitHub) can be reliably decomposed into high-quality Earth objects, enabling spatial exploration, evidence tracking, and workflow understanding.
+Build the research-source layer of Teruvion: a narrow but working foundation that turns a DOI, paper title, paper URL, or GitHub repository into ontology-grounded entities and relations.
 
-## Digital Earth Context
+The long-term vision is a resource-oriented Digital Earth. The current implementation should stay focused on source admission, connector fetching, decomposition, storage, and inspection.
 
-Teruvion's ultimate mission is to build a living Digital Earth for understanding, exploring, and governing the planet. v0.1 is the **Deep Decomposition Engine** that proves the foundation works:
+## Current Runtime Scope
 
-| Layer | Goal | Status |
-|-------|------|--------|
-| **Layer 1: Research Source** | Decompose sources into Earth objects | **Alpha v0.1** |
-| **Layer 2: Earth System Graph** | Multi-source aggregation per region | Year 1-3 |
-| **Layer 3: Digital Earth Intelligence** | Agentic monitoring, action support | Year 5+ |
+Implemented scope centers on:
 
-## Core Capabilities
+- source admission with processing-depth decisions
+- PaperConnector for DOI, title, and paper URLs
+- GitHubConnector for static repository inspection
+- LLM-assisted DigitalEarthDecomposer
+- TripleStore for entities and relations
+- ProjectRegistry for import state
+- EventLog for progress and history
+- LensRegistry for recomposed project views
+- frontend exploration over imported graph data
 
-### 1. Three-Layer Ontology
-- **Core Layer**: 14 universal entities (Source, Entity, Claim, Evidence, Data, Method, Process, Event, System, Location, Time, Result, Metric, Uncertainty)
-- **Source-Type Layer**: Paper, Code, Dataset, Report, News, ResearchQuestion, Hypothesis, Theory, Figure, Model, Experiment, Workflow, Region, TimeRange
-- **Domain Layer**: Hydrology (Basin, Watershed, Gauge, Streamflow, FloodEvent), Machine Learning (NeuralNetwork, TrainingRun), Policy (Institution, Regulation)
+## Explicit Non-Goals
 
-### 2. Source Admission
-Evaluate sources before processing:
-- Research relevance (0-1 score)
-- Information density assessment
-- Evidence potential evaluation
-- Processing depth decision: deep | structured | light | reject
+This MVP does not include:
 
-### 3. Deep Decomposition
-- FullTextBroker: Fetch full text (or mark abstract-only)
-- LLM extraction: Objects with provenance (section trace)
-- EntityMapper: Map understanding to ontology entities
-- TripleBuilder: Build evidence chains and relationships
-
-### 4. Lens-based Recomposition
-- **Map Lens**: Render regions, basins, gauges, coverage as GeoJSON
-- **Evidence Lens**: Build claim-evidence chains with confidence
-- **Workflow Lens**: Trace method → dataset → model → result flow
-- **Timeline Lens**: Extract temporal evolution (years, time ranges)
-- **Comparison Lens**: Side-by-side entity comparison
-
-### 5. Spatial Object Rendering
-- Regions with bbox → Polygon conversion
-- Dataset coverage visualization
-- Basin/Watershed/Gauge support
-- Global bounds calculation
-
-### 6. Quality Gates
-- Abstract-only sources labeled clearly
-- Claims must have evidence chains
-- Confidence scores never artificially high
-- Source section spans shown
-- No hallucination: uncertain objects marked
-
-## Non-Goals for MVP
-
-This MVP explicitly does NOT include:
-- User authentication or multi-user support
-- Cloud deployment or SaaS infrastructure
-- Automated code execution
-- Full Layer 2 aggregation (multi-source projects)
-- Real-time Exploration Agent
-- Full Digital Earth Intelligence
+- user authentication
+- cloud deployment
+- paid SaaS workflow
+- automatic execution of remote GitHub code
+- real-time research monitoring
+- automatic Exploration Agent runtime
+- full Digital Earth operating layer
+- standalone Paper-to-Teruvion endpoints outside the current unified import pipeline
 
 ## Success Criteria
 
-MVP v0.1 is complete when:
+MVP v0.1 is healthy when:
 
-1. ✅ Three-layer ontology implemented and tested
-2. ✅ TripleStore with persistence, ID generation, verification state
-3. ✅ Source Admission with relevance/density/potential evaluation
-4. ✅ EntityMapper + TripleBuilder connecting understanding to store
-5. ✅ 5 lenses (map, evidence, workflow, timeline, comparison) rendering
-6. ✅ API endpoints for lenses, ontology, admission
-7. Full decomposition pipeline tested (paper → objects → lenses)
-8. Quality gates implemented and verified
-9. All tests pass (`npm test`)
-10. Documentation updated for Digital Earth framing
+1. Source admission works for supported inputs.
+2. Paper and GitHub connectors fetch real metadata or fail visibly.
+3. Decomposition produces traceable entities and relations.
+4. Abstract-only or partial-source limitations are visible.
+5. Stored entities can be listed, opened, and explored.
+6. Relations and triples can be inspected through the API.
+7. Project progress and events can be inspected.
+8. Lenses render useful recompositions from stored graph data.
+9. Documentation matches the implemented API surface.
+10. `npm test`, `npm run check`, and frontend build checks pass.
 
 ## Architecture Principles
 
-All implementation follows Teruvion core principles:
+- Object-centric: store entities and relations, not only prose summaries.
+- Evidence-first: preserve source and confidence where possible.
+- Local-first: keep the system runnable from a clone without cloud infrastructure.
+- Safe by default: inspect remote repositories statically and do not run them.
+- No silent fallback: mark missing keys, partial imports, or unavailable providers clearly.
+- Small core: add extension points before adding domain-specific assumptions.
 
-- **Object-Centric**: Define entities + relations, don't hardcode workflows
-- **Code is Infrastructure**: Code stores/retrieves; LLM understands/extracts
-- **Three-Layer Ontology**: Core + Source-Type + Domain extensions
-- **Source Admission**: Evaluate before processing
-- **Evidence Provenance**: Every object traces to source section
-- **Adaptive Schemas**: LLM decides structure based on source type
-- **Quality Gates**: Claims have evidence; no hallucination
+## Current Benchmark Domain
 
-## Vertical Domain
+Earth science, hydrology, and climate research remain useful benchmark domains because they naturally combine:
 
-**Earth science / Hydrology / Climate AI**
+- spatial regions
+- datasets
+- models and methods
+- events and hazards
+- evidence chains
+- reproducibility questions
 
-Natural fit:
-- Papers with spatial context (regions, basins)
-- Datasets with coverage (ERA5-Land, GRDC)
-- Models with workflow (LSTM, GloFAS)
-- Events with location (floods, droughts)
+These domains are benchmarks, not core assumptions. Foundation code should use generic object names and reserve domain-specific names for modules or extracted entities.
 
-High value:
-- Spatial relevance for Digital Earth
-- Evidence chains linking claims to validation
-- Multi-source integration potential
+## Future Directions
 
-## Example Benchmark
+Future stages may add:
 
-**Google Flood Forecasting Paper**
+- static reproducibility grading as a first-class endpoint
+- richer compare-anything workflows
+- multi-source aggregation per region
+- monitoring of new papers, datasets, repositories, and events
+- Digital Earth operating-layer workflows
 
-Expected decomposition:
-- Paper → source entity with metadata
-- Datasets → ERA5-Land (input), GRDC (target), GloFAS (baseline)
-- Methods → LSTM ensemble, ensemble post-processing
-- Regions → Global, 80+ countries, specific basins
-- Claims → "AI matches GloFAS reliability", "20-year return period"
-- Evidence → Figure 2 (validation), Figure 3 (skill scores)
-
-Expected lenses:
-- Map → Global coverage, basin boundaries
-- Evidence → Claims linked to figures and data
-- Workflow → LSTM → ERA5 → GloFAS → GRDC flow
-- Timeline → 2018-2021 development period
-
-## Timeline
-
-This is the foundation implementation. Focus on:
-- Correct ontology architecture
-- Reliable decomposition pipeline
-- Working lens recomposition
-- Quality gate verification
-
-Not on:
-- Feature breadth
-- UI polish
-- Performance optimization
+Future items must remain labeled as future work until implemented and verified.

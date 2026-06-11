@@ -99,7 +99,7 @@ class GitHubConnector extends BaseConnector {
     for (const filePath of candidates.slice(0, 8)) {
       try {
         const data = await this._fetchJSON(
-          `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}`,
+          `https://api.github.com/repos/${owner}/${repo}/contents/${this._encodeContentPath(filePath)}`,
           headers
         );
         if (data.size < 50000) {
@@ -111,6 +111,10 @@ class GitHubConnector extends BaseConnector {
     }
 
     return keyFiles;
+  }
+
+  _encodeContentPath(filePath) {
+    return filePath.split('/').map(encodeURIComponent).join('/');
   }
 
   _selectKeyFiles(tree) {

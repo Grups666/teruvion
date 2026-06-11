@@ -40,7 +40,7 @@ app.use('/api', apiRouter);
 app.get('/', (req, res) => {
   res.json({
     name: 'Teruvion API',
-    version: '0.12.0',
+    version: '0.12.1',
     endpoints: {
       entities: '/api/entities',
       projects: '/api/projects',

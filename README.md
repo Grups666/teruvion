@@ -1,228 +1,167 @@
-# Teruvion: Digital Earth Intelligence Platform
+# Teruvion
 
-**Mission**: Transform research sources into living, explorable Earth object graphs.
+Teruvion is a Digital Earth foundation engine for turning research sources into inspectable object graphs.
 
----
+Current focus: import papers, paper titles, DOI references, and GitHub repositories; decompose them into ontology-grounded entities and relations; then inspect the results through project, entity, relation, and lens APIs.
 
-## What is Teruvion?
+Teruvion is not trying to replace Google Earth, Cesium, ArcGIS, QGIS, Zotero, or literature summarizers. Its core difference is objectization: sources become traceable research objects, evidence chains, workflows, spatial entities, and comparisons that can be inspected and recomposed.
 
-Teruvion is a **multi-source research object graph platform** that decomposes papers, repositories, datasets, reports, and news into structured objects—Dataset, Method, Claim, Evidence, Region—and their relationships, then recomposes them into maps, evidence chains, workflows, and comparisons.
+## Current Architecture
 
-### Core Loop: Decomposition → Recomposition → Exploration
-
-**Example**:
-- **Decompose**: Nature paper on flood forecasting → extract datasets (ERA5-Land, GRDC), methods (LSTM ensemble), claims (AI matches GloFAS reliability), regions (global watersheds)
-- **Recompose**: Generate map view showing all study regions, evidence chains linking claims to figures, workflow view of model pipeline
-- **Explore**: System automatically tracks new papers, dataset updates, GitHub commits, and news events related to flood forecasting
-
----
-
-## What We Are
-
-- ✅ **Multi-source research object graph platform**
-- ✅ **Evidence-grounded knowledge infrastructure**
-- ✅ **Spatial/evidence/workflow exploration layer**
-- ✅ **Automatic tracking and exploration system**
-
-## What We Are NOT
-
-- ❌ Literature summarizer (ChatPDF, Elicit)
-- ❌ Citation manager (Zotero, Mendeley)
-- ❌ GIS platform (ArcGIS, QGIS)
-- ❌ Digital Twin (static asset replicas)
-- ❌ Single-domain tool
-
----
-
-## Architecture
-
-### Unified Digital Earth Pipeline
-
-```
-Source Input (DOI/GitHub/URL/Title)
-    ↓
-Source Admission (research relevance + Digital Earth roles)
-    ↓
-Connector (fetch content + metadata)
-    ↓
-DigitalEarthDecomposer (two-phase extraction: metadata + LLM)
-    ↓
-TripleStore (entities + relations + provenance)
-    ↓
-Lens-based Recomposition (map/evidence/workflow/timeline views)
-    ↓
-Exploration Agent (automatic tracking)
+```text
+Source input (DOI / title / paper URL / GitHub URL)
+  -> SourceAdmission
+  -> ConnectorRegistry
+  -> DigitalEarthDecomposer
+  -> TripleStore
+  -> ProjectRegistry
+  -> LensRegistry
 ```
 
-### Five-Layer Ontology
+Main runtime components:
 
-| Layer | Purpose | Example Types |
-|-------|---------|---------------|
-| **Foundation** | Universal concepts | Entity, Claim, Evidence, Method, Process |
-| **Source** | Information sources | Paper, Repository, Dataset, Report, News |
-| **Capability** | Digital Earth capabilities | Dataset, Model, Sensor, Gauge, Policy |
-| **World** | Earth system objects | Basin, Region, FloodEvent, Hazard, Risk |
-| **Domain** | Specialized extensions | HydrologicalModel, ClimateScenario |
+- `src/server/api.js`: Express API surface.
+- `src/server/digital-earth-importer.js`: unified import pipeline.
+- `core/connectors/PaperConnector.js`: DOI, paper URL, and title import through OpenAlex and full-text fallback.
+- `core/connectors/GitHubConnector.js`: static GitHub repository inspection.
+- `core/understanding/DigitalEarthDecomposer.js`: LLM-assisted source decomposition.
+- `core/registry/TripleStore.js`: entity and relation storage.
+- `core/lenses`: recomposed views over stored graph data.
+- `frontend`: Next.js frontend for interactive exploration.
 
-### Bridge Relations
+## What Is Implemented Now
 
-Capability ↔ World connections:
-- `covers`: Dataset → Basin (spatial coverage)
-- `simulates`: Model → Basin (simulation domain)
-- `observes`: Sensor → Variable (observation capability)
-- `mitigates`: Intervention → Hazard (risk reduction)
+- Unified source import through `POST /api/import`.
+- Paper metadata import through OpenAlex-backed `PaperConnector`.
+- GitHub repository metadata, README, tree, and key-file inspection.
+- Source admission before decomposition.
+- Entity and relation storage in `TripleStore`.
+- Project status, events, cancellation, export, and decomposition lookup.
+- Lens-based recomposition for graph views.
+- Frontend exploration of imported projects and entities.
 
----
+## Not Current Runtime Features
 
-## Core Features
+These are product directions or previous MVP notes, not current API contracts:
 
-### 1. Multi-Source Import
+- automatic research monitoring
+- real-time Exploration Agent
+- cloud deployment
+- user accounts
+- automatic execution of remote GitHub code
+- standalone `/api/paper/lookup`, `/api/github/inspect`, `/api/object/extract`, or `/api/object/compare` endpoints
+
+Use `docs/paper-to-teruvion.md` for the current Paper-to-Teruvion pipeline contract.
+
+## Configuration
+
+Environment variables are the public configuration contract:
+
 ```bash
-# Import a paper
-node cli/teruvion.js ingest "10.1038/s41586-024-07145-8"
-
-# Import a GitHub repo
-node cli/teruvion.js ingest "https://github.com/google-research/flood-forecasting"
-
-# Import by title
-node cli/teruvion.js ingest "Global prediction of extreme floods"
+ANTHROPIC_API_KEY=
+ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+GITHUB_TOKEN=
+OPENALEX_API_KEY=
+OPENALEX_EMAIL=
+PORT=3000
+ADMIN_SECRET=
 ```
 
-### 2. Source Admission
-Evaluates Digital Earth relevance before processing:
-- **deep**: Full decomposition with bridge relations
-- **structured**: Essential extraction (capabilities + world objects)
-- **light**: Metadata only
-- **reject**: Not Digital Earth-relevant
+Local private overrides can also be stored in `_local/config/llm.local.jsonc`. `_local/` is ignored by Git and must not be committed.
 
-### 3. LLM-Enhanced Extraction
-- Section-aware chunking for long documents
-- Provenance with span positions (trace to original text)
-- Bridge relation semantic judgment (not hardcoded)
+For the alpha admin UI, configure a long random admin secret through `ADMIN_SECRET` or a local-only file:
 
-### 4. Interactive Exploration
-- `/explore` - Click entities → see connections
-- Layer filtering (World / Capability / Source)
-- "What can you do?" capability suggestions
+```json
+{
+  "adminSecret": "replace-with-a-long-random-secret"
+}
+```
 
-### 5. Lens-based Views
-- **Map Lens**: Spatial distribution of regions, coverage
-- **Evidence Lens**: Claim → Figure → Method chains
-- **Workflow Lens**: Method → Dataset → Model flow
-- **Timeline Lens**: Evolution of understanding
+Save that as `_local/config/admin.local.json`, or add `adminSecret` to `_local/config/llm.local.jsonc`. Admin routes require the `x-admin-secret` header.
 
----
-
-## Installation
+## Install
 
 ```bash
 git clone https://github.com/Grups666/teruvion.git
 cd teruvion
 npm install
+cd frontend
+npm install
 ```
 
-Create `_local/config/llm.local.jsonc` with your LLM API credentials:
+## Run
 
-```jsonc
-{
-  "apiKey": "your-api-key",
-  "apiUrl": "https://api.example.com",
-  "models": {
-    "engineering": "claude-sonnet-4-6"
-  },
-  "integrations": {
-    "github": { "token": "ghp_xxx" },
-    "openAlex": { "apiKey": "xxx" }
-  }
-}
-```
-
-Optional: Create `_local/config/email.local.json` for email notifications:
-
-```json
-{
-  "provider": "resend",
-  "apiKey": "re_xxx",
-  "from": "Teruvion <alpha@teruvion.com>",
-  "adminEmail": "admin@example.com"
-}
-```
-
----
-
-## Quick Start
+Start the API server:
 
 ```bash
-# Start the API server
 npm run server
-
-# Start the frontend (in another terminal)
-cd frontend && npm run dev
-
-# Import a source
-curl -X POST http://localhost:3000/api/import -H "Content-Type: application/json" -d '{"input":"10.1038/s41586-024-07145-8"}'
-
-# View entities
-curl http://localhost:3000/api/entities
-
-# Explore an entity
-curl http://localhost:3000/api/entities/{id}/explore
 ```
 
----
-
-## API Reference
-
-### Import
-```
-POST /api/import
-Body: { "input": "DOI/URL/title" }
-Returns: { projectId, status }
-```
-
-### Entities
-```
-GET /api/entities              # List all entities
-GET /api/entities/:id          # Get single entity
-GET /api/entities/:id/relations  # Get entity relations
-GET /api/entities/:id/explore  # Full explore view
-```
-
-### Admission
-```
-POST /api/admission/evaluate   # Quick admission check
-```
-
-### Lenses
-```
-GET /api/lenses                          # List available lenses
-GET /api/projects/:id/lens/:lensName     # Render specific lens
-```
-
----
-
-## Testing
+Start the frontend in another terminal:
 
 ```bash
-# Run all tests
-npm test
-
-# Syntax check
-npm run check
+cd frontend
+npm run dev
 ```
 
----
+Import a source:
+
+```bash
+curl -X POST http://localhost:3000/api/import ^
+  -H "Content-Type: application/json" ^
+  -d "{\"input\":\"10.1038/s41586-024-07145-8\"}"
+```
+
+Inspect stored entities:
+
+```bash
+curl http://localhost:3000/api/entities
+```
+
+## API Surface
+
+```text
+POST /api/import
+GET  /api/projects
+GET  /api/projects/:projectId
+GET  /api/projects/:projectId/events
+GET  /api/projects/:projectId/decomposition
+POST /api/projects/:projectId/cancel
+
+GET  /api/entities
+GET  /api/entities/:id
+GET  /api/entities/:id/relations
+GET  /api/entities/:id/explore
+
+GET  /api/triples
+GET  /api/triples/:entityId
+
+POST /api/admission/evaluate
+GET  /api/lenses
+GET  /api/projects/:projectId/lens/:lensName
+```
+
+## Test
+
+```bash
+npm test
+npm run check
+cd frontend
+npm run build
+```
+
+Alpha email/admin smoke test on a configured host:
+
+```bash
+npm run test:email
+node scripts/test-alpha-apply.js
+```
 
 ## Repository
 
-`https://github.com/Grups666/teruvion`
-
----
+Active repository: `https://github.com/Grups666/teruvion`
 
 ## License
 
 ISC
-
----
-
-> **Decomposition reveals structure. Recomposition creates insight. Exploration discovers what's next.**
