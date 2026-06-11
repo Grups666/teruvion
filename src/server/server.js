@@ -5,7 +5,6 @@
 
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const apiRouter = require('./api');
 
 const app = express();
@@ -34,15 +33,21 @@ app.use((req, res, next) => {
 app.use('/api', apiRouter);
 
 // ============================================================================
-// STATIC FILES
+// API INFO ROUTE
 // ============================================================================
 
-// Serve static frontend files from public/ directory
-app.use(express.static(path.join(__dirname, '../../public')));
-
-// SPA fallback - all non-API routes serve index.html
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../public/index.html'));
+// Root route returns API info
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Teruvion API',
+    version: '0.12.0',
+    endpoints: {
+      entities: '/api/entities',
+      projects: '/api/projects',
+      import: '/api/import',
+      admission: '/api/admission/evaluate'
+    }
+  });
 });
 
 // ============================================================================
