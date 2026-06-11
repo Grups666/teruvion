@@ -3,10 +3,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import api from '../types/client';
-import type { Entity, Project, SSEEvent, AnalysisProgress, EntityExploreResponse, RelatedEntity } from '../types/api';
+import type { Entity, Project, SSEEvent, AnalysisProgress, EntityExploreResponse, RelatedEntity, Decomposition } from '../types/api';
 import { getEntityLayer } from '../types/api';
 
 const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
+
+type ProjectQualityLevel = 'excellent' | 'useful' | 'partial' | 'limited' | 'pending';
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -274,6 +276,7 @@ export default function Home() {
   const selectedEntity = entities.find(e => e.id === selectedEntityId);
   const groupedProjectEntities = groupEntitiesByLayer(projectEntities);
   const projectStats = getProjectStats(projectEntities);
+  const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
 
   return (
     <div className="app-shell">
@@ -385,7 +388,7 @@ export default function Home() {
                   <div className="project-panel-title">{selectedProject.name}</div>
                   <div className="project-panel-subtitle">
                     {projectEntities.length} object{projectEntities.length !== 1 ? 's' : ''}
-                    {selectedProject.metadata?.admission?.depth ? ` · ${selectedProject.metadata.admission.depth}` : ''}
+                    {selectedProject.metadata?.admission?.depth ? ` - ${selectedProject.metadata.admission.depth}` : ''}
                   </div>
                 </div>
                 <button className="project-panel-close" aria-label="Close project panel" onClick={() => setSelectedProjectId(null)}>
@@ -411,6 +414,28 @@ export default function Home() {
                   <span className="metric-label">Other</span>
                 </div>
               </div>
+
+              {projectQuality && (
+                <div className="project-quality">
+                  <div className="quality-head">
+                    <span className={`quality-pill ${projectQuality.level}`}>
+                      {projectQuality.label}
+                    </span>
+                    <span className="quality-meta">
+                      {projectQuality.method}
+                      {projectQuality.relations > 0 ? ` - ${projectQuality.relations} relation${projectQuality.relations !== 1 ? 's' : ''}` : ''}
+                    </span>
+                  </div>
+                  <div className="quality-summary">{projectQuality.summary}</div>
+                  {projectQuality.notes.length > 0 && (
+                    <div className="quality-notes">
+                      {projectQuality.notes.slice(0, 3).map(note => (
+                        <span key={note}>{note}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="object-groups">
                 {projectEntities.length === 0 ? (
@@ -660,6 +685,93 @@ function getProjectStats(entities: Entity[]) {
     capability: grouped.capability.length,
     world: grouped.world.length,
     foundation: grouped.foundation.length,
+  };
+}
+
+function getProjectQuality(project: Project, entities: Entity[]) {
+  const decomposition = project.metadata?.decomposition as (Decomposition & {
+    confidence?: number;
+    provenance?: { extractionMethod?: string };
+    extractionMetadata?: { llmExtraction?: { success?: boolean } };
+  }) | undefined;
+  const admission = project.metadata?.admission;
+  const stats = getProjectStats(entities);
+  const confidence = typeof decomposition?.confidence === 'number'
+    ? decomposition.confidence
+    : null;
+  const method = decomposition?.provenance?.extractionMethod || 'pending';
+  const relations = (decomposition?.bridgeRelations?.length || 0)
+    + Math.max(0, stats.capability + stats.world + stats.foundation - 1);
+
+  const notes: string[] = [];
+
+  if (!decomposition) {
+    return {
+      level: 'pending',
+      label: project.analysis?.status === 'failed' ? 'Failed' : 'Pending',
+      method: project.analysis?.currentPhase || project.analysis?.status || 'importing',
+      relations: 0,
+      summary: project.analysis?.error || 'The source is still being processed.',
+      notes
+    };
+  }
+
+  if (method === 'metadata') {
+    notes.push('metadata-only extraction');
+  }
+
+  if (decomposition.extractionMetadata?.llmExtraction?.success === false) {
+    notes.push('LLM extraction unavailable');
+  }
+
+  if (admission?.depth === 'light') {
+    notes.push('light admission depth');
+  }
+
+  if (stats.world === 0) {
+    notes.push('no spatial/world objects');
+  }
+
+  if (stats.capability === 0) {
+    notes.push('no capability objects');
+  }
+
+  if ((decomposition.evidenceObjects?.length || 0) === 0) {
+    notes.push('no evidence objects');
+  }
+
+  const breadthScore =
+    (stats.source > 0 ? 1 : 0)
+    + (stats.capability > 0 ? 1 : 0)
+    + (stats.world > 0 ? 1 : 0)
+    + ((decomposition.evidenceObjects?.length || 0) > 0 ? 1 : 0);
+
+  let level: ProjectQualityLevel = 'limited';
+  if ((confidence ?? 0) >= 0.75 && breadthScore >= 3) {
+    level = 'excellent';
+  } else if ((confidence ?? 0) >= 0.55 && stats.capability > 0 && entities.length >= 3) {
+    level = 'useful';
+  } else if (entities.length > 1) {
+    level = 'partial';
+  }
+
+  const labels = {
+    excellent: 'Strong Graph',
+    useful: 'Useful Graph',
+    partial: 'Partial Graph',
+    limited: 'Limited Graph'
+  };
+
+  const confidenceText = confidence === null ? 'unknown confidence' : `${Math.round(confidence * 100)}% confidence`;
+  const summary = `${entities.length} objects extracted with ${confidenceText}.`;
+
+  return {
+    level,
+    label: labels[level],
+    method,
+    relations,
+    summary,
+    notes
   };
 }
 
