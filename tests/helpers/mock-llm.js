@@ -186,9 +186,20 @@ class MockLLM {
   async call(prompt, options = {}) {
     this.callHistory.push({ prompt, options, timestamp: new Date().toISOString() });
 
+    // Check custom responses first
+    for (const [key, value] of Object.entries(this.responses)) {
+      if (prompt.toLowerCase().includes(key.toLowerCase())) {
+        return typeof value === 'string' ? value : JSON.stringify(value);
+      }
+    }
+
     // Determine response type from prompt
     if (prompt.includes('research relevance') || prompt.includes('isResearch')) {
       return JSON.stringify(this.responses.admission.paper);
+    }
+
+    if (prompt.includes('GitHub') || prompt.includes('github')) {
+      return JSON.stringify(this.responses.decomposition.github);
     }
 
     if (prompt.includes('Extract research entities') || prompt.includes('entities and triples')) {

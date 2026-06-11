@@ -1,7 +1,7 @@
 {
   "name": "teruvion",
-  "version": "0.1.0",
-  "description": "Research Decomposition & Recomposition Engine - Core Engine for transforming scientific knowledge into composable and verifiable reasoning systems",
+  "version": "0.11.0",
+  "description": "Digital Earth Intelligence Platform - Transform research sources into living, explorable object graphs",
   "main": "core/registry/TripleStore.js",
   "bin": {
     "teruvion": "./cli/teruvion.js"
@@ -9,18 +9,19 @@
   "scripts": {
     "start": "node cli/teruvion.js",
     "server": "node src/server/server.js",
+    "dev": "cd frontend && npm run dev",
     "test": "node tests/run-tests.js",
-    "check": "node --check cli/teruvion.js && node --check core/registry/TripleStore.js && node --check core/ingest/UnifiedIngest.js"
+    "check": "node --check cli/teruvion.js && node --check core/registry/TripleStore.js && node --check src/server/api.js && node --check src/server/digital-earth-importer.js"
   },
   "keywords": [
-    "research",
+    "digital-earth",
+    "research-intelligence",
     "knowledge-graph",
     "ontology",
     "evidence-chain",
-    "scientific-reasoning",
-    "triple-store",
+    "multi-source",
     "decomposition",
-    "recomposition"
+    "exploration"
   ],
   "author": "",
   "license": "ISC",

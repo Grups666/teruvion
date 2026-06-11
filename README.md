@@ -1,243 +1,217 @@
-# Teruvion: Digital Earth Research Layer
+# Teruvion: Digital Earth Intelligence Platform
 
-**Mission**: Build a living Digital Earth for understanding, exploring, and governing the planet.
+**Mission**: Transform research sources into living, explorable Earth object graphs.
 
 ---
 
 ## What is Teruvion?
 
-Teruvion is the **research-source layer of Digital Earth** — a platform that transforms multi-source research knowledge into a structured Earth object graph, enabling spatial exploration, evidence tracking, workflow understanding, and continuous monitoring.
+Teruvion is a **multi-source research object graph platform** that decomposes papers, repositories, datasets, reports, and news into structured objects—Dataset, Method, Claim, Evidence, Region—and their relationships, then recomposes them into maps, evidence chains, workflows, and comparisons.
 
-### What We Are NOT
+### Core Loop: Decomposition → Recomposition → Exploration
+
+**Example**:
+- **Decompose**: Nature paper on flood forecasting → extract datasets (ERA5-Land, GRDC), methods (LSTM ensemble), claims (AI matches GloFAS reliability), regions (global watersheds)
+- **Recompose**: Generate map view showing all study regions, evidence chains linking claims to figures, workflow view of model pipeline
+- **Explore**: System automatically tracks new papers, dataset updates, GitHub commits, and news events related to flood forecasting
+
+---
+
+## What We Are
+
+- ✅ **Multi-source research object graph platform**
+- ✅ **Evidence-grounded knowledge infrastructure**
+- ✅ **Spatial/evidence/workflow exploration layer**
+- ✅ **Automatic tracking and exploration system**
+
+## What We Are NOT
+
 - ❌ Literature summarizer (ChatPDF, Elicit)
 - ❌ Citation manager (Zotero, Mendeley)
 - ❌ GIS platform (ArcGIS, QGIS)
 - ❌ Digital Twin (static asset replicas)
 - ❌ Single-domain tool
 
-### What We ARE
-- ✅ **Multi-source Earth object graph platform**
-- ✅ **Evidence-grounded knowledge infrastructure**
-- ✅ **Spatial/evidence/workflow exploration layer**
-- ✅ **Automatic Earth system monitoring**
-
----
-
-## Why Digital Earth?
-
-The Earth is a complex system of interactions:
-- **Water** flows through basins, glaciers, aquifers, atmosphere
-- **Climate** drives floods, droughts, heatwaves, sea-level rise
-- **Ecosystems** respond to human activity and natural cycles
-- **Human systems** depend on and modify all of these
-
-Understanding this system requires:
-1. **Multi-source knowledge**: Papers, datasets, models, reports, news
-2. **Structured objects**: Not documents, but entities and relationships
-3. **Evidence chains**: Traceable from claim to source
-4. **Spatial grounding**: Where things happen, how they connect
-5. **Continuous monitoring**: What's changing, what's new
-
-Teruvion provides the object graph layer that makes this possible.
-
----
-
-## Four Core Objectives
-
-| Objective | What it Means | Teruvion Contribution |
-|-----------|---------------|----------------------|
-| **Understand Earth Systems** | How water cycles, how climate drives events, how ecosystems respond | Decompose research into Basin, ClimateModel, FloodEvent, Ecosystem objects |
-| **Monitor Earth Resources** | Water availability, glacier mass balance, land use change | Track datasets (GRDC, ERA5), models ( GloFAS), observations (satellite) |
-| **Predict Earth Risks** | Floods, droughts, heatwaves, sea-level rise | Evidence chains linking prediction methods to validation data |
-| **Support Earth Action** | Early warning, infrastructure planning, policy design | Workflow lens showing how research informs decisions |
-
----
-
-## Core Method: Decompose → Recompose → Explore
-
-### Decomposition
-Transform heterogeneous sources into Earth objects:
-
-| Source | Extracted Objects |
-|--------|------------------|
-| Paper | Claims, Methods, Datasets, Regions, Evidence |
-| GitHub repo | Models, Workflows, APIs, Dependencies |
-| Dataset | Variables, Coverage, Access methods |
-| Report | Assessments, Recommendations, Indicators |
-| News | Events, Actors, Claims |
-
-Each object is evidence-grounded and traceable to source section.
-
-### Recomposition
-Assemble objects into explorable views:
-
-| Lens | Purpose |
-|------|---------|
-| **Map** | Spatial distribution of regions, datasets, events, coverage |
-| **Evidence** | Claim → Figure → Method → Data chains with confidence |
-| **Workflow** | Method → Dataset → Model → Result flow |
-| **Timeline** | Evolution of methods, datasets, understanding |
-| **Comparison** | Side-by-side method/dataset/result analysis |
-
-### Exploration
-Automatic tracking and discovery:
-- Monitor new papers on tracked regions/topics
-- Track dataset version updates (ERA5, GloFAS)
-- Watch model repository commits
-- Detect news events and policy changes
-- Find new connections between sources
-- Alert on contradictions or opportunities
-
----
-
-## Three-Layer Roadmap
-
-```
-Layer 1: Research Source Layer (Current Alpha)
-  ├─ Decompose papers, code, datasets, reports, news
-  ├─ Store as Earth object graph
-  ├─ Evidence chain tracking
-  └─ Lens-based recomposition
-
-Layer 2: Earth System Object Graph (Year 1-3)
-  ├─ Domain-specific adapters (hydrology, climate, ecology)
-  ├─ Multi-source aggregation per region/topic
-  ├─ Cross-domain connections (water-climate-human)
-  └─ Quality gates and provenance
-
-Layer 3: Digital Earth Intelligence (Year 5+)
-  ├─ Agentic exploration (automatic monitoring)
-  ├─ Prediction integration (model outputs as objects)
-  ├─ Action support (decision workflows)
-  └─ Governance interface (policy evidence chains)
-```
-
-**Current Alpha**: We are proving that a single source (paper + GitHub) can be reliably decomposed into high-quality Earth objects.
-
 ---
 
 ## Architecture
 
-### Source Flow
+### Unified Digital Earth Pipeline
+
 ```
-Input (DOI/GitHub/URL/Title)
+Source Input (DOI/GitHub/URL/Title)
     ↓
-Source Admission (research relevance check)
+Source Admission (research relevance + Digital Earth roles)
     ↓
-Source Adapter (paper/GitHub/report/news/dataset)
+Connector (fetch content + metadata)
     ↓
-FullTextBroker (fetch full text or fallback)
+DigitalEarthDecomposer (two-phase extraction: metadata + LLM)
     ↓
-LLM Decomposition (extract objects with provenance)
+TripleStore (entities + relations + provenance)
     ↓
-TripleStore (entities + relations)
-    ↓
-Project (organize into research graph)
-    ↓
-Lens-based Recomposition (map/evidence/workflow views)
+Lens-based Recomposition (map/evidence/workflow/timeline views)
     ↓
 Exploration Agent (automatic tracking)
 ```
 
-### Three-Layer Ontology
+### Five-Layer Ontology
 
-**Core Layer**: 14 universal entities
-- Source, Entity, Claim, Evidence, Data, Method, Process, Event, System, Location, Time, Result, Metric, Uncertainty
+| Layer | Purpose | Example Types |
+|-------|---------|---------------|
+| **Foundation** | Universal concepts | Entity, Claim, Evidence, Method, Process |
+| **Source** | Information sources | Paper, Repository, Dataset, Report, News |
+| **Capability** | Digital Earth capabilities | Dataset, Model, Sensor, Gauge, Policy |
+| **World** | Earth system objects | Basin, Region, FloodEvent, Hazard, Risk |
+| **Domain** | Specialized extensions | HydrologicalModel, ClimateScenario |
 
-**Source-Type Layer**: Extensions for source types
-- Paper, Code (GitHub), Dataset, Report, News
-- ResearchQuestion, Hypothesis, Theory (extends Claim)
-- Figure (extends Evidence), Model (extends Method)
-- Experiment, Workflow (extends Process)
-- Region (extends Location), TimeRange (extends Time)
+### Bridge Relations
 
-**Domain Layer**: Optional extensions
-- **Hydrology**: Basin, Watershed, Gauge, Streamflow, FloodEvent, HydrologicalModel
-- **Machine Learning**: NeuralNetwork, TrainingRun, Benchmark, Checkpoint
-- **Policy**: Institution, Regulation, Stakeholder, Impact
-
----
-
-## Differentiation from GIS & Digital Twin
-
-### vs. GIS (ArcGIS, QGIS, Earth Engine)
-- **GIS** focuses on: Geographic data layers, spatial analysis, map rendering
-- **Teruvion** focuses on: Research objects, evidence chains, workflow understanding
-- **Key difference**: We are research-aware, not just geo-aware. Our spatial objects carry claims, methods, provenance.
-
-### vs. Digital Twin (static replicas)
-- **Digital Twin** focuses on: Asset replicas, real-time monitoring, operational control
-- **Teruvion** focuses on: Research knowledge graph, evidence tracking, scientific understanding
-- **Key difference**: We connect knowledge to action, not just sensors to dashboards. Our objects are evidence-grounded claims, not just measurements.
+Capability ↔ World connections:
+- `covers`: Dataset → Basin (spatial coverage)
+- `simulates`: Model → Basin (simulation domain)
+- `observes`: Sensor → Variable (observation capability)
+- `mitigates`: Intervention → Hazard (risk reduction)
 
 ---
 
-## Current Stage: Alpha v0.1
+## Core Features
 
-**Goal**: Prove that a single source can be reliably decomposed into high-quality Earth objects.
+### 1. Multi-Source Import
+```bash
+# Import a paper
+node cli/teruvion.js ingest "10.1038/s41586-024-07145-8"
 
-**Success Criteria**:
-- Full text acquisition (or clear abstract-only labeling)
-- Dataset roles correctly inferred (not hardcoded)
-- Methods with technical details (not generic names)
-- Claims with evidence chains
-- Each object traceable to source section
-- Spatial objects extracted and mapped
+# Import a GitHub repo
+node cli/teruvion.js ingest "https://github.com/google-research/flood-forecasting"
 
-**Vertical Domain**: Earth science / hydrology / climate
-- Natural fit: paper + dataset + model + region + event
-- High value: spatial relevance, evidence chains, multi-source integration
+# Import by title
+node cli/teruvion.js ingest "Global prediction of extreme floods"
+```
 
----
+### 2. Source Admission
+Evaluates Digital Earth relevance before processing:
+- **deep**: Full decomposition with bridge relations
+- **structured**: Essential extraction (capabilities + world objects)
+- **light**: Metadata only
+- **reject**: Not Digital Earth-relevant
 
-## Core Principles
+### 3. LLM-Enhanced Extraction
+- Section-aware chunking for long documents
+- Provenance with span positions (trace to original text)
+- Bridge relation semantic judgment (not hardcoded)
 
-1. **Object-Centric**: Define what exists (entities + relations), don't hardcode workflows
-2. **Code is Infrastructure**: Code stores/retrieves/render; LLM understands/extracts/judges
-3. **Three-Layer Ontology**: Core + Source-Type + Domain extensions
-4. **Source Admission**: Not everything enters; evaluate relevance and depth
-5. **Evidence Provenance**: Every object traces to source section
-6. **Adaptive Schemas**: Let LLM decide structure based on source type
-7. **Quality Gates**: Claims must have evidence; no hallucination
+### 4. Interactive Exploration
+- `/explore` - Click entities → see connections
+- Layer filtering (World / Capability / Source)
+- "What can you do?" capability suggestions
+
+### 5. Lens-based Views
+- **Map Lens**: Spatial distribution of regions, coverage
+- **Evidence Lens**: Claim → Figure → Method chains
+- **Workflow Lens**: Method → Dataset → Model flow
+- **Timeline Lens**: Evolution of understanding
 
 ---
 
 ## Installation
 
 ```bash
+git clone https://github.com/Grups666/teruvion.git
+cd teruvion
 npm install
 ```
 
-Create `_local/config/llm.local.jsonc` with your LLM API credentials.
+Create `_local/config/llm.local.jsonc` with your LLM API credentials:
+
+```jsonc
+{
+  "apiKey": "your-api-key",
+  "apiUrl": "https://api.example.com",
+  "models": {
+    "engineering": "claude-sonnet-4-6"
+  },
+  "integrations": {
+    "github": { "token": "ghp_xxx" },
+    "openAlex": { "apiKey": "xxx" }
+  }
+}
+```
 
 ---
 
 ## Quick Start
 
 ```bash
-# Import a paper by DOI
-node cli/teruvion.js ingest "10.1038/s41586-021-03275-y"
+# Start the API server
+npm run server
 
-# Import a GitHub repository
-node cli/teruvion.js ingest "https://github.com/google-research/flood-forecasting"
+# Start the frontend (in another terminal)
+cd frontend && npm run dev
 
-# List entities
-node cli/teruvion.js list --type Region
+# Import a source
+curl -X POST http://localhost:3000/api/import -H "Content-Type: application/json" -d '{"input":"10.1038/s41586-024-07145-8"}'
 
-# Query relationships
-node cli/teruvion.js query paper-xxxxx uses
+# View entities
+curl http://localhost:3000/api/entities
+
+# Explore an entity
+curl http://localhost:3000/api/entities/{id}/explore
+```
+
+---
+
+## API Reference
+
+### Import
+```
+POST /api/import
+Body: { "input": "DOI/URL/title" }
+Returns: { projectId, status }
+```
+
+### Entities
+```
+GET /api/entities              # List all entities
+GET /api/entities/:id          # Get single entity
+GET /api/entities/:id/relations  # Get entity relations
+GET /api/entities/:id/explore  # Full explore view
+```
+
+### Admission
+```
+POST /api/admission/evaluate   # Quick admission check
+```
+
+### Lenses
+```
+GET /api/lenses                          # List available lenses
+GET /api/projects/:id/lens/:lensName     # Render specific lens
+```
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+npm test
+
+# Syntax check
+npm run check
 ```
 
 ---
 
 ## Repository
 
-Active: `https://github.com/Grups666/teruvion`
+`https://github.com/Grups666/teruvion`
 
 ---
 
-## Final Principle
+## License
+
+ISC
+
+---
 
 > **Decomposition reveals structure. Recomposition creates insight. Exploration discovers what's next.**
-
-We build the object graph layer of Digital Earth — where research knowledge becomes structured, traceable, and alive.
