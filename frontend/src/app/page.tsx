@@ -75,6 +75,33 @@ export default function Home() {
     unsubscribeRef.current = api.subscribeToProject(
       projectId,
       (event: SSEEvent) => {
+        if (event.type === 'completed') {
+          unsubscribeRef.current?.();
+          unsubscribeRef.current = null;
+          loadData();
+          setStatus('Updated');
+          return;
+        }
+
+        if (event.type === 'error') {
+          unsubscribeRef.current?.();
+          unsubscribeRef.current = null;
+          setProjects(prev => prev.map(p => (
+            p.id === projectId
+              ? {
+                  ...p,
+                  analysis: {
+                    ...p.analysis,
+                    status: 'failed',
+                    error: event.data.error,
+                  }
+                }
+              : p
+          )));
+          setStatus('Import failed');
+          return;
+        }
+
         // Handle status/progress events
         if (event.type === 'status' || event.type === 'progress') {
           const projectStatus = event.data.status;
@@ -141,6 +168,8 @@ export default function Home() {
     : [];
   const mapEntities = projectEntities.length > 0 ? projectEntities : entities;
   const selectedEntity = entities.find(e => e.id === selectedEntityId);
+  const groupedProjectEntities = groupEntitiesByLayer(projectEntities);
+  const projectStats = getProjectStats(projectEntities);
 
   return (
     <div className="app-shell">
@@ -226,31 +255,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Entities for selected project */}
-          {selectedProjectId && projectEntities.length > 0 && (
-            <>
-              <div className="section-header" style={{ marginTop: 24 }}>
-                <span className="section-title">Objects</span>
-                <span style={{ fontSize: '10px', color: 'var(--muted)' }}>{projectEntities.length}</span>
-              </div>
-              <div className="entity-list">
-                {projectEntities.map(entity => (
-                  <div
-                    key={entity.id}
-                    className={`entity-item ${selectedEntityId === entity.id ? 'active' : ''}`}
-                    onClick={() => setSelectedEntityId(entity.id)}
-                  >
-                    <span className={`badge ${getEntityLayer(entity.type)}`}>
-                      {entity.type}
-                    </span>
-                    <span style={{ fontSize: '13px', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {entity.attributes.name || entity.id}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
         </div>
 
         <div className="sidebar-footer">
@@ -267,6 +271,84 @@ export default function Home() {
           selectedEntityId={selectedEntityId}
           onSelectEntity={setSelectedEntityId}
         />
+
+        {/* ===== Project Object Panel ===== */}
+        <div className={`project-panel ${selectedProjectId ? 'open' : ''}`}>
+          {selectedProject && (
+            <>
+              <div className="project-panel-header">
+                <div>
+                  <div className="project-panel-title">{selectedProject.name}</div>
+                  <div className="project-panel-subtitle">
+                    {projectEntities.length} object{projectEntities.length !== 1 ? 's' : ''}
+                    {selectedProject.metadata?.admission?.depth ? ` · ${selectedProject.metadata.admission.depth}` : ''}
+                  </div>
+                </div>
+                <button className="project-panel-close" aria-label="Close project panel" onClick={() => setSelectedProjectId(null)}>
+                  x
+                </button>
+              </div>
+
+              <div className="project-panel-metrics">
+                <div className="metric">
+                  <span className="metric-value">{projectStats.source}</span>
+                  <span className="metric-label">Source</span>
+                </div>
+                <div className="metric">
+                  <span className="metric-value">{projectStats.capability}</span>
+                  <span className="metric-label">Capability</span>
+                </div>
+                <div className="metric">
+                  <span className="metric-value">{projectStats.world}</span>
+                  <span className="metric-label">World</span>
+                </div>
+                <div className="metric">
+                  <span className="metric-value">{projectStats.foundation}</span>
+                  <span className="metric-label">Other</span>
+                </div>
+              </div>
+
+              <div className="object-groups">
+                {projectEntities.length === 0 ? (
+                  <div className="project-panel-empty">
+                    {selectedProject.analysis?.status === 'failed'
+                      ? selectedProject.analysis.error || 'Import failed'
+                      : 'Objects will appear when the import completes.'}
+                  </div>
+                ) : (
+                  (['source', 'capability', 'world', 'foundation'] as const).map(layer => {
+                    const items = groupedProjectEntities[layer];
+                    if (items.length === 0) return null;
+
+                    return (
+                      <div className="object-group" key={layer}>
+                        <div className="object-group-header">
+                          <span>{layer}</span>
+                          <span>{items.length}</span>
+                        </div>
+                        <div className="object-list">
+                          {items.map(entity => (
+                            <button
+                              key={entity.id}
+                              className={`object-row ${selectedEntityId === entity.id ? 'active' : ''}`}
+                              onClick={() => setSelectedEntityId(entity.id)}
+                            >
+                              <span className={`object-dot ${getEntityLayer(entity.type)}`} />
+                              <span className="object-main">
+                                <span className="object-name">{entity.attributes.name || entity.id}</span>
+                                <span className="object-type">{entity.type}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
+        </div>
 
         {/* ===== Detail Panel ===== */}
         <div className={`detail-panel ${selectedEntityId ? 'open' : ''}`}>
@@ -340,6 +422,31 @@ export default function Home() {
       </main>
     </div>
   );
+}
+
+function groupEntitiesByLayer(entities: Entity[]) {
+  const groups: Record<'source' | 'capability' | 'world' | 'foundation', Entity[]> = {
+    source: [],
+    capability: [],
+    world: [],
+    foundation: [],
+  };
+
+  for (const entity of entities) {
+    groups[getEntityLayer(entity.type)].push(entity);
+  }
+
+  return groups;
+}
+
+function getProjectStats(entities: Entity[]) {
+  const grouped = groupEntitiesByLayer(entities);
+  return {
+    source: grouped.source.length,
+    capability: grouped.capability.length,
+    world: grouped.world.length,
+    foundation: grouped.foundation.length,
+  };
 }
 
 /** Format entity attributes for display */

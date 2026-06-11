@@ -120,7 +120,7 @@ export type EntityLayer = 'world' | 'capability' | 'source' | 'foundation';
 
 export function getEntityLayer(type: string): EntityLayer {
   const worldTypes = ['Basin', 'Region', 'Watershed', 'River', 'Lake', 'Glacier', 'Hazard', 'FloodEvent'];
-  const capabilityTypes = ['Dataset', 'Model', 'Sensor', 'Gauge', 'Algorithm', 'Claim', 'Evidence'];
+  const capabilityTypes = ['Dataset', 'Model', 'Sensor', 'Gauge', 'Algorithm', 'Claim', 'Evidence', 'Software', 'Workflow', 'API'];
   const sourceTypes = ['Paper', 'Repository', 'Report', 'News', 'Source'];
 
   if (worldTypes.includes(type)) return 'world';

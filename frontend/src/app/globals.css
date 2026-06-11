@@ -351,6 +351,211 @@ html, body {
   background: var(--background);
 }
 
+/* ===== Project Floating Panel ===== */
+.project-panel {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  width: min(420px, calc(100vw - var(--sidebar-width) - 48px));
+  max-height: calc(100vh - 48px);
+  background: rgba(255,255,255,0.94);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.08);
+  backdrop-filter: blur(12px);
+  z-index: 80;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.project-panel.open {
+  display: flex;
+}
+
+.project-panel-header {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.project-panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0;
+  color: var(--primary);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-panel-subtitle {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.project-panel-close {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.project-panel-close:hover {
+  background: var(--background);
+  color: var(--primary);
+}
+
+.project-panel-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
+}
+
+.metric {
+  padding: 14px 10px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.metric:last-child {
+  border-right: none;
+}
+
+.metric-value {
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.object-groups {
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.object-group {
+  margin-bottom: 16px;
+}
+
+.object-group:last-child {
+  margin-bottom: 0;
+}
+
+.object-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 8px;
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.object-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.object-row {
+  width: 100%;
+  padding: 10px 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.object-row:hover {
+  background: var(--background);
+}
+
+.object-row.active {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.object-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--foundation);
+}
+
+.object-dot.world {
+  background: var(--world);
+}
+
+.object-dot.capability {
+  background: var(--capability);
+}
+
+.object-dot.source {
+  background: var(--source);
+}
+
+.object-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.object-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-type {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.project-panel-empty {
+  padding: 24px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+
 /* ===== Detail Panel ===== */
 .detail-panel {
   position: absolute;
@@ -555,6 +760,14 @@ html, body {
   .map-container {
     height: auto;
     min-height: 0;
+  }
+
+  .project-panel {
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: calc(56vh - 24px);
   }
 
   .detail-panel {
