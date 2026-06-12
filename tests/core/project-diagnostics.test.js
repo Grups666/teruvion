@@ -4,6 +4,7 @@
 
 const { assert, describe, it } = require('../setup');
 const {
+  buildProjectActionPlan,
   buildProjectImportDiagnosis,
   buildProjectReadinessSummary
 } = require('../../core/project/ProjectDiagnostics');
@@ -109,5 +110,34 @@ describe('ProjectDiagnostics', () => {
 
     assert.strictEqual(processing.status, 'processing');
     assert.strictEqual(processing.nextStep, 'Still running');
+  });
+
+  it('should build action plans from diagnostic gaps', () => {
+    const diagnosis = [
+      { key: 'source', label: 'Source', status: 'limited', detail: 'Only metadata was available.' },
+      { key: 'spatial', label: 'Spatial Anchor', status: 'missing', detail: 'No region was extracted.' },
+      { key: 'capability', label: 'Methods & Data', status: 'missing', detail: 'No method was extracted.' },
+      { key: 'evidence', label: 'Evidence', status: 'limited', detail: 'No claim evidence.' },
+      { key: 'graph', label: 'Object Links', status: 'missing', detail: 'No relation evidence.' }
+    ];
+    const readiness = buildProjectReadinessSummary(diagnosis);
+    const actions = buildProjectActionPlan(diagnosis, readiness);
+
+    assert.strictEqual(actions[0].id, 'verify-source-coverage');
+    assert.ok(actions.some(action => action.id === 'add-spatial-anchor'));
+    assert.ok(actions.every(action => action.label && action.reason));
+    assert.ok(actions.length <= 4);
+  });
+
+  it('should build action plans for processing imports', () => {
+    const diagnosis = [
+      { key: 'pipeline', label: 'Pipeline', status: 'pending', detail: 'Still running' }
+    ];
+    const readiness = buildProjectReadinessSummary(diagnosis);
+    const actions = buildProjectActionPlan(diagnosis, readiness);
+
+    assert.strictEqual(actions[0].id, 'wait-for-import');
+    assert.strictEqual(actions[0].targetLayer, null);
+    assert.strictEqual(actions[1].targetLayer, 'source');
   });
 });

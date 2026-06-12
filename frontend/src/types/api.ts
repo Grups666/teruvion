@@ -40,6 +40,7 @@ export interface Project {
     admission?: AdmissionResult;
     importDiagnosis?: ProjectDiagnosisItem[];
     importReadiness?: ProjectReadinessSummary;
+    importActions?: ProjectActionItem[];
     [key: string]: any;
   };
   analysis?: AnalysisProgress;
@@ -94,6 +95,17 @@ export interface ProjectReadinessSummary {
   counts: Record<ProjectDiagnosisStatus, number>;
   blockers: string[];
   nextStep: string;
+}
+
+export type ProjectActionPriority = 'high' | 'normal' | 'low';
+
+export interface ProjectActionItem {
+  id?: string;
+  label: string;
+  reason?: string;
+  targetLayer: string | null;
+  fallbackLayer?: string | null;
+  priority?: ProjectActionPriority;
 }
 
 // API Response types

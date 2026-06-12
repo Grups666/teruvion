@@ -1241,14 +1241,15 @@ html, body {
 }
 
 .next-action-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
 .next-action-list button {
-  min-height: 30px;
-  padding: 0 10px;
+  min-width: 0;
+  min-height: 66px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface);
@@ -1256,13 +1257,40 @@ html, body {
   font: inherit;
   font-size: 11px;
   font-weight: 650;
+  line-height: 1.25;
+  text-align: left;
   cursor: pointer;
+}
+
+.next-action-list button.high {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: rgba(255, 251, 235, 0.74);
 }
 
 .next-action-list button:hover {
   border-color: var(--primary);
   background: var(--primary);
   color: var(--surface);
+}
+
+.next-action-list button span {
+  display: block;
+}
+
+.next-action-list button small {
+  display: -webkit-box;
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 450;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.next-action-list button:hover small {
+  color: rgba(255,255,255,0.72);
 }
 
 .object-groups {

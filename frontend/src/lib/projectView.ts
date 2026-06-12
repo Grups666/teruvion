@@ -3,6 +3,7 @@ import type {
   Entity,
   EntityLayer,
   Project,
+  ProjectActionItem,
   ProjectDiagnosisItem,
   ProjectDiagnosisStatus,
   ProjectReadinessSummary
@@ -69,11 +70,10 @@ export interface ObjectConstellationNode {
   sampleEntityId: string | null;
 }
 
-export interface ProjectNextAction {
-  label: string;
+export type ProjectNextAction = ProjectActionItem & {
   targetLayer: DisplayLayer | null;
   fallbackLayer?: DisplayLayer | null;
-}
+};
 
 type DecompositionView = Decomposition & {
   confidence?: number;
@@ -291,10 +291,15 @@ export function getObjectConstellation(entities: Entity[]): ObjectConstellationN
 }
 
 export function getRecommendedNextActions(
+  project: Project | null,
   quality: ProjectQuality | null,
   stats: ProjectStats,
   objectCount: number
 ): ProjectNextAction[] {
+  if (Array.isArray(project?.metadata?.importActions) && project.metadata.importActions.length > 0) {
+    return project.metadata.importActions.map(normalizeProjectAction).slice(0, 4);
+  }
+
   if (!quality || quality.level === 'pending') {
     return [
       { label: 'Wait for import completion', targetLayer: null },
@@ -328,6 +333,22 @@ export function getRecommendedNextActions(
     seen.add(action.label);
     return true;
   }).slice(0, 4);
+}
+
+function normalizeProjectAction(action: ProjectActionItem): ProjectNextAction {
+  return {
+    ...action,
+    targetLayer: normalizeDisplayLayer(action.targetLayer),
+    fallbackLayer: normalizeDisplayLayer(action.fallbackLayer)
+  };
+}
+
+function normalizeDisplayLayer(layer?: string | null): DisplayLayer | null {
+  if (layer === 'source' || layer === 'capability' || layer === 'world' || layer === 'foundation') {
+    return layer;
+  }
+
+  return null;
 }
 
 export function getProjectDiagnosis(

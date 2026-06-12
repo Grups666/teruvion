@@ -16,6 +16,7 @@ const ConnectorRegistry = require('../../core/connectors/ConnectorRegistry');
 const ontology = require('../../core/registry/ontology');
 const { summarizeSourceCoverage } = require('../../core/source/SourceCoverage');
 const {
+  buildProjectActionPlan,
   buildProjectImportDiagnosis,
   buildProjectReadinessSummary
 } = require('../../core/project/ProjectDiagnostics');
@@ -184,7 +185,9 @@ class DigitalEarthImporter {
         stored
       });
       project.metadata.importDiagnosis = importDiagnosis;
-      project.metadata.importReadiness = buildProjectReadinessSummary(importDiagnosis);
+      const importReadiness = buildProjectReadinessSummary(importDiagnosis);
+      project.metadata.importReadiness = importReadiness;
+      project.metadata.importActions = buildProjectActionPlan(importDiagnosis, importReadiness);
 
       await this.projectRegistry.save();
       await this.store.save();

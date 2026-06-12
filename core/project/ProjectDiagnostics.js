@@ -150,6 +150,125 @@ function buildProjectReadinessSummary(diagnosis = []) {
   };
 }
 
+function buildProjectActionPlan(diagnosis = [], readiness = null) {
+  const items = Array.isArray(diagnosis) ? diagnosis : [];
+  const byKey = new Map(items.map(item => [item.key, item]));
+
+  if (readiness?.status === 'processing' || byKey.get('pipeline')?.status === 'pending') {
+    return [
+      {
+        id: 'wait-for-import',
+        label: 'Wait for import completion',
+        reason: byKey.get('pipeline')?.detail || 'The import pipeline is still running.',
+        targetLayer: null,
+        fallbackLayer: null,
+        priority: 'normal'
+      },
+      {
+        id: 'review-source-after-import',
+        label: 'Review source coverage once extraction finishes',
+        reason: 'Coverage determines whether Teruvion can extract evidence, regions, methods, and object links.',
+        targetLayer: 'source',
+        fallbackLayer: null,
+        priority: 'normal'
+      }
+    ];
+  }
+
+  if (readiness?.status === 'blocked' || byKey.get('pipeline')?.status === 'missing') {
+    return [
+      {
+        id: 'fix-import-failure',
+        label: 'Fix failed import',
+        reason: byKey.get('pipeline')?.detail || 'The pipeline failed before a stable graph was created.',
+        targetLayer: 'source',
+        fallbackLayer: null,
+        priority: 'high'
+      }
+    ];
+  }
+
+  const actions = [];
+  const source = byKey.get('source');
+  const spatial = byKey.get('spatial');
+  const capability = byKey.get('capability');
+  const evidence = byKey.get('evidence');
+  const graph = byKey.get('graph');
+
+  if (source && source.status !== 'ready') {
+    actions.push({
+      id: 'verify-source-coverage',
+      label: 'Verify source coverage',
+      reason: source.detail,
+      targetLayer: 'source',
+      fallbackLayer: null,
+      priority: source.status === 'missing' ? 'high' : 'normal'
+    });
+  }
+
+  if (spatial?.status === 'missing') {
+    actions.push({
+      id: 'add-spatial-anchor',
+      label: 'Add or verify spatial scope',
+      reason: spatial.detail,
+      targetLayer: 'world',
+      fallbackLayer: 'source',
+      priority: 'high'
+    });
+  }
+
+  if (capability?.status === 'missing') {
+    actions.push({
+      id: 'attach-capability',
+      label: 'Attach methods, data, or code',
+      reason: capability.detail,
+      targetLayer: 'capability',
+      fallbackLayer: 'source',
+      priority: 'high'
+    });
+  }
+
+  if (evidence && evidence.status !== 'ready') {
+    actions.push({
+      id: 'inspect-evidence',
+      label: 'Inspect evidence limitations',
+      reason: evidence.detail,
+      targetLayer: 'source',
+      fallbackLayer: 'capability',
+      priority: 'normal'
+    });
+  }
+
+  if (graph && graph.status !== 'ready') {
+    actions.push({
+      id: 'review-object-links',
+      label: 'Review missing object links',
+      reason: graph.detail,
+      targetLayer: 'source',
+      fallbackLayer: 'capability',
+      priority: graph.status === 'missing' ? 'high' : 'normal'
+    });
+  }
+
+  actions.push({
+    id: 'inspect-object-evidence',
+    label: 'Open an object to inspect evidence',
+    reason: 'Object-level inspection shows provenance, confidence, relations, and available actions.',
+    targetLayer: 'foundation',
+    fallbackLayer: 'source',
+    priority: 'normal'
+  });
+
+  const seen = new Set();
+  return actions
+    .filter(action => {
+      if (seen.has(action.id)) return false;
+      seen.add(action.id);
+      return true;
+    })
+    .slice(0, 4);
+}
+
 function getObjectCounts(decomposition) {
   const source = decomposition.sourceObject ? 1 : 0;
   const capability = Array.isArray(decomposition.capabilityObjects)
@@ -234,5 +353,6 @@ function normalizeMethod(value) {
 
 module.exports = {
   buildProjectImportDiagnosis,
-  buildProjectReadinessSummary
+  buildProjectReadinessSummary,
+  buildProjectActionPlan
 };

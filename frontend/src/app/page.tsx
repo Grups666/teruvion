@@ -429,7 +429,7 @@ export default function Home() {
   const constellationNodes = getObjectConstellation(projectEntities);
   const projectDiagnosis = selectedProject ? getProjectDiagnosis(selectedProject, projectQuality, projectStats, projectEntities.length) : [];
   const projectReadiness = selectedProject ? getProjectReadiness(selectedProject, projectDiagnosis) : null;
-  const recommendedActions = getRecommendedNextActions(projectQuality, projectStats, projectEntities.length);
+  const recommendedActions = getRecommendedNextActions(selectedProject || null, projectQuality, projectStats, projectEntities.length);
   const lensSummaries = getLensSummaries(projectLenses);
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
@@ -834,9 +834,11 @@ export default function Home() {
                       <button
                         type="button"
                         key={action.label}
+                        className={action.priority === 'high' ? 'high' : ''}
                         onClick={() => selectActionTarget(action)}
                       >
-                        {action.label}
+                        <span>{action.label}</span>
+                        {action.reason && <small>{action.reason}</small>}
                       </button>
                     ))}
                   </div>
