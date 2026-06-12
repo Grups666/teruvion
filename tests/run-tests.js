@@ -14,6 +14,7 @@ const testFiles = [
   'core/ontology.test.js',
   'core/layered-ontology.test.js',
   'core/triple-store.test.js',
+  'core/alpha-membership-store.test.js',
   'integration/source-admission.test.js',
   'integration/digital-earth-decomposer.test.js',
   'integration/dynamic-ontology-activation.test.js',
