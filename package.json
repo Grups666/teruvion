@@ -1,6 +1,6 @@
 {
   "name": "teruvion",
-  "version": "0.12.24",
+  "version": "0.12.25",
   "description": "Digital Earth Intelligence Platform - Transform research sources into living, explorable object graphs",
   "main": "core/registry/TripleStore.js",
   "bin": {
@@ -11,7 +11,7 @@
     "server": "node src/server/server.js",
     "dev": "cd frontend && npm run dev",
     "test": "node tests/run-tests.js",
-    "check": "node --check cli/teruvion.js && node --check core/registry/TripleStore.js && node --check core/utils/llm.js && node --check core/source/SourceCoverage.js && node --check core/connectors/GitHubConnector.js && node --check core/connectors/RepositoryFileClassifier.js && node --check core/connectors/PaperConnector.js && node --check core/connectors/PaperIdentifierResolver.js && node --check core/connectors/FullTextBroker.js && node --check core/review/ObjectReviewActions.js && node --check core/presentation/EntityPresenter.js && node --check core/lenses/LensRegistry.js && node --check core/lenses/MapLens.js && node --check core/lenses/EvidenceLens.js && node --check core/lenses/WorkflowLens.js && node --check core/lenses/TimelineLens.js && node --check core/lenses/ComparisonLens.js && node --check core/understanding/DigitalEarthDecomposer.js && node --check src/server/api.js && node --check src/server/digital-earth-importer.js && node --check src/email/client.js && node --check src/email/templates.js && node --check scripts/test-alpha-apply.js",
+    "check": "node --check cli/teruvion.js && node --check core/registry/TripleStore.js && node --check core/utils/llm.js && node --check core/source/SourceCoverage.js && node --check core/project/ProjectDiagnostics.js && node --check core/connectors/GitHubConnector.js && node --check core/connectors/RepositoryFileClassifier.js && node --check core/connectors/PaperConnector.js && node --check core/connectors/PaperIdentifierResolver.js && node --check core/connectors/FullTextBroker.js && node --check core/review/ObjectReviewActions.js && node --check core/presentation/EntityPresenter.js && node --check core/lenses/LensRegistry.js && node --check core/lenses/MapLens.js && node --check core/lenses/EvidenceLens.js && node --check core/lenses/WorkflowLens.js && node --check core/lenses/TimelineLens.js && node --check core/lenses/ComparisonLens.js && node --check core/understanding/DigitalEarthDecomposer.js && node --check src/server/api.js && node --check src/server/digital-earth-importer.js && node --check src/email/client.js && node --check src/email/templates.js && node --check scripts/test-alpha-apply.js",
     "test:email": "node scripts/test-email.js",
     "test:alpha": "node scripts/test-alpha-apply.js"
   },

@@ -38,6 +38,7 @@ export interface Project {
   metadata?: {
     decomposition?: Decomposition;
     admission?: AdmissionResult;
+    importDiagnosis?: ProjectDiagnosisItem[];
     [key: string]: any;
   };
   analysis?: AnalysisProgress;
@@ -71,6 +72,16 @@ export interface AdmissionResult {
   primaryRole?: string;
   sourceRoles?: Record<string, number>;
   reasoning?: string;
+}
+
+export type ProjectDiagnosisStatus = 'ready' | 'missing' | 'limited' | 'pending';
+
+export interface ProjectDiagnosisItem {
+  key: string;
+  label: string;
+  status: ProjectDiagnosisStatus;
+  value: string;
+  detail: string;
 }
 
 // API Response types

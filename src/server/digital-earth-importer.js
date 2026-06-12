@@ -15,6 +15,7 @@ const llm = require('../../core/utils/llm');
 const ConnectorRegistry = require('../../core/connectors/ConnectorRegistry');
 const ontology = require('../../core/registry/ontology');
 const { summarizeSourceCoverage } = require('../../core/source/SourceCoverage');
+const { buildProjectImportDiagnosis } = require('../../core/project/ProjectDiagnostics');
 const PaperIdentifierResolver = require('../../core/connectors/PaperIdentifierResolver');
 
 class DigitalEarthImporter {
@@ -169,9 +170,16 @@ class DigitalEarthImporter {
       project.description = decomposition.sourceObject?.description || 'Imported source';
 
       // Store decomposition metadata
+      const sourceCoverage = summarizeSourceCoverage(content);
       project.metadata.decomposition = decomposition;
       project.metadata.admission = admissionResult;
-      project.metadata.sourceCoverage = summarizeSourceCoverage(content);
+      project.metadata.sourceCoverage = sourceCoverage;
+      project.metadata.importDiagnosis = buildProjectImportDiagnosis({
+        status: project.analysis.status,
+        sourceCoverage,
+        decomposition,
+        stored
+      });
 
       await this.projectRegistry.save();
       await this.store.save();

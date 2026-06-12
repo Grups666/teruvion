@@ -1,4 +1,4 @@
-import type { Decomposition, Entity, EntityLayer, Project } from '../types/api';
+import type { Decomposition, Entity, EntityLayer, Project, ProjectDiagnosisItem, ProjectDiagnosisStatus } from '../types/api';
 import { getEntityLayer } from '../types/api';
 import { formatSignalText } from './entityView';
 
@@ -65,16 +65,6 @@ export interface ProjectNextAction {
   label: string;
   targetLayer: DisplayLayer | null;
   fallbackLayer?: DisplayLayer | null;
-}
-
-export type ProjectDiagnosisStatus = 'ready' | 'missing' | 'limited' | 'pending';
-
-export interface ProjectDiagnosisItem {
-  key: string;
-  label: string;
-  status: ProjectDiagnosisStatus;
-  value: string;
-  detail: string;
 }
 
 type DecompositionView = Decomposition & {
@@ -338,6 +328,10 @@ export function getProjectDiagnosis(
   stats: ProjectStats,
   objectCount: number
 ): ProjectDiagnosisItem[] {
+  if (Array.isArray(project.metadata?.importDiagnosis) && project.metadata.importDiagnosis.length > 0) {
+    return project.metadata.importDiagnosis;
+  }
+
   if (!quality || quality.level === 'pending') {
     return [
       {
