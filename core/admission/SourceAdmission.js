@@ -46,15 +46,21 @@ class SourceAdmission {
   async evaluate(input, content = {}, metadata = {}) {
     const startTime = Date.now();
 
-    // Detect source type
-    const sourceType = metadata.type || detectSourceType(input, metadata);
-
     const combinedMetadata = {
-      ...metadata,
-      ...(content.metadata || {}),
       ...content,
-      type: sourceType
+      ...(content.metadata || {}),
+      ...metadata
     };
+    delete combinedMetadata.metadata;
+
+    // Detect source type after connector/content metadata has been normalized.
+    const normalizedSourceType = this._normalizeSourceType(combinedMetadata.type);
+    const detectionMetadata = { ...combinedMetadata };
+    if (!normalizedSourceType) {
+      delete detectionMetadata.type;
+    }
+    const sourceType = normalizedSourceType || detectSourceType(input, detectionMetadata);
+    combinedMetadata.type = sourceType;
 
     // Evaluate source roles for Digital Earth
     // Use evaluate() for LLM-enhanced assessment, score() for rule-only
@@ -111,6 +117,29 @@ class SourceAdmission {
     };
   }
 
+  _normalizeSourceType(type) {
+    if (!type) return null;
+
+    const normalized = String(type).toLowerCase();
+    const typeMap = {
+      paper: 'Paper',
+      doi: null,
+      github: 'Repository',
+      repository: 'Repository',
+      dataset: 'Dataset',
+      datasetpage: 'DatasetPage',
+      report: 'Report',
+      assessmentreport: 'AssessmentReport',
+      policydocument: 'PolicyDocument',
+      news: 'News',
+      source: null
+    };
+
+    return Object.prototype.hasOwnProperty.call(typeMap, normalized)
+      ? typeMap[normalized]
+      : type;
+  }
+
   /**
    * Decide processing depth based on source roles and density
    */
@@ -131,6 +160,16 @@ class SourceAdmission {
     const score = (deRelevance * 0.7) + (densityResult.score * 0.3);
 
     // Decision logic
+    if (this._isWeakUncontextualizedEvent(roleResult, roles)) {
+      return {
+        depth: PROCESSING_DEPTHS_DE.REJECT,
+        score,
+        reasoning: 'Event-like source lacks structured Digital Earth context',
+        estimatedValue: 'none',
+        recommendedActions: []
+      };
+    }
+
     if (score < 0.15 || roleCount === 0) {
       return {
         depth: PROCESSING_DEPTHS_DE.REJECT,
@@ -175,6 +214,19 @@ class SourceAdmission {
         'identify_interventions', 'build_scenario_links'
       ]
     };
+  }
+
+  _isWeakUncontextualizedEvent(roleResult, roles) {
+    const eventScore = roles.event_signal || 0;
+    const otherScores = Object.entries(roles)
+      .filter(([role]) => role !== 'event_signal')
+      .map(([_, value]) => value);
+    const maxOtherScore = Math.max(...otherScores, 0);
+
+    return eventScore > 0 &&
+      eventScore <= 0.3 &&
+      maxOtherScore < 0.2 &&
+      !roleResult.isExplicitEarthSource;
   }
 
   /**
@@ -341,6 +393,5 @@ class SourceAdmission {
 
 module.exports = {
   SourceAdmission,
-  PROCESSING_DEPTHS: PROCESSING_DEPTHS_DE,
-  getConnectorRoutingHint: require('./evaluators/source-role').getConnectorRoutingHint
+  PROCESSING_DEPTHS: PROCESSING_DEPTHS_DE
 };

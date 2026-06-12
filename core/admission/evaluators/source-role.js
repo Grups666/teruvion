@@ -16,7 +16,7 @@ const SOURCE_ROLES = {
   earth_content: {
     name: 'earth_content',
     description: 'Contains Earth system knowledge (papers, reports, assessments)',
-    sourceTypes: ['Paper', 'Preprint', 'Report', 'AssessmentReport', 'WhitePaper', 'Documentation']
+    sourceTypes: ['Report', 'AssessmentReport', 'WhitePaper', 'Documentation']
   },
   data_capability: {
     name: 'data_capability',
@@ -87,7 +87,7 @@ class SourceRoleEvaluator {
    * Uses type-based inference only
    */
   score(metadata = {}) {
-    const type = (metadata.type || '').toLowerCase();
+    const type = this._normalizeSourceType(metadata.type);
     const roles = {};
 
     // Initialize all roles
@@ -98,7 +98,7 @@ class SourceRoleEvaluator {
     // Type-based scoring
     for (const [roleName, roleDef] of Object.entries(SOURCE_ROLES)) {
       const typeMatch = roleDef.sourceTypes.some(st =>
-        type === st.toLowerCase() || type.includes(st.toLowerCase())
+        type === this._normalizeSourceType(st)
       );
       if (typeMatch) {
         roles[roleName] = 0.5;
@@ -124,6 +124,15 @@ class SourceRoleEvaluator {
     };
   }
 
+  _normalizeSourceType(type) {
+    return String(type || '')
+      .trim()
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase();
+  }
+
   /**
    * Add bonuses based on structural content indicators
    * NOT keyword matching - only checks for presence of structured fields
@@ -137,14 +146,31 @@ class SourceRoleEvaluator {
       roles.data_capability = Math.min(1.0, roles.data_capability + 0.2);
     }
 
+    // Earth content: structured spatial, hazard, region, or Earth-variable context.
+    if (
+      metadata.regions?.length > 0 ||
+      metadata.hazards?.length > 0 ||
+      metadata.earthVariables?.length > 0 ||
+      metadata.spatialCoverage
+    ) {
+      roles.earth_content = Math.min(1.0, roles.earth_content + 0.5);
+    }
+
     // Modeling capability: presence of model metadata
     if (metadata.models?.length > 0 || metadata.architecture || metadata.hyperparameters || metadata.performance) {
       roles.modeling_capability = Math.min(1.0, roles.modeling_capability + 0.3);
     }
 
     // Computing capability: presence of code structure
-    if (metadata.language || metadata.dependencies?.length > 0 || metadata.tree?.length > 5) {
-      roles.computing_capability = Math.min(1.0, roles.computing_capability + 0.2);
+    if (
+      metadata.language ||
+      metadata.dependencies?.length > 0 ||
+      metadata.tree?.length > 5 ||
+      metadata.algorithms?.length > 0 ||
+      metadata.software?.length > 0 ||
+      metadata.workflows?.length > 0
+    ) {
+      roles.computing_capability = Math.min(1.0, roles.computing_capability + 0.3);
     }
 
     // Governance capability: presence of jurisdiction
@@ -372,38 +398,16 @@ function detectSourceType(input, metadata = {}) {
 
   // Domain routing hints removed - these should be connector routing logic
   // not type detection. LLM will decide actual type based on content.
-  // e.g., cds.climate.copernicus.eu could be DatasetPage, APIPage, or Documentation
+  // e.g., an external URL could be DatasetPage, APIPage, Documentation, or Source
 
   // For other inputs, return generic type
   // LLM or metadata will refine this
   return 'Source';
 }
 
-/**
- * Get connector routing hint from URL
- * This is separate from type detection - it suggests which connector to use
- *
- * @param {string} input - URL or input
- * @returns {string|null} Connector name hint
- */
-function getConnectorRoutingHint(input) {
-  const inputStr = (input || '').toLowerCase();
-
-  // Routing hints based on domain patterns
-  if (/data\.gov|copernicus|cds\.climate|pangea|earthdata|catalog/.test(inputStr)) return 'dataset_portal';
-  if (/github\.com/.test(inputStr)) return 'github';
-  if (/doi\.org|10\.\d{4,}/.test(inputStr)) return 'doi';
-  if (/arxiv\.org/.test(inputStr)) return 'arxiv';
-  if (/news|bbc|reuters|guardian/.test(inputStr)) return 'news';
-  if (/policy|regulation|gov\/policy/.test(inputStr)) return 'policy';
-
-  return null;
-}
-
 module.exports = {
   SourceRoleEvaluator,
   SOURCE_ROLES,
   getActivatedOntology,
-  detectSourceType,
-  getConnectorRoutingHint
+  detectSourceType
 };

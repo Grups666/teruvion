@@ -25,7 +25,16 @@ const floodNews = {
     venue: 'Reuters',
     location: 'Pakistan',
     event: 'flood',
-    keywords: ['flood', 'Pakistan', 'disaster', 'displaced', 'monsoon', 'climate']
+    keywords: ['flood', 'Pakistan', 'disaster', 'displaced', 'monsoon', 'climate'],
+    impacts: [
+      {
+        type: 'Exposure',
+        location: 'Pakistan',
+        affectedPopulation: '33 million people',
+        affectedAssets: ['homes', 'roads', 'bridges', 'cropland'],
+        section: 'Impact Details'
+      }
+    ]
   },
   text: `
 # Devastating Floods Hit Pakistan, Leaving Millions Displaced

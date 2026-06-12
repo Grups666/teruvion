@@ -5,45 +5,21 @@
 
 const BaseConnector = require('./BaseConnector');
 const FullTextBroker = require('./FullTextBroker');
+const fetch = require('node-fetch');
+const PaperIdentifierResolver = require('./PaperIdentifierResolver');
 
 class PaperConnector extends BaseConnector {
   constructor(config) {
     super(config);
     this.fullTextBroker = new FullTextBroker(config);
+    this.identifierResolver = new PaperIdentifierResolver(config);
   }
   /**
    * Check if input could be a paper
    * Accepts: DOIs, paper URLs, or plain text titles
    */
   canHandle(input) {
-    // DOI format
-    if (/^10\.\d{4,}\//.test(input) || input.includes('doi.org/')) {
-      return true;
-    }
-
-    // Paper publisher URLs
-    const paperDomains = [
-      'nature.com',
-      'sciencedirect.com',
-      'springer.com',
-      'ieee.org',
-      'acm.org',
-      'arxiv.org',
-      'pnas.org',
-      'science.org'
-    ];
-
-    if (paperDomains.some(domain => input.includes(domain))) {
-      return true;
-    }
-
-    // Plain text (likely a title) - accept if it's not a URL and has enough words
-    if (!input.startsWith('http') && !input.includes('github.com')) {
-      const wordCount = input.trim().split(/\s+/).length;
-      return wordCount >= 3; // Titles usually have 3+ words
-    }
-
-    return false;
+    return this.identifierResolver.canBePaperInput(input);
   }
 
   /**
@@ -53,10 +29,15 @@ class PaperConnector extends BaseConnector {
     let queryUrl;
 
     // 1. Extract DOI from URL or direct DOI
-    const doi = this._extractDOI(input);
+    const resolved = await this.identifierResolver.resolve(input);
+    const doi = resolved.doi;
     if (doi) {
       queryUrl = `https://api.openalex.org/works/https://doi.org/${doi}`;
     } else {
+      if (this.identifierResolver.isURL(input)) {
+        throw new Error('No DOI metadata found on paper URL');
+      }
+
       // 2. Search by title
       const encodedTitle = encodeURIComponent(input.trim());
       queryUrl = `https://api.openalex.org/works?filter=display_name.search:${encodedTitle}&per-page=1`;
@@ -200,37 +181,6 @@ class PaperConnector extends BaseConnector {
    */
   _formatSectionName(name) {
     return name.charAt(0).toUpperCase() + name.slice(1).replace(/[_-]/g, ' ');
-  }
-
-  /**
-   * Extract DOI from various URL formats
-   */
-  _extractDOI(input) {
-    // Direct DOI
-    if (/^10\.\d{4,}\//.test(input)) {
-      return input;
-    }
-
-    // doi.org URL
-    const doiMatch = input.match(/doi\.org\/(10\.\d{4,}\/[^\s]+)/);
-    if (doiMatch) {
-      return doiMatch[1];
-    }
-
-    // Nature articles
-    const natureMatch = input.match(/nature\.com\/articles\/([a-z0-9\-]+)/i);
-    if (natureMatch) {
-      // Nature DOI format: 10.1038/{article-id}
-      return `10.1038/${natureMatch[1]}`;
-    }
-
-    // arXiv
-    const arxivMatch = input.match(/arxiv\.org\/abs\/(\d+\.\d+)/);
-    if (arxivMatch) {
-      return `10.48550/arXiv.${arxivMatch[1]}`;
-    }
-
-    return null;
   }
 
   /**

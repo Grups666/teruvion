@@ -35,6 +35,38 @@ describe('Lens Registry', () => {
     const unknown = registry.get('unknown');
     assert.strictEqual(unknown, undefined, 'Should return undefined for unknown lens');
   });
+
+  it('should recommend map from spatial structure rather than specific type names', () => {
+    const store = new MockTripleStore();
+    store.addEntity(new MockEntity('Region', {
+      name: 'Spatial object',
+      bbox: [0, 0, 1, 1]
+    }));
+    const registry = new LensRegistry(store, {});
+
+    assert.strictEqual(registry.getRecommendedLens(null), 'map');
+  });
+
+  it('should recommend workflow from workflow structure', () => {
+    const store = new MockTripleStore();
+    store.addEntity(new MockEntity('Workflow', {
+      name: 'Pipeline',
+      steps: ['load', 'run', 'export']
+    }));
+    const registry = new LensRegistry(store, {});
+
+    assert.strictEqual(registry.getRecommendedLens(null), 'workflow');
+  });
+
+  it('should recommend evidence from evidence structure', () => {
+    const store = new MockTripleStore();
+    store.addEntity(new MockEntity('Claim', {
+      statement: 'A structured claim'
+    }));
+    const registry = new LensRegistry(store, {});
+
+    assert.strictEqual(registry.getRecommendedLens(null), 'evidence');
+  });
 });
 
 describe('Map Lens', () => {
@@ -86,7 +118,7 @@ describe('Map Lens', () => {
     const lens = new MapLens(store, {});
     const result = await lens.render(null);
 
-    assert.ok(result.metadata.hasBasins, 'Should detect basins');
+    assert.ok(result.metadata.hasSpatialWorldObjects, 'Should detect spatial world objects');
   });
 
   it('should calculate bounds from features', async () => {
@@ -151,6 +183,30 @@ describe('Evidence Lens', () => {
     assert.ok(result.summary.completeChains >= 0, 'Should count complete chains');
     assert.ok(typeof result.summary.avgDepth === 'number', 'Should have avg depth');
   });
+
+  it('should build evidence chains from support structure without fixed claim type names', async () => {
+    const store = new MockTripleStore();
+
+    const assertion = new MockEntity('Insight', {
+      name: 'Structured assertion',
+      assertion: 'Model output is consistent with observed trend'
+    });
+    const assertionId = store.addEntity(assertion);
+
+    const observation = new MockEntity('Observation', {
+      name: 'Observed trend',
+      value: 'increasing'
+    });
+    const observationId = store.addEntity(observation);
+
+    store.addTriple(observationId, 'supports', assertionId);
+
+    const lens = new EvidenceLens(store, {});
+    const result = await lens.render(null);
+
+    assert.ok(result.chains.some(chain => chain.entityId === assertionId), 'Should use incoming support as evidence claim signal');
+    assert.ok(result.graph.edges.some(edge => edge.target === assertionId), 'Should build support edge');
+  });
 });
 
 describe('Workflow Lens', () => {
@@ -209,6 +265,33 @@ describe('Workflow Lens', () => {
     assert.ok(result.dataFlow, 'Should have data flow');
     assert.ok(result.dataFlow.length >= 1, 'Should trace at least one flow');
   });
+
+  it('should infer workflow stages from structure instead of fixed type names', async () => {
+    const store = new MockTripleStore();
+
+    const source = new MockEntity('Data', { name: 'Input resource' });
+    const sourceId = store.addEntity(source);
+
+    const process = new MockEntity('Process', {
+      name: 'Transform step',
+      steps: ['normalize', 'aggregate']
+    });
+    const processId = store.addEntity(process);
+
+    const output = new MockEntity('Metric', { name: 'Output metric', value: 0.91 });
+    const outputId = store.addEntity(output);
+
+    store.addTriple(processId, 'uses', sourceId);
+    store.addTriple(processId, 'produces', outputId);
+
+    const lens = new WorkflowLens(store, {});
+    const result = await lens.render(null);
+
+    assert.ok(result.stages.some(s => s.type === 'input'), 'Should infer input from resource structure');
+    assert.ok(result.stages.some(s => s.type === 'processing'), 'Should infer processing from steps');
+    assert.ok(result.stages.some(s => s.type === 'output'), 'Should infer output from produced value');
+    assert.ok(result.dataFlow.length >= 1, 'Should trace flow from generic input');
+  });
 });
 
 describe('Timeline Lens', () => {
@@ -231,6 +314,28 @@ describe('Timeline Lens', () => {
     assert.ok(result.events.length >= 3, 'Should have events');
     assert.ok(result.timeline.span, 'Should have timespan');
   });
+
+  it('should extract temporal information from generic temporal fields', async () => {
+    const store = new MockTripleStore();
+
+    store.addEntity(new MockEntity('Resource', {
+      name: 'Resource window',
+      start: '2018-01-01',
+      end: '2021-12-31'
+    }));
+    store.addEntity(new MockEntity('Process', {
+      name: 'Processing run',
+      timestamp: '2022-03-10'
+    }));
+
+    const { TimelineLens } = require('../../core/lenses');
+    const lens = new TimelineLens(store, {});
+    const result = await lens.render(null);
+
+    assert.strictEqual(result.type, 'timeline', 'Should be timeline');
+    assert.ok(result.events.length >= 2, 'Should include generic temporal entities');
+    assert.deepStrictEqual(result.timeline.span, { start: 2018, end: 2022 }, 'Should compute temporal span');
+  });
 });
 
 describe('Comparison Lens', () => {
@@ -251,6 +356,21 @@ describe('Comparison Lens', () => {
     assert.ok(result.entities.length >= 2, 'Should compare 2+ entities');
     assert.ok(result.comparison, 'Should have comparison data');
     assert.ok(result.differences.length >= 1, 'Should find differences');
+  });
+
+  it('should auto-select comparable objects without defaulting to Method', async () => {
+    const store = new MockTripleStore();
+
+    store.addEntity(new MockEntity('Resource', { name: 'Resource A', quality: 'high' }));
+    store.addEntity(new MockEntity('Resource', { name: 'Resource B', quality: 'medium' }));
+
+    const { ComparisonLens } = require('../../core/lenses');
+    const lens = new ComparisonLens(store, {});
+    const result = await lens.render(null);
+
+    assert.strictEqual(result.type, 'comparison', 'Should be comparison');
+    assert.strictEqual(result.entityType, 'Resource', 'Should infer the available comparable type');
+    assert.ok(result.entities.length >= 2, 'Should compare available resource objects');
   });
 });
 

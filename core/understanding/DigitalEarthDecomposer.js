@@ -20,6 +20,44 @@ const DynamicOntologyActivation = require('./DynamicOntologyActivation');
 const SectionParser = require('./SectionParser');
 const { validateRelation, getValidRelations, getConfidenceCap, BRIDGE_RELATION_SEMANTICS } = require('../registry/ontology/relation-semantics');
 
+const CAPABILITY_EXTRACTION_PROTOCOL = [
+  { category: 'data', method: '_extractDataCapabilities', section: 'data', syncSources: ['metadata'], fullSources: ['metadata', 'text'] },
+  { category: 'observation', method: '_extractObservationCapabilities', section: 'observation', syncSources: ['metadata'], fullSources: ['text'] },
+  { category: 'modeling', method: '_extractModelingCapabilities', section: 'modeling', syncSources: ['metadata'], fullSources: ['text', 'metadata'] },
+  { category: 'computing', method: '_extractComputingCapabilities', section: 'computing', syncSources: ['metadata'], fullSources: ['metadata'] },
+  { category: 'governance', method: '_extractGovernanceCapabilities', section: 'governance', syncSources: ['metadata'], fullSources: ['text'] },
+  { category: 'socioeconomic', method: '_extractSocioeconomicCapabilities', section: 'socioeconomic', syncSources: ['metadata'], fullSources: ['text'] },
+  { category: 'evidence', method: '_extractEvidenceCapabilities', section: 'evidence', syncSources: ['metadata'], fullSources: ['results', 'discussion'] },
+  { category: 'action', method: '_extractActionCapabilities', section: 'action', syncSources: ['metadata'], fullSources: ['text'] }
+];
+
+const WORLD_EXTRACTION_PROTOCOL = [
+  { category: 'earth-object', method: '_extractEarthObjects', section: 'earthObjects' },
+  { category: 'earth-variable', method: '_extractEarthVariables', section: 'earthVariables' },
+  { category: 'hazard', method: '_extractHazards', section: 'hazards' },
+  { category: 'risk', method: '_extractRisks', section: 'risks' },
+  { category: 'model-output', method: '_extractModelOutputs', section: 'modelOutputs' }
+];
+
+const TYPE_RESOLUTION_PROTOCOLS = {
+  region: {
+    fallback: 'Region',
+    suffixes: [],
+    categories: new Set(['earth-object', 'spatial'])
+  },
+  hazard: {
+    fallback: 'Hazard',
+    suffixes: ['Event'],
+    categories: new Set(['hazard'])
+  },
+  intervention: {
+    fallback: 'Intervention',
+    suffixes: [],
+    categories: new Set(['action']),
+    parent: 'Intervention'
+  }
+};
+
 class DigitalEarthDecomposer {
   constructor(llm, options = {}) {
     this.llm = llm;
@@ -198,7 +236,7 @@ class DigitalEarthDecomposer {
     }
 
     // Extract world objects from metadata
-    if (admissionResult.activatedOntologyLayers?.includes('world')) {
+    if (new Set(admissionResult.activatedOntologyLayers || []).has('world')) {
       const worldObjects = this._extractWorldObjectsSync(metadata, admissionResult);
       result.worldObjects = worldObjects.objects;
       result.sections.worldObjects = worldObjects.sections;
@@ -222,54 +260,15 @@ class DigitalEarthDecomposer {
     const sections = {};
     const categories = admissionResult.activatedCategories || [];
 
-    // Extract based on activated categories
-    if (categories.includes('data')) {
-      const dataObjects = this._extractDataCapabilities(metadata, '');
-      objects.push(...dataObjects);
-      sections.data = { count: dataObjects.length, sources: ['metadata'] };
-    }
-
-    if (categories.includes('observation')) {
-      const obsObjects = this._extractObservationCapabilities(metadata, '');
-      objects.push(...obsObjects);
-      sections.observation = { count: obsObjects.length, sources: ['metadata'] };
-    }
-
-    if (categories.includes('modeling')) {
-      const modelObjects = this._extractModelingCapabilities(metadata, '');
-      objects.push(...modelObjects);
-      sections.modeling = { count: modelObjects.length, sources: ['metadata'] };
-    }
-
-    if (categories.includes('computing')) {
-      const computeObjects = this._extractComputingCapabilities(metadata, '');
-      objects.push(...computeObjects);
-      sections.computing = { count: computeObjects.length, sources: ['metadata'] };
-    }
-
-    if (categories.includes('governance')) {
-      const govObjects = this._extractGovernanceCapabilities(metadata, '');
-      objects.push(...govObjects);
-      sections.governance = { count: govObjects.length, sources: ['metadata'] };
-    }
-
-    if (categories.includes('socioeconomic')) {
-      const socioObjects = this._extractSocioeconomicCapabilities(metadata, '');
-      objects.push(...socioObjects);
-      sections.socioeconomic = { count: socioObjects.length, sources: ['metadata'] };
-    }
-
-    if (categories.includes('evidence')) {
-      const evidenceObjects = this._extractEvidenceCapabilities(metadata, '');
-      objects.push(...evidenceObjects);
-      sections.evidence = { count: evidenceObjects.length, sources: ['metadata'] };
-    }
-
-    if (categories.includes('action')) {
-      const actionObjects = this._extractActionCapabilities(metadata, '');
-      objects.push(...actionObjects);
-      sections.action = { count: actionObjects.length, sources: ['metadata'] };
-    }
+    this._runCategoryExtractionProtocol({
+      protocol: CAPABILITY_EXTRACTION_PROTOCOL,
+      categories,
+      metadata,
+      text: '',
+      sourceMode: 'syncSources',
+      objects,
+      sections
+    });
 
     return { objects, sections };
   }
@@ -282,91 +281,130 @@ class DigitalEarthDecomposer {
     const sections = {};
     const categories = admissionResult.activatedCategories || [];
 
-    if (categories.includes('earth-object')) {
-      const earthObjects = this._extractEarthObjects(metadata);
-      objects.push(...earthObjects);
-      sections.earthObjects = { count: earthObjects.length };
-    }
-
-    if (categories.includes('earth-variable')) {
-      const variables = this._extractEarthVariables(metadata);
-      objects.push(...variables);
-      sections.earthVariables = { count: variables.length };
-    }
-
-    if (categories.includes('hazard')) {
-      const hazards = this._extractHazards(metadata);
-      objects.push(...hazards);
-      sections.hazards = { count: hazards.length };
-    }
-
-    if (categories.includes('risk')) {
-      const risks = this._extractRisks(metadata);
-      objects.push(...risks);
-      sections.risks = { count: risks.length };
-    }
-
-    if (categories.includes('model-output')) {
-      const outputs = this._extractModelOutputs(metadata);
-      objects.push(...outputs);
-      sections.modelOutputs = { count: outputs.length };
-    }
+    this._runCategoryExtractionProtocol({
+      protocol: WORLD_EXTRACTION_PROTOCOL,
+      categories,
+      metadata,
+      objects,
+      sections
+    });
 
     return { objects, sections };
+  }
+
+  _runCategoryExtractionProtocol({ protocol, categories, metadata, text, sourceMode, objects, sections }) {
+    const activeCategories = new Set(categories || []);
+
+    for (const step of protocol) {
+      if (!activeCategories.has(step.category)) continue;
+
+      const extractor = this[step.method];
+      if (typeof extractor !== 'function') {
+        throw new Error(`Missing extractor method: ${step.method}`);
+      }
+
+      const extracted = text === undefined
+        ? extractor.call(this, metadata)
+        : extractor.call(this, metadata, text);
+
+      objects.push(...extracted);
+
+      const section = {
+        count: extracted.length
+      };
+
+      const sources = sourceMode ? step[sourceMode] : null;
+      if (sources) {
+        section.sources = sources;
+      }
+
+      sections[step.section] = section;
+    }
+  }
+
+  _createExtractedObject({ type, idPrefix, idSeed, attributes = {}, metadata = {}, confidence, provenance = {} }) {
+    return {
+      type,
+      id: this._generateId(idPrefix || type, idSeed || attributes.name || type),
+      attributes,
+      metadata: {
+        ...metadata,
+        confidence: confidence ?? metadata.confidence ?? 0.8
+      },
+      provenance
+    };
+  }
+
+  _resolveOntologyEntityType(rawType, protocolName) {
+    const protocol = TYPE_RESOLUTION_PROTOCOLS[protocolName];
+    if (!protocol) {
+      throw new Error(`Unknown type resolution protocol: ${protocolName}`);
+    }
+
+    const candidates = this._buildTypeCandidates(rawType, protocol);
+    for (const candidate of candidates) {
+      const schema = ontology.getEntitySchema(candidate);
+      if (!schema) continue;
+
+      if (protocol.categories && !protocol.categories.has(schema.category)) continue;
+      if (protocol.parent && !this._isTypeOrSubtype(candidate, protocol.parent)) continue;
+
+      return candidate;
+    }
+
+    return protocol.fallback;
+  }
+
+  _buildTypeCandidates(rawType, protocol) {
+    const base = this._canonicalTypeCandidate(rawType || protocol.fallback);
+    const candidates = [base];
+
+    for (const suffix of protocol.suffixes || []) {
+      candidates.push(`${base}${suffix}`);
+    }
+
+    candidates.push(protocol.fallback);
+    return [...new Set(candidates.filter(Boolean))];
+  }
+
+  _canonicalTypeCandidate(value) {
+    if (typeof value !== 'string') return null;
+    const parts = [];
+    let current = '';
+
+    for (const char of value) {
+      const code = char.charCodeAt(0);
+      const isDigit = code >= 48 && code <= 57;
+      const isUpper = code >= 65 && code <= 90;
+      const isLower = code >= 97 && code <= 122;
+      if (isDigit || isUpper || isLower) {
+        current += char;
+      } else if (current) {
+        parts.push(current);
+        current = '';
+      }
+    }
+
+    if (current) {
+      parts.push(current);
+    }
+
+    if (parts.length === 0) return null;
+
+    return parts
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('');
+  }
+
+  _isTypeOrSubtype(type, parentType) {
+    return new Set(ontology.getTypeHierarchy(type)).has(parentType);
   }
 
   /**
    * Sync version of evidence extraction
    */
   _extractEvidenceSync(metadata, admissionResult) {
-    const objects = [];
-    const sections = {};
-
-    const claims = metadata.claims || [];
-    for (const claim of claims) {
-      objects.push({
-        type: 'Claim',
-        id: this._generateId('claim', claim.statement?.substring(0, 50) || claim.id || 'claim'),
-        attributes: {
-          statement: claim.statement,
-          confidence: claim.confidence,
-          type: claim.type
-        },
-        metadata: {
-          evidence: claim.evidence,
-          figureRef: claim.figureRef
-        },
-        provenance: {
-          section: claim.section || 'results',
-          sourceText: claim.originalText
-        }
-      });
-    }
-    sections.claims = { count: claims.length };
-
-    const evidenceItems = metadata.evidence || [];
-    for (const ev of evidenceItems) {
-      objects.push({
-        type: 'Evidence',
-        id: this._generateId('evidence', ev.description?.substring(0, 50) || ev.id || 'evidence'),
-        attributes: {
-          type: ev.type || 'empirical',
-          description: ev.description,
-          strength: ev.strength
-        },
-        metadata: {
-          supportsClaim: ev.supportsClaim
-        },
-        provenance: {
-          section: ev.section || 'results',
-          figureRef: ev.figureRef,
-          tableRef: ev.tableRef
-        }
-      });
-    }
-    sections.evidence = { count: evidenceItems.length };
-
-    return { objects, sections };
+    return this._extractEvidenceObjectsFromMetadata(metadata);
   }
 
   /**
@@ -730,7 +768,10 @@ Return JSON with this structure:`;
         sourceObject.attributes.url = input;
         sourceObject.attributes.variables = metadata.variables;
         sourceObject.attributes.coverage = metadata.spatialCoverage;
+        sourceObject.attributes.spatialCoverage = metadata.spatialCoverage;
+        sourceObject.attributes.spatialResolution = metadata.spatialResolution;
         sourceObject.attributes.temporalCoverage = metadata.temporalCoverage;
+        sourceObject.attributes.temporalResolution = metadata.temporalResolution;
         break;
 
       case 'Report':
@@ -750,6 +791,7 @@ Return JSON with this structure:`;
         sourceObject.attributes.date = metadata.date || metadata.publishedDate;
         sourceObject.attributes.venue = metadata.venue || metadata.source;
         sourceObject.attributes.event = metadata.event;
+        sourceObject.attributes.location = metadata.location;
         break;
     }
 
@@ -766,54 +808,15 @@ Return JSON with this structure:`;
     const text = content.text || '';
     const metadata = content.metadata || {};
 
-    // Extract based on activated categories
-    if (categories.includes('data')) {
-      const dataObjects = this._extractDataCapabilities(metadata, text);
-      objects.push(...dataObjects);
-      sections.data = { count: dataObjects.length, sources: ['metadata', 'text'] };
-    }
-
-    if (categories.includes('observation')) {
-      const obsObjects = this._extractObservationCapabilities(metadata, text);
-      objects.push(...obsObjects);
-      sections.observation = { count: obsObjects.length, sources: ['text'] };
-    }
-
-    if (categories.includes('modeling')) {
-      const modelObjects = this._extractModelingCapabilities(metadata, text);
-      objects.push(...modelObjects);
-      sections.modeling = { count: modelObjects.length, sources: ['text', 'metadata'] };
-    }
-
-    if (categories.includes('computing')) {
-      const computeObjects = this._extractComputingCapabilities(metadata, text);
-      objects.push(...computeObjects);
-      sections.computing = { count: computeObjects.length, sources: ['metadata'] };
-    }
-
-    if (categories.includes('governance')) {
-      const govObjects = this._extractGovernanceCapabilities(metadata, text);
-      objects.push(...govObjects);
-      sections.governance = { count: govObjects.length, sources: ['text'] };
-    }
-
-    if (categories.includes('socioeconomic')) {
-      const socioObjects = this._extractSocioeconomicCapabilities(metadata, text);
-      objects.push(...socioObjects);
-      sections.socioeconomic = { count: socioObjects.length, sources: ['text'] };
-    }
-
-    if (categories.includes('evidence')) {
-      const evidenceObjects = this._extractEvidenceCapabilities(metadata, text);
-      objects.push(...evidenceObjects);
-      sections.evidence = { count: evidenceObjects.length, sources: ['results', 'discussion'] };
-    }
-
-    if (categories.includes('action')) {
-      const actionObjects = this._extractActionCapabilities(metadata, text);
-      objects.push(...actionObjects);
-      sections.action = { count: actionObjects.length, sources: ['text'] };
-    }
+    this._runCategoryExtractionProtocol({
+      protocol: CAPABILITY_EXTRACTION_PROTOCOL,
+      categories,
+      metadata,
+      text,
+      sourceMode: 'fullSources',
+      objects,
+      sections
+    });
 
     return { objects, sections };
   }
@@ -827,9 +830,10 @@ Return JSON with this structure:`;
 
     // Use metadata datasets if available
     for (const ds of datasets) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Dataset',
-        id: this._generateId('dataset', ds.name || ds),
+        idPrefix: 'dataset',
+        idSeed: ds.name || ds,
         attributes: {
           name: ds.name || ds,
           acronym: ds.acronym,
@@ -839,31 +843,46 @@ Return JSON with this structure:`;
           role: ds.role || 'input',
           accessUrl: ds.url || ds.accessUrl
         },
-        metadata: {
-          confidence: ds.confidence || 0.8
-        },
+        confidence: ds.confidence || 0.8,
         provenance: {
           section: 'datasets',
           sourceText: ds.originalText
         }
-      });
+      }));
     }
 
     // Also check for variables list
     if (metadata.variables && metadata.variables.length > 0) {
       for (const v of metadata.variables) {
-        objects.push({
+        objects.push(this._createExtractedObject({
           type: 'Variable',
-          id: this._generateId('variable', v.name || v),
+          idPrefix: 'variable',
+          idSeed: v.name || v,
           attributes: {
             name: v.name || v,
             unit: v.unit,
             description: v.description
           },
-          metadata: { confidence: 0.9 },
+          confidence: 0.9,
           provenance: { section: 'variables' }
-        });
+        }));
       }
+    }
+
+    if (metadata.spatialCoverage || metadata.spatialResolution || metadata.temporalCoverage || metadata.temporalResolution) {
+      objects.push(this._createExtractedObject({
+        type: 'Coverage',
+        idPrefix: 'coverage',
+        idSeed: metadata.title || metadata.name || metadata.url || 'coverage',
+        attributes: {
+          spatialCoverage: metadata.spatialCoverage,
+          spatialResolution: metadata.spatialResolution,
+          temporalCoverage: metadata.temporalCoverage,
+          temporalResolution: metadata.temporalResolution
+        },
+        confidence: 0.8,
+        provenance: { section: 'metadata' }
+      }));
     }
 
     return objects;
@@ -878,35 +897,37 @@ Return JSON with this structure:`;
     // Extract from satellite/sensor mentions
     const satellites = metadata.satellites || [];
     for (const sat of satellites) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Satellite',
-        id: this._generateId('satellite', sat.name || sat),
+        idPrefix: 'satellite',
+        idSeed: sat.name || sat,
         attributes: {
           name: sat.name || sat,
           sensors: sat.sensors,
           resolution: sat.resolution,
           revisitTime: sat.revisitTime
         },
-        metadata: { confidence: sat.confidence || 0.8 },
+        confidence: sat.confidence || 0.8,
         provenance: { section: 'methods' }
-      });
+      }));
     }
 
     // Extract gauges/stations
     const gauges = metadata.gauges || metadata.stations || [];
     for (const gauge of gauges) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Gauge',
-        id: this._generateId('gauge', gauge.name || gauge.id || gauge),
+        idPrefix: 'gauge',
+        idSeed: gauge.name || gauge.id || gauge,
         attributes: {
           name: gauge.name || gauge.id || gauge,
           stationId: gauge.id,
           river: gauge.river,
           location: gauge.location
         },
-        metadata: { confidence: gauge.confidence || 0.8 },
+        confidence: gauge.confidence || 0.8,
         provenance: { section: 'methods' }
-      });
+      }));
     }
 
     return objects;
@@ -920,9 +941,10 @@ Return JSON with this structure:`;
     const models = metadata.models || [];
 
     for (const model of models) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Model',
-        id: this._generateId('model', model.name || model),
+        idPrefix: 'model',
+        idSeed: model.name || model,
         attributes: {
           name: model.name || model,
           type: model.type || 'machine_learning',
@@ -931,30 +953,31 @@ Return JSON with this structure:`;
           hyperparameters: model.hyperparameters
         },
         metadata: {
-          confidence: model.confidence || 0.8,
           innovation: model.innovation
         },
+        confidence: model.confidence || 0.8,
         provenance: {
           section: 'methods',
           sourceText: model.originalText
         }
-      });
+      }));
     }
 
     // Add algorithms mentioned
     const algorithms = metadata.algorithms || [];
     for (const algo of algorithms) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Algorithm',
-        id: this._generateId('algorithm', algo.name || algo),
+        idPrefix: 'algorithm',
+        idSeed: algo.name || algo,
         attributes: {
           name: algo.name || algo,
           category: algo.category,
           purpose: algo.purpose
         },
-        metadata: { confidence: algo.confidence || 0.8 },
+        confidence: algo.confidence || 0.8,
         provenance: { section: 'methods' }
-      });
+      }));
     }
 
     return objects;
@@ -969,48 +992,51 @@ Return JSON with this structure:`;
     // Software/packages
     const packages = metadata.packages || metadata.dependencies || [];
     for (const pkg of packages) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Software',
-        id: this._generateId('software', pkg.name || pkg),
+        idPrefix: 'software',
+        idSeed: pkg.name || pkg,
         attributes: {
           name: pkg.name || pkg,
           version: pkg.version,
           language: metadata.language
         },
-        metadata: { confidence: 0.9 },
+        confidence: 0.9,
         provenance: { section: 'dependencies' }
-      });
+      }));
     }
 
     // Workflows
     const workflows = metadata.workflows || [];
     for (const wf of workflows) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Workflow',
-        id: this._generateId('workflow', wf.name || wf),
+        idPrefix: 'workflow',
+        idSeed: wf.name || wf,
         attributes: {
           name: wf.name || wf,
           steps: wf.steps,
           purpose: wf.purpose
         },
-        metadata: { confidence: wf.confidence || 0.8 },
+        confidence: wf.confidence || 0.8,
         provenance: { section: 'methods' }
-      });
+      }));
     }
 
     // APIs
     if (metadata.type === 'APIPage' || metadata.apiEndpoint) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'API',
-        id: this._generateId('api', metadata.name || 'api'),
+        idPrefix: 'api',
+        idSeed: metadata.name || 'api',
         attributes: {
           name: metadata.name,
           endpoint: metadata.apiEndpoint,
           description: metadata.description
         },
-        metadata: { confidence: 0.9 },
+        confidence: 0.9,
         provenance: { section: 'header' }
-      });
+      }));
     }
 
     return objects;
@@ -1025,34 +1051,36 @@ Return JSON with this structure:`;
     // Institutions
     const institutions = metadata.institutions || [];
     for (const inst of institutions) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Institution',
-        id: this._generateId('institution', inst.name || inst),
+        idPrefix: 'institution',
+        idSeed: inst.name || inst,
         attributes: {
           name: inst.name || inst,
           type: inst.type,
           jurisdiction: inst.jurisdiction
         },
-        metadata: { confidence: inst.confidence || 0.8 },
+        confidence: inst.confidence || 0.8,
         provenance: { section: 'metadata' }
-      });
+      }));
     }
 
     // Policies/regulations
     const policies = metadata.policies || [];
     for (const policy of policies) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Policy',
-        id: this._generateId('policy', policy.name || policy),
+        idPrefix: 'policy',
+        idSeed: policy.name || policy,
         attributes: {
           name: policy.name || policy,
           jurisdiction: policy.jurisdiction,
           effectiveDate: policy.effectiveDate,
           status: policy.status
         },
-        metadata: { confidence: policy.confidence || 0.8 },
+        confidence: policy.confidence || 0.8,
         provenance: { section: 'text' }
-      });
+      }));
     }
 
     return objects;
@@ -1066,33 +1094,35 @@ Return JSON with this structure:`;
 
     // Population data
     if (metadata.population || metadata.demographicData) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'PopulationDataset',
-        id: this._generateId('population', metadata.population?.name || 'population'),
+        idPrefix: 'population',
+        idSeed: metadata.population?.name || 'population',
         attributes: {
           name: metadata.population?.name || 'Population Data',
           source: metadata.population?.source,
           resolution: metadata.population?.resolution
         },
-        metadata: { confidence: 0.8 },
+        confidence: 0.8,
         provenance: { section: 'data' }
-      });
+      }));
     }
 
     // Exposure data
     const exposures = metadata.exposures || [];
     for (const exp of exposures) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'ExposureDataset',
-        id: this._generateId('exposure', exp.name || exp),
+        idPrefix: 'exposure',
+        idSeed: exp.name || exp,
         attributes: {
           name: exp.name || exp,
           type: exp.type,
           coverage: exp.coverage
         },
-        metadata: { confidence: exp.confidence || 0.8 },
+        confidence: exp.confidence || 0.8,
         provenance: { section: 'data' }
-      });
+      }));
     }
 
     return objects;
@@ -1107,42 +1137,44 @@ Return JSON with this structure:`;
     // Assessments
     const assessments = metadata.assessments || [];
     for (const assess of assessments) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Assessment',
-        id: this._generateId('assessment', assess.name || assess),
+        idPrefix: 'assessment',
+        idSeed: assess.name || assess,
         attributes: {
           name: assess.name || assess,
           type: assess.type,
           scope: assess.scope,
           confidence: assess.confidence
         },
-        metadata: { confidence: assess.confidence || 0.8 },
+        confidence: assess.confidence || 0.8,
         provenance: { section: 'results' }
-      });
+      }));
     }
 
     // Indicators
     const indicators = metadata.indicators || [];
     for (const ind of indicators) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Indicator',
-        id: this._generateId('indicator', ind.name || ind),
+        idPrefix: 'indicator',
+        idSeed: ind.name || ind,
         attributes: {
           name: ind.name || ind,
           value: ind.value,
           unit: ind.unit,
           trend: ind.trend
         },
-        metadata: { confidence: ind.confidence || 0.8 },
+        confidence: ind.confidence || 0.8,
         provenance: { section: 'results' }
-      });
+      }));
     }
 
     return objects;
   }
 
   /**
-   * Extract action capabilities (Intervention, AdaptationMeasure, EmergencyResponse)
+   * Extract action capabilities
    *
    * IMPORTANT: This method does NOT use pattern matching to determine entity type.
    * The type comes from:
@@ -1156,39 +1188,28 @@ Return JSON with this structure:`;
     const interventions = metadata.interventions || metadata.measures || [];
     for (const interv of interventions) {
       // Use explicit type if provided, otherwise default to Intervention
-      // LLM extraction will provide specific types like AdaptationMeasure
-      let entityType = interv.entityType || interv.type;
+      // LLM extraction may provide a specific ontology subtype.
+      const entityType = this._resolveOntologyEntityType(
+        interv.entityType || interv.type,
+        'intervention'
+      );
 
-      // If type is not a valid ontology type, use base Intervention
-      // Do NOT use pattern matching like .includes('adaptation')
-      if (!entityType || !this._isValidInterventionType(entityType)) {
-        entityType = 'Intervention';
-      }
-
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: entityType,
-        id: this._generateId('intervention', interv.name || interv),
+        idPrefix: 'intervention',
+        idSeed: interv.name || interv,
         attributes: {
           name: interv.name || interv,
           type: interv.type, // Keep original type as attribute for LLM to classify
           target: interv.target,
           status: interv.status
         },
-        metadata: { confidence: interv.confidence || 0.8 },
+        confidence: interv.confidence || 0.8,
         provenance: { section: 'discussion' }
-      });
+      }));
     }
 
     return objects;
-  }
-
-  /**
-   * Check if a type is a valid Intervention subtype in ontology
-   */
-  _isValidInterventionType(type) {
-    const validTypes = ['Intervention', 'AdaptationMeasure', 'MitigationMeasure',
-                        'EmergencyResponse', 'ManagementAction'];
-    return validTypes.includes(type);
   }
 
   /**
@@ -1200,40 +1221,13 @@ Return JSON with this structure:`;
     const metadata = content.metadata || {};
     const categories = admissionResult.activatedCategories;
 
-    // Earth objects (basins, glaciers, lakes, etc.)
-    if (categories.includes('earth-object')) {
-      const earthObjects = this._extractEarthObjects(metadata);
-      objects.push(...earthObjects);
-      sections.earthObjects = { count: earthObjects.length };
-    }
-
-    // Earth variables (streamflow, precipitation, temperature)
-    if (categories.includes('earth-variable')) {
-      const variables = this._extractEarthVariables(metadata);
-      objects.push(...variables);
-      sections.earthVariables = { count: variables.length };
-    }
-
-    // Hazards (floods, droughts, heatwaves)
-    if (categories.includes('hazard')) {
-      const hazards = this._extractHazards(metadata);
-      objects.push(...hazards);
-      sections.hazards = { count: hazards.length };
-    }
-
-    // Risks (exposure, vulnerability)
-    if (categories.includes('risk')) {
-      const risks = this._extractRisks(metadata);
-      objects.push(...risks);
-      sections.risks = { count: risks.length };
-    }
-
-    // Model outputs (forecasts, projections)
-    if (categories.includes('model-output')) {
-      const outputs = this._extractModelOutputs(metadata);
-      objects.push(...outputs);
-      sections.modelOutputs = { count: outputs.length };
-    }
+    this._runCategoryExtractionProtocol({
+      protocol: WORLD_EXTRACTION_PROTOCOL,
+      categories,
+      metadata,
+      objects,
+      sections
+    });
 
     return { objects, sections };
   }
@@ -1247,11 +1241,12 @@ Return JSON with this structure:`;
 
     for (const region of regions) {
       const regionType = region.type || 'Region';
-      const entityType = this._mapRegionType(regionType);
+      const entityType = this._resolveOntologyEntityType(regionType, 'region');
 
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: entityType,
-        id: this._generateId('region', region.name || region),
+        idPrefix: 'region',
+        idSeed: region.name || region,
         attributes: {
           name: region.name || region,
           bbox: region.bbox,
@@ -1259,40 +1254,15 @@ Return JSON with this structure:`;
           area: region.area,
           type: regionType
         },
-        metadata: {
-          confidence: region.confidence || 0.8
-        },
+        confidence: region.confidence || 0.8,
         provenance: {
           section: 'spatial',
           sourceText: region.originalText
         }
-      });
+      }));
     }
 
     return objects;
-  }
-
-  /**
-   * Map region type string to entity type using ontology
-   *
-   * IMPORTANT: No hardcoded type lists. Uses ontology.validateEntityType().
-   * If type not found in ontology, defaults to base 'Region' type.
-   */
-  _mapRegionType(regionType) {
-    if (!regionType) return 'Region';
-
-    // Normalize type name
-    const normalizedType = regionType.charAt(0).toUpperCase() + regionType.slice(1).toLowerCase();
-
-    // Use ontology to validate entity type
-    try {
-      ontology.validateEntityType(normalizedType);
-      return normalizedType;
-    } catch {
-      // Type not in ontology, default to Region
-      // LLM can refine this during semantic extraction
-      return 'Region';
-    }
   }
 
   /**
@@ -1303,18 +1273,19 @@ Return JSON with this structure:`;
     const variables = metadata.earthVariables || [];
 
     for (const v of variables) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'EarthVariable',
-        id: this._generateId('earthvar', v.name || v),
+        idPrefix: 'earthvar',
+        idSeed: v.name || v,
         attributes: {
           name: v.name || v,
           unit: v.unit,
           range: v.range,
           temporalResolution: v.temporalResolution
         },
-        metadata: { confidence: v.confidence || 0.8 },
+        confidence: v.confidence || 0.8,
         provenance: { section: 'variables' }
-      });
+      }));
     }
 
     return objects;
@@ -1325,15 +1296,26 @@ Return JSON with this structure:`;
    */
   _extractHazards(metadata) {
     const objects = [];
-    const hazards = metadata.hazards || [];
+    const hazards = [...(metadata.hazards || [])];
+
+    if (metadata.event) {
+      hazards.push({
+        type: metadata.event,
+        name: metadata.title || metadata.event,
+        location: metadata.location,
+        date: metadata.date || metadata.publishedDate,
+        confidence: 0.8
+      });
+    }
 
     for (const h of hazards) {
       const hazardType = h.type || 'Hazard';
-      const entityType = this._mapHazardType(hazardType);
+      const entityType = this._resolveOntologyEntityType(hazardType, 'hazard');
 
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: entityType,
-        id: this._generateId('hazard', h.name || h.type || h),
+        idPrefix: 'hazard',
+        idSeed: h.name || h.type || h,
         attributes: {
           name: h.name || h.type || h,
           type: hazardType,
@@ -1342,41 +1324,12 @@ Return JSON with this structure:`;
           location: h.location,
           date: h.date
         },
-        metadata: { confidence: h.confidence || 0.8 },
+        confidence: h.confidence || 0.8,
         provenance: { section: 'text' }
-      });
+      }));
     }
 
     return objects;
-  }
-
-  /**
-   * Map hazard type to entity type using ontology
-   *
-   * IMPORTANT: No hardcoded type lists. Uses ontology.validateEntityType().
-   * If type not found in ontology, defaults to base 'Hazard' type.
-   */
-  _mapHazardType(hazardType) {
-    if (!hazardType) return 'Hazard';
-
-    // Normalize type name
-    const normalizedType = hazardType.charAt(0).toUpperCase() + hazardType.slice(1).toLowerCase();
-
-    // Use ontology to validate entity type
-    try {
-      ontology.validateEntityType(normalizedType);
-      return normalizedType;
-    } catch {
-      // Try with 'Event' suffix for common hazard naming
-      const eventTypeName = normalizedType + 'Event';
-      try {
-        ontology.validateEntityType(eventTypeName);
-        return eventTypeName;
-      } catch {
-        // Type not in ontology, default to Hazard
-        return 'Hazard';
-      }
-    }
   }
 
   /**
@@ -1388,9 +1341,10 @@ Return JSON with this structure:`;
     // Risk assessments
     const risks = metadata.risks || [];
     for (const r of risks) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'EarthRisk',
-        id: this._generateId('risk', r.name || r.type || 'risk'),
+        idPrefix: 'risk',
+        idSeed: r.name || r.type || 'risk',
         attributes: {
           name: r.name || r.type || 'Risk Assessment',
           type: r.type,
@@ -1398,9 +1352,28 @@ Return JSON with this structure:`;
           impact: r.impact,
           exposure: r.exposure
         },
-        metadata: { confidence: r.confidence || 0.8 },
+        confidence: r.confidence || 0.8,
         provenance: { section: 'results' }
-      });
+      }));
+    }
+
+    const impacts = [...(metadata.impacts || []), ...(metadata.exposures || [])];
+    for (const impact of impacts) {
+      objects.push(this._createExtractedObject({
+        type: impact.type || 'Exposure',
+        idPrefix: 'exposure',
+        idSeed: impact.name || impact.location || impact.id || 'impact',
+        attributes: {
+          name: impact.name || impact.location || 'Exposure',
+          affectedPopulation: impact.affectedPopulation,
+          affectedAssets: impact.affectedAssets,
+          location: impact.location,
+          date: impact.date,
+          description: impact.description
+        },
+        confidence: impact.confidence || 0.8,
+        provenance: { section: impact.section || 'impact' }
+      }));
     }
 
     return objects;
@@ -1414,9 +1387,10 @@ Return JSON with this structure:`;
 
     const forecasts = metadata.forecasts || [];
     for (const f of forecasts) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Forecast',
-        id: this._generateId('forecast', f.name || f.variable || 'forecast'),
+        idPrefix: 'forecast',
+        idSeed: f.name || f.variable || 'forecast',
         attributes: {
           name: f.name || f.variable || 'Forecast',
           variable: f.variable,
@@ -1424,25 +1398,26 @@ Return JSON with this structure:`;
           resolution: f.resolution,
           skill: f.skill
         },
-        metadata: { confidence: f.confidence || 0.8 },
+        confidence: f.confidence || 0.8,
         provenance: { section: 'results' }
-      });
+      }));
     }
 
     const projections = metadata.projections || [];
     for (const p of projections) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Projection',
-        id: this._generateId('projection', p.name || p.scenario || 'projection'),
+        idPrefix: 'projection',
+        idSeed: p.name || p.scenario || 'projection',
         attributes: {
           name: p.name || p.scenario || 'Projection',
           scenario: p.scenario,
           timeHorizon: p.timeHorizon,
           variable: p.variable
         },
-        metadata: { confidence: p.confidence || 0.8 },
+        confidence: p.confidence || 0.8,
         provenance: { section: 'results' }
-      });
+      }));
     }
 
     return objects;
@@ -1452,16 +1427,20 @@ Return JSON with this structure:`;
    * Extract evidence objects (claims, evidence chains)
    */
   async _extractEvidence(content, admissionResult) {
+    const metadata = content.metadata || {};
+    return this._extractEvidenceObjectsFromMetadata(metadata);
+  }
+
+  _extractEvidenceObjectsFromMetadata(metadata) {
     const objects = [];
     const sections = {};
-    const metadata = content.metadata || {};
 
-    // Claims
     const claims = metadata.claims || [];
     for (const claim of claims) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Claim',
-        id: this._generateId('claim', claim.statement?.substring(0, 50) || claim.id || 'claim'),
+        idPrefix: 'claim',
+        idSeed: claim.statement?.substring(0, 50) || claim.id || 'claim',
         attributes: {
           statement: claim.statement,
           confidence: claim.confidence,
@@ -1475,16 +1454,16 @@ Return JSON with this structure:`;
           section: claim.section || 'results',
           sourceText: claim.originalText
         }
-      });
+      }));
     }
     sections.claims = { count: claims.length };
 
-    // Evidence items
     const evidenceItems = metadata.evidence || [];
     for (const ev of evidenceItems) {
-      objects.push({
+      objects.push(this._createExtractedObject({
         type: 'Evidence',
-        id: this._generateId('evidence', ev.description?.substring(0, 50) || ev.id || 'evidence'),
+        idPrefix: 'evidence',
+        idSeed: ev.description?.substring(0, 50) || ev.id || 'evidence',
         attributes: {
           type: ev.type || 'empirical',
           description: ev.description,
@@ -1498,7 +1477,7 @@ Return JSON with this structure:`;
           figureRef: ev.figureRef,
           tableRef: ev.tableRef
         }
-      });
+      }));
     }
     sections.evidence = { count: evidenceItems.length };
 

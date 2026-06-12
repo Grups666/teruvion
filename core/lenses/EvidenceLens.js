@@ -15,7 +15,9 @@ class EvidenceLens extends Lens {
   }
 
   getRelevantEntityTypes() {
-    return ['Claim', 'Hypothesis', 'Evidence', 'Figure', 'Result', 'Metric'];
+    return Object.entries(this.ontology.ENTITY_SCHEMAS || {})
+      .filter(([, schema]) => schema.category === 'evidence' || schema.category === 'knowledge')
+      .map(([type]) => type);
   }
 
   getRelevantRelationTypes() {
@@ -26,10 +28,7 @@ class EvidenceLens extends Lens {
     const entities = this.getEntities(projectId);
     const maxDepth = options.maxDepth || 5;
 
-    // Find all claims
-    const claims = entities.filter(e =>
-      ['Claim', 'Hypothesis'].includes(e.type)
-    );
+    const claims = entities.filter(e => this._isEvidenceClaim(e));
 
     const chains = [];
     const summary = {
@@ -100,7 +99,7 @@ class EvidenceLens extends Lens {
       entityId,
       entity,
       type: entity.type,
-      statement: entity.attributes.statement || entity.getDisplayName(),
+      statement: this._getStatement(entity),
       confidence: entity.attributes.confidence || entity.metadata?.confidence || 0.5,
       verificationState: entity.verificationState,
       evidence: [],
@@ -112,7 +111,7 @@ class EvidenceLens extends Lens {
     // Use OPS index to find entities that support this one
     const incomingRelations = this.store.getRelations(entityId).incoming;
     const supportingEvidence = incomingRelations.filter(r =>
-      r.predicate === 'supports'
+      this._isSupportRelation(r.predicate)
     );
 
     for (const rel of supportingEvidence) {
@@ -165,7 +164,8 @@ class EvidenceLens extends Lens {
         id: chain.entityId,
         type: chain.type,
         label: chain.statement,
-        category: 'claim',
+        category: this._categorizeType(entity.type),
+        layer: this._getLayer(entity.type),
         confidence: chain.confidence,
         verificationState: chain.verificationState
       });
@@ -181,6 +181,7 @@ class EvidenceLens extends Lens {
           type: evidence.type,
           label: evidence.name,
           category: this._categorizeType(evidence.type),
+          layer: this._getLayer(evidence.type),
           confidence: evidence.confidence
         });
         addedNodes.add(evidence.entityId);
@@ -212,7 +213,8 @@ class EvidenceLens extends Lens {
     const issues = [];
 
     // Check for missing evidence
-    if (chain.evidence.length === 0 && chain.type === 'Claim') {
+    const entity = this.store.getEntity(chainId);
+    if (chain.evidence.length === 0 && entity && this._isEvidenceClaim(entity)) {
       issues.push({
         type: 'missing_evidence',
         message: 'Claim has no supporting evidence'
@@ -239,6 +241,49 @@ class EvidenceLens extends Lens {
       valid: issues.length === 0,
       issues
     };
+  }
+
+  _isEvidenceClaim(entity) {
+    if (!entity) return false;
+
+    const category = this._categorizeType(entity.type);
+    const attributes = entity.attributes || {};
+
+    if (category === 'evidence') {
+      return Boolean(
+        attributes.statement ||
+        attributes.claim ||
+        attributes.hypothesis ||
+        attributes.conclusion ||
+        attributes.assertion
+      );
+    }
+
+    const relations = this.store.getRelations(entity.id);
+    return relations.incoming.some(rel => this._isSupportRelation(rel.predicate));
+  }
+
+  _getStatement(entity) {
+    const attributes = entity.attributes || {};
+    return attributes.statement ||
+      attributes.claim ||
+      attributes.hypothesis ||
+      attributes.conclusion ||
+      attributes.assertion ||
+      entity.getDisplayName();
+  }
+
+  _isSupportRelation(predicate) {
+    const supportRelations = new Set([
+      'supports',
+      'supported_by',
+      'contradicts',
+      'derives_from',
+      'refines',
+      'based_on'
+    ]);
+
+    return supportRelations.has(predicate);
   }
 }
 

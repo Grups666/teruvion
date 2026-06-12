@@ -1,9 +1,21 @@
 /**
  * Workflow Lens
- * Method/data/model pipeline visualization
+ * Workflow graph visualization
  */
 
 const Lens = require('./Lens');
+
+const WORKFLOW_ENTITY_LAYERS = new Set(['capability', 'foundation', 'domain', 'extension']);
+const PROCESSING_CATEGORIES = new Set(['modeling', 'computing', 'process', 'method']);
+const INPUT_CATEGORIES = new Set(['data', 'resource', 'observation']);
+const INPUT_USE_RELATIONS = new Set(['uses', 'applies', 'trained_on', 'depends_on']);
+const OUTPUT_RELATIONS = new Set(['produces', 'generates', 'outputs']);
+const STAGE_ORDER = [
+  ['input', 'Input'],
+  ['processing', 'Processing'],
+  ['experiment', 'Experiment'],
+  ['output', 'Output']
+];
 
 class WorkflowLens extends Lens {
   getName() {
@@ -11,11 +23,13 @@ class WorkflowLens extends Lens {
   }
 
   getDescription() {
-    return 'Method/data/model pipeline visualization showing computational flow';
+    return 'Workflow visualization showing object flow through relations';
   }
 
   getRelevantEntityTypes() {
-    return ['Method', 'Dataset', 'Model', 'Workflow', 'Process', 'Experiment'];
+    return Object.entries(this.ontology.ENTITY_SCHEMAS || {})
+      .filter(([_, schema]) => WORKFLOW_ENTITY_LAYERS.has(schema.layer))
+      .map(([type]) => type);
   }
 
   getRelevantRelationTypes() {
@@ -53,91 +67,72 @@ class WorkflowLens extends Lens {
   }
 
   _identifyStages(entities) {
-    const stages = [];
+    const grouped = {
+      input: [],
+      processing: [],
+      experiment: [],
+      output: []
+    };
 
-    // Input stage (datasets)
-    const inputs = entities.filter(e =>
-      e.type === 'Dataset' &&
-      this._isInputOnly(e, entities)
-    );
-    if (inputs.length > 0) {
-      stages.push({
-        name: 'Input Data',
-        type: 'input',
-        entities: inputs.map(e => ({
-          id: e.id,
-          name: e.getDisplayName(),
-          type: e.type
-        }))
-      });
+    for (const entity of entities) {
+      const stage = this._inferStage(entity);
+      grouped[stage].push(entity);
     }
 
-    // Processing stage (methods, models)
-    const processing = entities.filter(e =>
-      ['Method', 'Model'].includes(e.type)
-    );
-    if (processing.length > 0) {
-      stages.push({
-        name: 'Processing',
-        type: 'processing',
-        entities: processing.map(e => ({
-          id: e.id,
-          name: e.getDisplayName(),
-          type: e.type
-        }))
-      });
-    }
-
-    // Experiment stage
-    const experiments = entities.filter(e => e.type === 'Experiment');
-    if (experiments.length > 0) {
-      stages.push({
-        name: 'Experiments',
-        type: 'experiment',
-        entities: experiments.map(e => ({
-          id: e.id,
-          name: e.getDisplayName(),
-          type: e.type
-        }))
-      });
-    }
-
-    // Output stage (results, metrics)
-    const outputs = entities.filter(e =>
-      ['Result', 'Metric'].includes(e.type) ||
-      this._isOutputOnly(e, entities)
-    );
-    if (outputs.length > 0) {
-      stages.push({
-        name: 'Output',
-        type: 'output',
-        entities: outputs.map(e => ({
-          id: e.id,
-          name: e.getDisplayName(),
-          type: e.type
-        }))
-      });
-    }
-
-    return stages;
+    return STAGE_ORDER
+      .filter(([type]) => grouped[type].length > 0)
+      .map(([type, name]) => ({
+        name,
+        type,
+        entities: grouped[type].map(e => this._stageEntity(e))
+      }));
   }
 
-  _isInputOnly(entity, allEntities) {
-    // Check if this entity is only used (not produced)
+  _inferStage(entity) {
+    const category = this._categorizeType(entity.type);
+    const attributes = entity.attributes || {};
     const relations = this.store.getRelations(entity.id);
-    const hasIncoming = relations.incoming.some(r =>
-      r.predicate === 'produces'
-    );
-    return !hasIncoming;
-  }
+    const incomingPredicates = new Set(relations.incoming.map(r => r.predicate));
+    const outgoingPredicates = new Set(relations.outgoing.map(r => r.predicate));
 
-  _isOutputOnly(entity, allEntities) {
-    // Check if this entity is only produced
-    const relations = this.store.getRelations(entity.id);
-    const hasOutgoing = relations.outgoing.some(r =>
-      ['uses', 'applies'].includes(r.predicate)
-    );
-    return !hasOutgoing;
+    if (
+      attributes.result !== undefined ||
+      attributes.value !== undefined ||
+      attributes.metric !== undefined ||
+      incomingPredicates.has('produces')
+    ) {
+      return 'output';
+    }
+
+    if (
+      attributes.experiment ||
+      attributes.trial ||
+      attributes.scenario ||
+      category === 'assessment'
+    ) {
+      return 'experiment';
+    }
+
+    if (
+      PROCESSING_CATEGORIES.has(category) ||
+      attributes.steps ||
+      attributes.parameters ||
+      outgoingPredicates.has('produces')
+    ) {
+      return 'processing';
+    }
+
+    if (
+      INPUT_CATEGORIES.has(category) ||
+      outgoingPredicates.has('uses') ||
+      outgoingPredicates.has('provides')
+    ) {
+      return 'input';
+    }
+
+    if (relations.incoming.length > 0 && relations.outgoing.length === 0) return 'output';
+    if (relations.outgoing.length > 0 && relations.incoming.length === 0) return 'input';
+    return 'processing';
   }
 
   _buildPipeline(entities, graph) {
@@ -162,34 +157,32 @@ class WorkflowLens extends Lens {
       order.push(entityId);
     };
 
-    for (const entity of entities) {
-      if (['Dataset', 'Method', 'Model', 'Experiment'].includes(entity.type)) {
-        visit(entity.id);
-      }
-    }
+    for (const entity of entities) visit(entity.id);
 
     // Group by position in order
     const position = {};
     order.forEach((id, i) => position[id] = i);
 
-    // Create pipeline stages
-    const stageSize = Math.ceil(order.length / 4);
-    for (let i = 0; i < 4; i++) {
-      const stageEntities = order.slice(i * stageSize, (i + 1) * stageSize);
-      if (stageEntities.length > 0) {
-        pipeline.stages.push({
-          position: i,
-          name: ['Input', 'Process', 'Experiment', 'Output'][i],
-          entities: stageEntities.map(id => {
-            const e = this.store.getEntity(id);
-            return {
-              id,
-              name: e?.getDisplayName() || id,
-              type: e?.type
-            };
-          })
-        });
-      }
+    const stageBuckets = new Map();
+    for (const id of order) {
+      const entity = this.store.getEntity(id);
+      if (!entity) continue;
+      const stage = this._inferStage(entity);
+      if (!stageBuckets.has(stage)) stageBuckets.set(stage, []);
+      stageBuckets.get(stage).push(id);
+    }
+
+    for (const [index, [stage]] of STAGE_ORDER.entries()) {
+      const stageEntities = stageBuckets.get(stage) || [];
+      if (stageEntities.length === 0) continue;
+      pipeline.stages.push({
+        position: index,
+        name: this._stageName(stage),
+        entities: stageEntities.map(id => {
+          const e = this.store.getEntity(id);
+          return e ? this._stageEntity(e) : { id, name: id, type: undefined };
+        })
+      });
     }
 
     return pipeline;
@@ -198,11 +191,10 @@ class WorkflowLens extends Lens {
   _traceDataFlow(entities) {
     const flows = [];
 
-    // Find all data flow chains
-    const datasets = entities.filter(e => e.type === 'Dataset');
+    const sources = entities.filter(e => this._inferStage(e) === 'input');
 
-    for (const ds of datasets) {
-      const flow = this._traceFromDataset(ds);
+    for (const ds of sources) {
+      const flow = this._traceFromInput(ds);
       if (flow.length > 1) {
         flows.push({
           source: ds.getDisplayName(),
@@ -215,13 +207,12 @@ class WorkflowLens extends Lens {
     return flows;
   }
 
-  _traceFromDataset(dataset) {
-    const path = [{ type: 'dataset', name: dataset.getDisplayName(), id: dataset.id }];
+  _traceFromInput(input) {
+    const path = [{ type: 'input', name: input.getDisplayName(), id: input.id }];
 
-    // Find methods using this dataset
-    const relations = this.store.getRelations(dataset.id);
+    const relations = this.store.getRelations(input.id);
     const users = relations.incoming.filter(r =>
-      r.predicate === 'uses' || r.predicate === 'trained_on'
+      INPUT_USE_RELATIONS.has(r.predicate)
     );
 
     for (const user of users) {
@@ -234,8 +225,7 @@ class WorkflowLens extends Lens {
           relation: user.predicate
         });
 
-        // Recursively trace from this method
-        const subPath = this._traceFromMethod(userEntity);
+        const subPath = this._traceFromProcessor(userEntity);
         path.push(...subPath);
       }
     }
@@ -243,13 +233,12 @@ class WorkflowLens extends Lens {
     return path;
   }
 
-  _traceFromMethod(method) {
+  _traceFromProcessor(processor) {
     const path = [];
 
-    // Find what this method produces
-    const relations = this.store.getRelations(method.id);
+    const relations = this.store.getRelations(processor.id);
     const outputs = relations.outgoing.filter(r =>
-      r.predicate === 'produces'
+      OUTPUT_RELATIONS.has(r.predicate)
     );
 
     for (const output of outputs) {
@@ -265,6 +254,23 @@ class WorkflowLens extends Lens {
     }
 
     return path;
+  }
+
+  _stageEntity(entity) {
+    return {
+      id: entity.id,
+      name: entity.getDisplayName(),
+      type: entity.type
+    };
+  }
+
+  _stageName(stage) {
+    return {
+      input: 'Input',
+      processing: 'Processing',
+      experiment: 'Experiment',
+      output: 'Output'
+    }[stage] || 'Stage';
   }
 }
 

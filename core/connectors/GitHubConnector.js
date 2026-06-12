@@ -4,17 +4,23 @@
  */
 
 const BaseConnector = require('./BaseConnector');
+const RepositoryFileClassifier = require('./RepositoryFileClassifier');
 
 class GitHubConnector extends BaseConnector {
+  constructor(config = {}) {
+    super(config);
+    this.fileClassifier = config.fileClassifier || new RepositoryFileClassifier();
+  }
+
   canHandle(input) {
-    return input.includes('github.com/');
+    return this._parseRepositoryURL(input) !== null;
   }
 
   async fetch(input) {
-    const match = input.match(/github\.com\/([^\/]+)\/([^\/\?#]+)/);
-    if (!match) throw new Error('Invalid GitHub URL');
+    const parsed = this._parseRepositoryURL(input);
+    if (!parsed) throw new Error('Invalid GitHub URL');
 
-    const [, owner, repo] = match;
+    const { owner, repo } = parsed;
     const headers = this._buildHeaders();
 
     const [repoData, readme, tree] = await Promise.all([
@@ -44,6 +50,27 @@ class GitHubConnector extends BaseConnector {
       keyFiles,
       metadata
     };
+  }
+
+  _parseRepositoryURL(input) {
+    try {
+      const url = new URL(input);
+      if (url.hostname.toLowerCase() !== 'github.com') return null;
+
+      const segments = url.pathname
+        .split('/')
+        .map(segment => segment.trim())
+        .filter(Boolean);
+
+      if (segments.length < 2) return null;
+
+      return {
+        owner: segments[0],
+        repo: segments[1].replace(/\.git$/, '')
+      };
+    } catch {
+      return null;
+    }
   }
 
   _buildHeaders() {
@@ -115,38 +142,7 @@ class GitHubConnector extends BaseConnector {
   }
 
   _selectKeyFiles(tree) {
-    const priorities = [];
-
-    for (const path of tree) {
-      const lower = path.toLowerCase();
-      const name = lower.split('/').pop();
-
-      if (
-        name === 'requirements.txt'
-        || name === 'setup.py'
-        || name === 'pyproject.toml'
-        || name === 'package.json'
-        || name === 'environment.yml'
-        || name === 'environment.yaml'
-        || name === 'dockerfile'
-      ) {
-        priorities.push({ path, score: 3 });
-      } else if (name === 'config.yaml' || name === 'config.yml' || name === 'config.json') {
-        priorities.push({ path, score: 3 });
-      } else if (name.includes('paper') || name.includes('abstract') || name.includes('citation')) {
-        priorities.push({ path, score: 4 });
-      } else if (lower.endsWith('.md') && name !== 'readme.md') {
-        priorities.push({ path, score: 2 });
-      } else if (name === 'main.py' || name === 'train.py' || name === 'run.py' || name === 'model.py') {
-        priorities.push({ path, score: 3 });
-      } else if ((lower.includes('data') || lower.includes('dataset')) && (lower.endsWith('.py') || lower.endsWith('.md') || lower.endsWith('.txt'))) {
-        priorities.push({ path, score: 3 });
-      }
-    }
-
-    return priorities
-      .sort((a, b) => b.score - a.score)
-      .map(p => p.path);
+    return this.fileClassifier.selectKeyFiles(tree, 8);
   }
 
   _buildText({ repoData, readme, tree, keyFiles }) {

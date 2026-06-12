@@ -58,6 +58,31 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(model, 'Should have Model object');
   });
 
+  it('should record metadata extraction sections from activated category protocol', async () => {
+    const decomposer = new DigitalEarthDecomposer();
+    const admissionResult = {
+      sourceType: 'Paper',
+      depth: 'structured',
+      activatedCategories: ['data', 'modeling'],
+      activatedOntologyLayers: ['source', 'capability'],
+      sourceRoles: { data_capability: 0.5, modeling_capability: 0.6 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('10.1038/test-paper', {
+      metadata: {
+        title: 'Protocol extraction test',
+        datasets: [{ name: 'Input Dataset' }],
+        models: [{ name: 'Reusable Model' }]
+      }
+    }, admissionResult);
+
+    assert.ok(result.provenance.sections.capabilities.data, 'Should record activated data section');
+    assert.ok(result.provenance.sections.capabilities.modeling, 'Should record activated modeling section');
+    assert.strictEqual(result.provenance.sections.capabilities.observation, undefined, 'Should not record inactive observation section');
+  });
+
   it('should extract world objects for world-activated sources', async () => {
     const decomposer = new DigitalEarthDecomposer();
     const admissionResult = {
@@ -87,6 +112,31 @@ describe('Digital Earth Decomposer', () => {
     const hazard = result.worldObjects.find(o => o.type === 'FloodEvent');
     assert.ok(basin, 'Should have Basin object');
     assert.ok(hazard, 'Should have FloodEvent object');
+  });
+
+  it('should resolve extracted object types through ontology protocol', async () => {
+    const decomposer = new DigitalEarthDecomposer();
+
+    assert.strictEqual(
+      decomposer._resolveOntologyEntityType('flood', 'hazard'),
+      'FloodEvent',
+      'Should resolve hazard shorthand through ontology suffix protocol'
+    );
+    assert.strictEqual(
+      decomposer._resolveOntologyEntityType('unknown-hazard-kind', 'hazard'),
+      'Hazard',
+      'Should fall back to base hazard type for unknown hazard labels'
+    );
+    assert.strictEqual(
+      decomposer._resolveOntologyEntityType('EngineeringMeasure', 'intervention'),
+      'EngineeringMeasure',
+      'Should accept ontology intervention subtypes without a local whitelist'
+    );
+    assert.strictEqual(
+      decomposer._resolveOntologyEntityType('Basin', 'region'),
+      'Basin',
+      'Should accept ontology earth-object subtypes for regions'
+    );
   });
 
   it('should build bridge relations between capabilities and world objects', async () => {

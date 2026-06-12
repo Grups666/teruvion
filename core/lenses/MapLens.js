@@ -10,29 +10,21 @@
 
 const Lens = require('./Lens');
 
+const SPATIAL_ENTITY_LAYERS = new Set(['world', 'capability', 'domain', 'extension']);
+
 class MapLens extends Lens {
   getName() {
     return 'map';
   }
 
   getDescription() {
-    return 'Spatial view of Earth objects, regions, basins, and data coverage';
+    return 'Spatial view of objects with geometry, bbox, point, or coverage metadata';
   }
 
   getRelevantEntityTypes() {
-    // World Layer - Earth Objects
-    const earthObjects = ['Region', 'Location', 'Basin', 'Watershed', 'Glacier', 'Lake', 'Aquifer', 'Coastline', 'River'];
-
-    // Capability Layer - Observation
-    const observation = ['Gauge', 'Station', 'Sensor', 'Satellite'];
-
-    // Capability Layer - Data
-    const data = ['Dataset', 'Coverage'];
-
-    // World Layer - Hazards
-    const hazards = ['FloodEvent', 'DroughtEvent', 'Wildfire', 'Landslide'];
-
-    return [...earthObjects, ...observation, ...data, ...hazards];
+    return Object.entries(this.ontology.ENTITY_SCHEMAS || {})
+      .filter(([_, schema]) => SPATIAL_ENTITY_LAYERS.has(schema.layer))
+      .map(([type]) => type);
   }
 
   getRelevantRelationTypes() {
@@ -45,44 +37,21 @@ class MapLens extends Lens {
     const regions = [];
 
     for (const entity of entities) {
-      // Handle spatial entities (World Layer - Earth Objects)
-      if (this._isSpatialEntity(entity)) {
-        const feature = this._entityToFeature(entity);
-        if (feature) {
-          features.push(feature);
-          regions.push({
-            id: entity.id,
-            name: entity.getDisplayName(),
-            type: entity.type,
-            layer: this._getLayer(entity.type),
-            bbox: entity.attributes.bbox,
-            coverage: this._getCoverage(entity, entities)
-          });
-        }
-      }
+      const feature = this._entityToFeature(entity);
+      if (!feature) continue;
 
-      // Handle Dataset with spatial coverage (Capability Layer - Data)
-      if (entity.type === 'Dataset' && entity.attributes.spatialCoverage) {
-        const dsFeature = this._datasetToFeature(entity);
-        if (dsFeature) {
-          features.push(dsFeature);
-        }
-      }
+      features.push(feature);
 
-      // Handle Observation entities (Capability Layer - Observation)
-      if (this._isObservationEntity(entity)) {
-        const obsFeature = this._observationToFeature(entity);
-        if (obsFeature) {
-          features.push(obsFeature);
-        }
-      }
-
-      // Handle Hazard entities (World Layer - Hazards)
-      if (this._isHazardEntity(entity)) {
-        const hazardFeature = this._hazardToFeature(entity);
-        if (hazardFeature) {
-          features.push(hazardFeature);
-        }
+      if (this._getLayer(entity.type) === 'world') {
+        regions.push({
+          id: entity.id,
+          name: entity.getDisplayName(),
+          type: entity.type,
+          layer: this._getLayer(entity.type),
+          category: this._categorizeType(entity.type),
+          bbox: entity.attributes.bbox || this._bboxFromGeometry(feature.geometry),
+          coverage: this._getCoverage(entity, entities)
+        });
       }
     }
 
@@ -97,125 +66,17 @@ class MapLens extends Lens {
       metadata: this.generateMetadata(projectId, {
         totalFeatures: features.length,
         totalRegions: regions.length,
-        hasGauges: entities.some(e => e.type === 'Gauge'),
-        hasBasins: entities.some(e => ['Basin', 'Watershed'].includes(e.type)),
-        hasHazards: entities.some(e => this._isHazardEntity(e)),
+        hasSpatialWorldObjects: regions.length > 0,
+        hasCapabilityCoverage: features.some(f => f.properties?.layer === 'capability'),
+        hasHazardFeatures: features.some(f => f.properties?.category === 'hazard'),
         layers: this._countByLayer(features)
       })
     };
   }
 
-  _isSpatialEntity(entity) {
-    return ['Region', 'Location', 'Basin', 'Watershed', 'Glacier', 'Lake', 'Aquifer', 'Coastline', 'River'].includes(entity.type);
-  }
-
-  _isObservationEntity(entity) {
-    return ['Gauge', 'Station', 'Sensor'].includes(entity.type);
-  }
-
-  _isHazardEntity(entity) {
-    return ['FloodEvent', 'DroughtEvent', 'Wildfire', 'Landslide', 'Heatwave', 'Hazard'].includes(entity.type);
-  }
-
-  _observationToFeature(entity) {
-    const location = entity.attributes.location || entity.attributes.centroid;
-    if (!location) return null;
-
-    const coords = Array.isArray(location) ? location : location.coordinates;
-
-    return {
-      type: 'Feature',
-      id: entity.id,
-      geometry: {
-        type: 'Point',
-        coordinates: coords
-      },
-      properties: {
-        id: entity.id,
-        name: entity.getDisplayName(),
-        type: entity.type,
-        layer: 'capability',
-        category: 'observation',
-        stationId: entity.attributes.stationId,
-        river: entity.attributes.river,
-        verificationState: entity.verificationState
-      }
-    };
-  }
-
-  _hazardToFeature(entity) {
-    const location = entity.attributes.location || entity.attributes.centroid;
-    const bbox = entity.attributes.bbox;
-
-    let geometry = null;
-
-    if (bbox && bbox.length >= 4) {
-      geometry = {
-        type: 'Polygon',
-        coordinates: [[
-          [bbox[0], bbox[1]],
-          [bbox[2], bbox[1]],
-          [bbox[2], bbox[3]],
-          [bbox[0], bbox[3]],
-          [bbox[0], bbox[1]]
-        ]]
-      };
-    } else if (location) {
-      const coords = Array.isArray(location) ? location : location.coordinates;
-      geometry = {
-        type: 'Point',
-        coordinates: coords
-      };
-    } else {
-      return null;
-    }
-
-    return {
-      type: 'Feature',
-      id: entity.id,
-      geometry,
-      properties: {
-        id: entity.id,
-        name: entity.getDisplayName(),
-        type: entity.type,
-        layer: 'world',
-        category: 'hazard',
-        magnitude: entity.attributes.magnitude,
-        severity: entity.attributes.severity,
-        date: entity.attributes.date,
-        verificationState: entity.verificationState
-      }
-    };
-  }
-
   _entityToFeature(entity) {
-    const bbox = entity.attributes.bbox;
-    const geometry = entity.attributes.geometry;
-
-    let geoGeometry = null;
-
-    if (geometry) {
-      geoGeometry = geometry;
-    } else if (bbox && bbox.length >= 4) {
-      // Convert bbox to Polygon
-      geoGeometry = {
-        type: 'Polygon',
-        coordinates: [[
-          [bbox[0], bbox[1]],
-          [bbox[2], bbox[1]],
-          [bbox[2], bbox[3]],
-          [bbox[0], bbox[3]],
-          [bbox[0], bbox[1]]
-        ]]
-      };
-    } else if (entity.attributes.centroid) {
-      geoGeometry = {
-        type: 'Point',
-        coordinates: entity.attributes.centroid
-      };
-    } else {
-      return null;
-    }
+    const geoGeometry = this._resolveGeometry(entity);
+    if (!geoGeometry) return null;
 
     return {
       type: 'Feature',
@@ -225,105 +86,93 @@ class MapLens extends Lens {
         id: entity.id,
         name: entity.getDisplayName(),
         type: entity.type,
-        layer: 'world',
+        layer: this._getLayer(entity.type),
         category: this._categorizeType(entity.type),
         description: entity.attributes.description || '',
-        verificationState: entity.verificationState,
-        // Type-specific properties
-        ...(entity.type === 'Basin' ? {
-          area: entity.attributes.area,
-          mainRiver: entity.attributes.mainRiver
-        } : {}),
-        ...(entity.type === 'Watershed' ? {
-          area: entity.attributes.area
-        } : {}),
-        ...(entity.type === 'Glacier' ? {
-          area: entity.attributes.area,
-          iceVolume: entity.attributes.iceVolume
-        } : {}),
-        ...(entity.type === 'Lake' ? {
-          area: entity.attributes.area,
-          depth: entity.attributes.depth
-        } : {}),
-        ...(entity.type === 'River' ? {
-          length: entity.attributes.length,
-          basin: entity.attributes.basin
-        } : {})
+        verificationState: entity.verificationState
       }
     };
   }
 
-  _datasetToFeature(entity) {
-    const coverage = entity.attributes.spatialCoverage;
+  _resolveGeometry(entity) {
+    const attributes = entity.attributes || {};
+    if (attributes.geometry) return attributes.geometry;
 
-    if (!coverage) return null;
-
-    // Handle string coverage like "global"
-    if (typeof coverage === 'string') {
-      if (coverage.toLowerCase() === 'global') {
-        return {
-          type: 'Feature',
-          id: entity.id,
-          geometry: {
-            type: 'Polygon',
-            coordinates: [[
-              [-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]
-            ]]
-          },
-          properties: {
-            id: entity.id,
-            name: entity.getDisplayName(),
-            type: 'Dataset',
-            coverage: coverage,
-            isGlobal: true
-          }
-        };
-      }
-      return null;
+    if (Array.isArray(attributes.bbox) && attributes.bbox.length >= 4) {
+      return this._bboxToPolygon(attributes.bbox);
     }
 
-    // Handle bbox coverage
+    if (attributes.centroid) {
+      return this._pointGeometry(attributes.centroid);
+    }
+
+    if (attributes.location) {
+      return this._pointGeometry(attributes.location);
+    }
+
+    const coverage = attributes.spatialCoverage;
     if (Array.isArray(coverage) && coverage.length >= 4) {
-      return {
-        type: 'Feature',
-        id: entity.id,
-        geometry: {
-          type: 'Polygon',
-          coordinates: [[
-            [coverage[0], coverage[1]],
-            [coverage[2], coverage[1]],
-            [coverage[2], coverage[3]],
-            [coverage[0], coverage[3]],
-            [coverage[0], coverage[1]]
-          ]]
-        },
-        properties: {
-          id: entity.id,
-          name: entity.getDisplayName(),
-          type: 'Dataset',
-          resolution: entity.attributes.spatialResolution
-        }
-      };
+      return this._bboxToPolygon(coverage);
+    }
+
+    if (typeof coverage === 'string' && coverage.toLowerCase() === 'global') {
+      return this._bboxToPolygon([-180, -90, 180, 90]);
     }
 
     return null;
+  }
+
+  _bboxToPolygon(bbox) {
+    return {
+      type: 'Polygon',
+      coordinates: [[
+        [bbox[0], bbox[1]],
+        [bbox[2], bbox[1]],
+        [bbox[2], bbox[3]],
+        [bbox[0], bbox[3]],
+        [bbox[0], bbox[1]]
+      ]]
+    };
+  }
+
+  _pointGeometry(value) {
+    const coordinates = Array.isArray(value) ? value : value.coordinates;
+    if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+    return {
+      type: 'Point',
+      coordinates
+    };
   }
 
   _getCoverage(entity, allEntities) {
     // Find datasets covering this region
     const datasets = [];
     for (const e of allEntities) {
-      if (e.type === 'Dataset') {
-        const relations = this.store.getRelations(e.id);
-        const coversThis = relations.outgoing.some(r =>
-          r.predicate === 'covers' && r.object === entity.id
-        );
-        if (coversThis) {
-          datasets.push(e.getDisplayName());
-        }
+      const relations = this.store.getRelations(e.id);
+      const coversThis = relations.outgoing.some(r =>
+        r.predicate === 'covers' && r.object === entity.id
+      );
+      if (coversThis) {
+        datasets.push(e.getDisplayName());
       }
     }
     return datasets;
+  }
+
+  _bboxFromGeometry(geometry) {
+    if (!geometry) return null;
+    const coords = this._extractCoords(geometry);
+    if (coords.length === 0) return null;
+
+    let minLng = Infinity, minLat = Infinity;
+    let maxLng = -Infinity, maxLat = -Infinity;
+    for (const [lng, lat] of coords) {
+      minLng = Math.min(minLng, lng);
+      maxLng = Math.max(maxLng, lng);
+      minLat = Math.min(minLat, lat);
+      maxLat = Math.max(maxLat, lat);
+    }
+    return [minLng, minLat, maxLng, maxLat];
   }
 
   _calculateBounds(features) {

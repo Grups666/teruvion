@@ -14,6 +14,8 @@ const DigitalEarthDecomposer = require('../../core/understanding/DigitalEarthDec
 const llm = require('../../core/utils/llm');
 const ConnectorRegistry = require('../../core/connectors/ConnectorRegistry');
 const ontology = require('../../core/registry/ontology');
+const { summarizeSourceCoverage } = require('../../core/source/SourceCoverage');
+const PaperIdentifierResolver = require('../../core/connectors/PaperIdentifierResolver');
 
 class DigitalEarthImporter {
   constructor(store, eventLog, projectRegistry, sseNotify) {
@@ -32,6 +34,7 @@ class DigitalEarthImporter {
       openAlexKey: llm.getOpenAlexKey()
     };
     this.connectorRegistry = new ConnectorRegistry(config);
+    this.paperIdentifierResolver = new PaperIdentifierResolver(config);
 
     // Active analyses for cancellation
     this.activeAnalyses = new Map();
@@ -168,6 +171,7 @@ class DigitalEarthImporter {
       // Store decomposition metadata
       project.metadata.decomposition = decomposition;
       project.metadata.admission = admissionResult;
+      project.metadata.sourceCoverage = summarizeSourceCoverage(content);
 
       await this.projectRegistry.save();
       await this.store.save();
@@ -365,10 +369,15 @@ class DigitalEarthImporter {
    * Identify input type from string
    */
   _identifyInputType(input) {
-    if (input.includes('github.com')) return 'github';
-    if (/^10\.\d{4,}\//.test(input)) return 'doi';
-    if (input.includes('doi.org')) return 'doi';
-    if (input.startsWith('http')) return 'url';
+    const connector = this.connectorRegistry.findConnector(input);
+    if (connector) {
+      return connector.getName()
+        .replace(/Connector$/, '')
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .toLowerCase();
+    }
+
+    if (this.paperIdentifierResolver.isURL(input)) return 'url';
     return 'text';
   }
 }

@@ -17,6 +17,14 @@ const DigitalEarthImporter = require('./digital-earth-importer');
 const { LensRegistry } = require('../../core/lenses');
 const { SourceAdmission } = require('../../core/admission/SourceAdmission');
 const ontology = require('../../core/registry/ontology');
+const { buildObjectReviewActions } = require('../../core/review/ObjectReviewActions');
+const {
+  serializeEntity,
+  serializeEntitySummary,
+  serializeRelatedEntity,
+  isSourceEntity,
+  getSourceLabel
+} = require('../../core/presentation/EntityPresenter');
 
 const router = express.Router();
 
@@ -79,14 +87,8 @@ initializeCoreEngine();
 // GET /api/entities - List all entities
 router.get('/entities', async (req, res) => {
   try {
-    const entities = Array.from(store.entities.values()).map(e => ({
-      id: e.id,
-      type: e.type,
-      attributes: e.attributes,
-      metadata: e.metadata,
-      verificationState: e.verificationState,
-      createdAt: e.createdAt
-    }));
+    const entities = Array.from(store.entities.values())
+      .map(entity => serializeEntity(entity, ontology));
     res.json({ entities, count: entities.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -100,7 +102,7 @@ router.get('/entities/:id', async (req, res) => {
     if (!entity) {
       return res.status(404).json({ error: 'Entity not found' });
     }
-    res.json({ entity });
+    res.json({ entity: serializeEntity(entity, ontology) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -165,16 +167,10 @@ router.get('/entities/:id/explore', async (req, res) => {
     for (const rel of relations.outgoing) {
       const target = store.getEntity(rel.object);
       if (target) {
-        relatedEntities.push({
-          id: target.id,
-          type: target.type,
-          name: target.attributes?.name || target.id,
-          relation: rel.predicate,
-          direction: 'outgoing'
-        });
+        relatedEntities.push(serializeRelatedEntity(target, rel.predicate, 'outgoing', ontology));
 
-        if (target.type === 'Paper' || target.type === 'Repository') {
-          sources.push(target.attributes?.title || target.id);
+        if (isSourceEntity(target, ontology)) {
+          sources.push(getSourceLabel(target));
         }
       }
     }
@@ -183,29 +179,19 @@ router.get('/entities/:id/explore', async (req, res) => {
     for (const rel of relations.incoming) {
       const source = store.getEntity(rel.subject);
       if (source) {
-        relatedEntities.push({
-          id: source.id,
-          type: source.type,
-          name: source.attributes?.name || source.id,
-          relation: rel.predicate,
-          direction: 'incoming'
-        });
+        relatedEntities.push(serializeRelatedEntity(source, rel.predicate, 'incoming', ontology));
 
-        if (source.type === 'Paper' || source.type === 'Repository') {
-          sources.push(source.attributes?.title || source.id);
+        if (isSourceEntity(source, ontology)) {
+          sources.push(getSourceLabel(source));
         }
       }
     }
 
-    const entityCapabilities = determineCapabilities(entity, relations);
+    const entityCapabilities = buildObjectReviewActions(entity, relations, ontology);
 
     res.json({
       entity: {
-        id: entity.id,
-        type: entity.type,
-        name: entity.attributes?.name || entity.id,
-        layer: getEntityLayer(entity.type),
-        category: getEntityCategory(entity.type),
+        ...serializeEntitySummary(entity, ontology),
         attributes: entity.attributes
       },
       relatedEntities,
@@ -231,87 +217,6 @@ router.get('/entities/:id/explore', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-// Helper functions
-function getEntityLayer(type) {
-  const worldTypes = ['Basin', 'Region', 'Watershed', 'River', 'Lake', 'Glacier', 'Hazard', 'FloodEvent', 'DroughtEvent'];
-  const capabilityTypes = ['Dataset', 'Model', 'Sensor', 'Gauge', 'Algorithm', 'Claim', 'Evidence', 'Assessment'];
-  const sourceTypes = ['Paper', 'Repository', 'Report', 'News', 'DatasetPage'];
-
-  if (worldTypes.includes(type)) return 'world';
-  if (capabilityTypes.includes(type)) return 'capability';
-  if (sourceTypes.includes(type)) return 'source';
-  return 'foundation';
-}
-
-function getEntityCategory(type) {
-  const categories = {
-    'Basin': 'earth-object',
-    'Watershed': 'earth-object',
-    'Region': 'earth-object',
-    'Dataset': 'data',
-    'Model': 'modeling',
-    'Sensor': 'observation',
-    'Gauge': 'observation',
-    'Claim': 'evidence',
-    'Evidence': 'evidence',
-    'FloodEvent': 'hazard',
-    'DroughtEvent': 'hazard',
-    'Paper': 'earth-content',
-    'Repository': 'computing'
-  };
-  return categories[type] || 'general';
-}
-
-function determineCapabilities(entity, relations) {
-  const caps = [];
-  const type = entity.type;
-
-  if (type === 'Basin' || type === 'Watershed') {
-    caps.push('View datasets covering this basin');
-    caps.push('Find models validated here');
-    caps.push('See flood/drought history');
-    caps.push('Compare with similar basins');
-  }
-
-  if (type === 'Dataset') {
-    caps.push('Download data');
-    caps.push('View coverage map');
-    caps.push('See data quality metrics');
-    caps.push('Find papers using this data');
-  }
-
-  if (type === 'Model') {
-    caps.push('View model architecture');
-    caps.push('See validation results');
-    caps.push('Compare with other models');
-    caps.push('Run simulation');
-  }
-
-  const outgoingTypes = relations.outgoing.map(r => r.predicate);
-
-  if (outgoingTypes.includes('simulates')) {
-    caps.push('Run model simulation');
-    caps.push('Compare model performance');
-  }
-
-  if (outgoingTypes.includes('covers')) {
-    caps.push('Download dataset');
-    caps.push('View data quality');
-  }
-
-  if (outgoingTypes.includes('observes')) {
-    caps.push('View observation data');
-    caps.push('Check station status');
-  }
-
-  if (outgoingTypes.includes('supports')) {
-    caps.push('View evidence chain');
-    caps.push('Check claim confidence');
-  }
-
-  return [...new Set(caps)];
-}
 
 // POST /api/registry/clear - Clear all entities AND projects
 router.post('/registry/clear', async (req, res) => {
@@ -341,14 +246,7 @@ router.get('/entities/type/:type', async (req, res) => {
   try {
     const entities = Array.from(store.entities.values())
       .filter(e => e.type === req.params.type)
-      .map(e => ({
-        id: e.id,
-        type: e.type,
-        attributes: e.attributes,
-        metadata: e.metadata,
-        verificationState: e.verificationState,
-        createdAt: e.createdAt
-      }));
+      .map(entity => serializeEntity(entity, ontology));
     res.json({ entities, count: entities.length });
   } catch (err) {
     res.status(500).json({ error: err.message });

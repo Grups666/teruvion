@@ -126,7 +126,7 @@ Return JSON:
 
     // Minimal type-based inference
     const typeRoleMap = {
-      'Paper': { earth_content: 0.5, modeling_capability: 0.3 },
+      'Paper': { modeling_capability: 0.3, evidence_assessment: 0.4 },
       'Preprint': { earth_content: 0.4 },
       'Report': { governance_capability: 0.4, evidence_assessment: 0.3 },
       'AssessmentReport': { evidence_assessment: 0.6, governance_capability: 0.4 },
@@ -136,11 +136,11 @@ Return JSON:
       'DataCatalog': { data_capability: 0.6 },
       'PolicyDocument': { governance_capability: 0.7, action_capability: 0.4 },
       'StandardDocument': { governance_capability: 0.6 },
-      'News': { event_signal: 0.7 },
-      'PressRelease': { event_signal: 0.6 }
+      'News': { event_signal: 0.3 },
+      'PressRelease': { event_signal: 0.2 }
     };
 
-    const typeRoles = typeRoleMap[type] || { earth_content: 0.3 };
+    const typeRoles = typeRoleMap[type] || {};
 
     // Initialize all roles with 0
     const allRoles = [
@@ -151,6 +151,14 @@ Return JSON:
 
     for (const role of allRoles) {
       roles[role] = typeRoles[role] || 0;
+    }
+
+    if (metadata.date && metadata.location) {
+      roles.event_signal = Math.min(1.0, roles.event_signal + 0.3);
+    }
+    if (metadata.hazards?.length > 0 || metadata.regions?.length > 0) {
+      roles.event_signal = Math.min(1.0, roles.event_signal + 0.3);
+      roles.earth_content = Math.max(roles.earth_content, 0.2);
     }
 
     const detectedRoles = Object.entries(roles)

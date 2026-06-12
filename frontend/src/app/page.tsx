@@ -3,12 +3,117 @@
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import api from '../types/client';
-import type { Entity, Project, SSEEvent, AnalysisProgress, EntityExploreResponse, RelatedEntity, Decomposition } from '../types/api';
+import type { Entity, Project, SSEEvent, AnalysisProgress, EntityExploreResponse, RelatedEntity, Decomposition, EntityLayer } from '../types/api';
 import { getEntityLayer } from '../types/api';
+import {
+  formatSignalText,
+  getEntityName,
+  getEntityReviewNotes,
+  getEntitySignals
+} from '../lib/entityView';
 
 const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
 
 type ProjectQualityLevel = 'excellent' | 'useful' | 'partial' | 'limited' | 'pending';
+type ProjectQualityNoteLevel = 'info' | 'warning';
+
+interface ProjectQualityNote {
+  text: string;
+  level: ProjectQualityNoteLevel;
+}
+
+interface ProjectCoverageSummary {
+  label: string;
+  detail: string;
+  source?: string | null;
+  metrics: Array<{ label: string; value: string }>;
+  warning?: string | null;
+}
+
+interface ProjectQuality {
+  level: ProjectQualityLevel;
+  label: string;
+  method: string;
+  relations: number;
+  summary: string;
+  coverage?: ProjectCoverageSummary | null;
+  notes: ProjectQualityNote[];
+}
+
+type DisplayLayer = 'source' | 'capability' | 'world' | 'foundation';
+type LensSummary = {
+  name: string;
+  value: string;
+  detail: string;
+  status: 'ready' | 'empty';
+  targetId: string | null;
+};
+
+const DISPLAY_LAYER_ORDER: DisplayLayer[] = ['source', 'capability', 'world', 'foundation'];
+const PRIMARY_DISPLAY_LAYERS = new Set<EntityLayer>(['source', 'capability', 'world', 'foundation']);
+
+const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
+  map: lens => {
+    const featureCount = lens.features?.length || 0;
+    const regionCount = lens.regions?.length || 0;
+    const targetId = lens.regions?.[0]?.id || lens.features?.[0]?.id || null;
+    return {
+      name: 'Map',
+      value: `${featureCount} feature${featureCount !== 1 ? 's' : ''}`,
+      detail: regionCount > 0 ? `${regionCount} region${regionCount !== 1 ? 's' : ''}` : 'No spatial feature',
+      status: featureCount > 0 ? 'ready' : 'empty',
+      targetId
+    };
+  },
+  workflow: lens => {
+    const nodeCount = lens.metadata?.stats?.totalNodes || lens.graph?.nodes?.length || 0;
+    const stageCount = lens.stages?.length || lens.metadata?.stats?.stageCount || 0;
+    const targetId = lens.stages?.find((stage: any) => stage.entities?.length > 0)?.entities?.[0]?.id
+      || lens.graph?.nodes?.[0]?.id
+      || null;
+    return {
+      name: 'Workflow',
+      value: `${nodeCount} node${nodeCount !== 1 ? 's' : ''}`,
+      detail: stageCount > 0 ? `${stageCount} stage${stageCount !== 1 ? 's' : ''}` : 'No pipeline stage',
+      status: nodeCount > 0 ? 'ready' : 'empty',
+      targetId
+    };
+  },
+  evidence: lens => {
+    const claims = lens.summary?.totalClaims || 0;
+    const chains = lens.metadata?.stats?.totalChains || lens.chains?.length || 0;
+    const targetId = lens.chains?.[0]?.entityId || lens.graph?.nodes?.[0]?.id || null;
+    return {
+      name: 'Evidence',
+      value: `${claims} claim${claims !== 1 ? 's' : ''}`,
+      detail: chains > 0 ? `${chains} chain${chains !== 1 ? 's' : ''}` : 'No evidence chain',
+      status: claims > 0 ? 'ready' : 'empty',
+      targetId
+    };
+  },
+  timeline: lens => {
+    const events = lens.events?.length || lens.metadata?.stats?.totalEvents || 0;
+    const targetId = lens.events?.[0]?.entityId || null;
+    return {
+      name: 'Timeline',
+      value: `${events} event${events !== 1 ? 's' : ''}`,
+      detail: lens.timeline?.span ? String(lens.timeline.span) : 'No temporal span',
+      status: events > 0 ? 'ready' : 'empty',
+      targetId
+    };
+  },
+  comparison: lens => {
+    const compared = lens.metadata?.stats?.comparedCount || lens.entities?.length || 0;
+    const targetId = lens.entities?.[0]?.id || null;
+    return {
+      name: 'Comparison',
+      value: `${compared} object${compared !== 1 ? 's' : ''}`,
+      detail: compared >= 2 ? 'Comparable set' : 'Needs at least 2 objects',
+      status: compared >= 2 ? 'ready' : 'empty',
+      targetId
+    };
+  }
+};
 
 const EXAMPLE_SOURCES = [
   {
@@ -353,7 +458,23 @@ export default function Home() {
     ];
 
     if (projectQuality.notes.length > 0) {
-      lines.push('', 'Notes:', ...projectQuality.notes.map(note => `- ${note}`));
+      lines.push('', 'Notes:', ...projectQuality.notes.map(note => `- ${note.text}`));
+    }
+
+    if (projectQuality.coverage) {
+      lines.push(
+        '',
+        'Source coverage:',
+        `- ${projectQuality.coverage.label}: ${projectQuality.coverage.detail}`
+      );
+
+      if (projectQuality.coverage.metrics.length > 0) {
+        lines.push(...projectQuality.coverage.metrics.map(metric => `- ${metric.label}: ${metric.value}`));
+      }
+
+      if (projectQuality.coverage.warning) {
+        lines.push(`- Warning: ${projectQuality.coverage.warning}`);
+      }
     }
 
     try {
@@ -543,6 +664,27 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="quality-summary">{projectQuality.summary}</div>
+                  {projectQuality.coverage && (
+                    <div className={`coverage-strip ${projectQuality.coverage.warning ? 'warning' : ''}`}>
+                      <div className="coverage-main">
+                        <span className="coverage-label">{projectQuality.coverage.label}</span>
+                        <span className="coverage-detail">{projectQuality.coverage.detail}</span>
+                      </div>
+                      {projectQuality.coverage.metrics.length > 0 && (
+                        <div className="coverage-metrics">
+                          {projectQuality.coverage.metrics.map(metric => (
+                            <span key={metric.label}>
+                              <strong>{metric.value}</strong>
+                              {metric.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {projectQuality.coverage.warning && (
+                        <div className="coverage-warning">{projectQuality.coverage.warning}</div>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="quality-copy"
@@ -552,8 +694,8 @@ export default function Home() {
                   </button>
                   {projectQuality.notes.length > 0 && (
                     <div className="quality-notes">
-                      {projectQuality.notes.slice(0, 3).map(note => (
-                        <span key={note}>{note}</span>
+                      {projectQuality.notes.slice(0, 5).map(note => (
+                        <span className={note.level} key={note.text}>{note.text}</span>
                       ))}
                     </div>
                   )}
@@ -601,7 +743,7 @@ export default function Home() {
                       : 'Objects will appear when the import completes.'}
                   </div>
                 ) : (
-                  (['source', 'capability', 'world', 'foundation'] as const).map(layer => {
+                  DISPLAY_LAYER_ORDER.map(layer => {
                     const items = groupedProjectEntities[layer];
                     if (items.length === 0) return null;
 
@@ -618,9 +760,9 @@ export default function Home() {
                               className={`object-row ${selectedEntityId === entity.id ? 'active' : ''}`}
                               onClick={() => setSelectedEntityId(entity.id)}
                             >
-                              <span className={`object-dot ${getEntityLayer(entity.type)}`} />
+                              <span className={`object-dot ${getEntityLayer(entity)}`} />
                               <span className="object-main">
-                                <span className="object-name">{entity.attributes.name || entity.id}</span>
+                                <span className="object-name">{getEntityName(entity)}</span>
                                 <span className="object-type">{entity.type}</span>
                               </span>
                             </button>
@@ -642,10 +784,10 @@ export default function Home() {
               <div className="detail-header">
                 <div>
                   <div className="detail-title">
-                    {selectedEntity.attributes.name || 'Object'}
+                    {getEntityName(selectedEntity)}
                   </div>
                   <div className="detail-subtitle">
-                    <span className={`badge ${getEntityLayer(selectedEntity.type)}`}>
+                    <span className={`badge ${getEntityLayer(selectedEntity)}`}>
                       {selectedEntity.type}
                     </span>
                   </div>
@@ -795,7 +937,7 @@ function EntityGraphView({
 
       {capabilities.length > 0 && (
         <div className="graph-block">
-          <div className="graph-block-title">Available Actions</div>
+          <div className="graph-block-title">Suggested Checks</div>
           <div className="action-list">
             {capabilities.slice(0, 6).map(action => (
               <span className="action-chip" key={action}>{action}</span>
@@ -827,13 +969,13 @@ function RelationRow({
   selectedEntity: Entity;
   onSelectEntity: (id: string) => void;
 }) {
-  const selectedName = selectedEntity.attributes.name || selectedEntity.id;
+  const selectedName = getEntityName(selectedEntity);
   const left = item.direction === 'outgoing' ? selectedName : item.name;
   const right = item.direction === 'outgoing' ? item.name : selectedName;
 
   return (
     <button className="relation-row" onClick={() => onSelectEntity(item.id)}>
-      <span className={`object-dot ${getEntityLayer(item.type)}`} />
+      <span className={`object-dot ${getEntityLayer(item)}`} />
       <span className="relation-main">
         <span className="relation-line">
           <span className="relation-node">{left}</span>
@@ -847,7 +989,7 @@ function RelationRow({
 }
 
 function groupEntitiesByLayer(entities: Entity[]) {
-  const groups: Record<'source' | 'capability' | 'world' | 'foundation', Entity[]> = {
+  const groups: Record<DisplayLayer, Entity[]> = {
     source: [],
     capability: [],
     world: [],
@@ -855,10 +997,15 @@ function groupEntitiesByLayer(entities: Entity[]) {
   };
 
   for (const entity of entities) {
-    groups[getEntityLayer(entity.type)].push(entity);
+    groups[getDisplayLayer(entity)].push(entity);
   }
 
   return groups;
+}
+
+function getDisplayLayer(entity: Pick<Entity, 'layer' | 'type'> | string): DisplayLayer {
+  const layer = getEntityLayer(entity);
+  return PRIMARY_DISPLAY_LAYERS.has(layer) ? (layer as DisplayLayer) : 'foundation';
 }
 
 function getProjectStats(entities: Entity[]) {
@@ -871,12 +1018,25 @@ function getProjectStats(entities: Entity[]) {
   };
 }
 
-function getProjectQuality(project: Project, entities: Entity[]) {
+function getProjectQuality(project: Project, entities: Entity[]): ProjectQuality {
   const decomposition = project.metadata?.decomposition as (Decomposition & {
     confidence?: number;
     provenance?: { extractionMethod?: string };
     extractionMetadata?: { llmExtraction?: { success?: boolean } };
   }) | undefined;
+  const sourceCoverage = project.metadata?.sourceCoverage as {
+    contentLevel?: string;
+    label?: string;
+    detail?: string;
+    source?: string | null;
+    warning?: string | null;
+    metrics?: {
+      sectionCount?: number;
+      figureCount?: number;
+      tableCount?: number;
+      textLength?: number;
+    };
+  } | undefined;
   const admission = project.metadata?.admission;
   const stats = getProjectStats(entities);
   const confidence = typeof decomposition?.confidence === 'number'
@@ -886,7 +1046,7 @@ function getProjectQuality(project: Project, entities: Entity[]) {
   const relations = (decomposition?.bridgeRelations?.length || 0)
     + Math.max(0, stats.capability + stats.world + stats.foundation - 1);
 
-  const notes: string[] = [];
+  const notes: ProjectQualityNote[] = [];
 
   if (!decomposition) {
     return {
@@ -895,32 +1055,35 @@ function getProjectQuality(project: Project, entities: Entity[]) {
       method: project.analysis?.currentPhase || project.analysis?.status || 'importing',
       relations: 0,
       summary: project.analysis?.error || 'The source is still being processed.',
+      coverage: null,
       notes
     };
   }
 
   if (method === 'metadata') {
-    notes.push('metadata-only extraction');
+    notes.push({ text: 'metadata-only extraction', level: 'warning' });
   }
 
+  const coverage = buildProjectCoverageSummary(sourceCoverage);
+
   if (decomposition.extractionMetadata?.llmExtraction?.success === false) {
-    notes.push('LLM extraction unavailable');
+    notes.push({ text: 'LLM extraction unavailable', level: 'warning' });
   }
 
   if (admission?.depth === 'light') {
-    notes.push('light admission depth');
+    notes.push({ text: 'light admission depth', level: 'info' });
   }
 
   if (stats.world === 0) {
-    notes.push('no spatial/world objects');
+    notes.push({ text: 'no spatial/world objects', level: 'info' });
   }
 
   if (stats.capability === 0) {
-    notes.push('no capability objects');
+    notes.push({ text: 'no capability objects', level: 'warning' });
   }
 
   if ((decomposition.evidenceObjects?.length || 0) === 0) {
-    notes.push('no evidence objects');
+    notes.push({ text: 'no evidence objects', level: 'info' });
   }
 
   const breadthScore =
@@ -954,15 +1117,67 @@ function getProjectQuality(project: Project, entities: Entity[]) {
     method,
     relations,
     summary,
+    coverage,
     notes
   };
+}
+
+function buildProjectCoverageSummary(sourceCoverage?: {
+  contentLevel?: string;
+  label?: string;
+  detail?: string;
+  source?: string | null;
+  warning?: string | null;
+  metrics?: {
+    sectionCount?: number;
+    figureCount?: number;
+    tableCount?: number;
+    textLength?: number;
+  };
+}): ProjectCoverageSummary | null {
+  if (!sourceCoverage || sourceCoverage.contentLevel === 'unknown') {
+    return null;
+  }
+
+  const metrics: Array<{ label: string; value: string }> = [];
+  const sectionCount = sourceCoverage.metrics?.sectionCount || 0;
+  const figureCount = sourceCoverage.metrics?.figureCount || 0;
+  const tableCount = sourceCoverage.metrics?.tableCount || 0;
+  const visualCount = figureCount + tableCount;
+  const textLength = sourceCoverage.metrics?.textLength || 0;
+
+  if (sectionCount > 0) {
+    metrics.push({ label: 'sections', value: String(sectionCount) });
+  }
+
+  if (visualCount > 0) {
+    metrics.push({ label: 'visuals', value: String(visualCount) });
+  }
+
+  if (textLength > 0) {
+    metrics.push({ label: 'chars', value: formatCompactNumber(textLength) });
+  }
+
+  return {
+    label: sourceCoverage.label || formatSignalText(sourceCoverage.contentLevel || 'source'),
+    detail: sourceCoverage.detail || 'Source coverage recorded for this import.',
+    source: sourceCoverage.source,
+    metrics,
+    warning: sourceCoverage.warning || null
+  };
+}
+
+function formatCompactNumber(value: number) {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${Math.round(value / 1000)}k`;
+  return String(value);
 }
 
 function getLensSummaries(lenses: Record<string, any> | null) {
   if (!lenses) return [];
 
-  return ['map', 'workflow', 'evidence', 'timeline', 'comparison']
-    .filter(name => lenses[name])
+  return Object.keys(LENS_SUMMARY_ADAPTERS)
+    .filter(name => Object.prototype.hasOwnProperty.call(lenses, name))
     .map(name => {
       const lens = lenses[name];
       if (lens.error) {
@@ -975,200 +1190,8 @@ function getLensSummaries(lenses: Record<string, any> | null) {
         };
       }
 
-      if (name === 'map') {
-        const featureCount = lens.features?.length || 0;
-        const regionCount = lens.regions?.length || 0;
-        const targetId = lens.regions?.[0]?.id || lens.features?.[0]?.id || null;
-        return {
-          name: 'Map',
-          value: `${featureCount} feature${featureCount !== 1 ? 's' : ''}`,
-          detail: regionCount > 0 ? `${regionCount} region${regionCount !== 1 ? 's' : ''}` : 'No spatial feature',
-          status: featureCount > 0 ? 'ready' : 'empty',
-          targetId
-        };
-      }
-
-      if (name === 'workflow') {
-        const nodeCount = lens.metadata?.stats?.totalNodes || lens.graph?.nodes?.length || 0;
-        const stageCount = lens.stages?.length || lens.metadata?.stats?.stageCount || 0;
-        const targetId = lens.stages?.find((stage: any) => stage.entities?.length > 0)?.entities?.[0]?.id
-          || lens.graph?.nodes?.[0]?.id
-          || null;
-        return {
-          name: 'Workflow',
-          value: `${nodeCount} node${nodeCount !== 1 ? 's' : ''}`,
-          detail: stageCount > 0 ? `${stageCount} stage${stageCount !== 1 ? 's' : ''}` : 'No pipeline stage',
-          status: nodeCount > 0 ? 'ready' : 'empty',
-          targetId
-        };
-      }
-
-      if (name === 'evidence') {
-        const claims = lens.summary?.totalClaims || 0;
-        const chains = lens.metadata?.stats?.totalChains || lens.chains?.length || 0;
-        const targetId = lens.chains?.[0]?.entityId || lens.graph?.nodes?.[0]?.id || null;
-        return {
-          name: 'Evidence',
-          value: `${claims} claim${claims !== 1 ? 's' : ''}`,
-          detail: chains > 0 ? `${chains} chain${chains !== 1 ? 's' : ''}` : 'No evidence chain',
-          status: claims > 0 ? 'ready' : 'empty',
-          targetId
-        };
-      }
-
-      if (name === 'timeline') {
-        const events = lens.events?.length || lens.metadata?.stats?.totalEvents || 0;
-        const targetId = lens.events?.[0]?.entityId || null;
-        return {
-          name: 'Timeline',
-          value: `${events} event${events !== 1 ? 's' : ''}`,
-          detail: lens.timeline?.span ? String(lens.timeline.span) : 'No temporal span',
-          status: events > 0 ? 'ready' : 'empty',
-          targetId
-        };
-      }
-
-      const compared = lens.metadata?.stats?.comparedCount || lens.entities?.length || 0;
-      const targetId = lens.entities?.[0]?.id || null;
-      return {
-        name: 'Comparison',
-        value: `${compared} object${compared !== 1 ? 's' : ''}`,
-        detail: compared >= 2 ? 'Comparable set' : 'Needs at least 2 objects',
-        status: compared >= 2 ? 'ready' : 'empty',
-        targetId
-      };
+      return LENS_SUMMARY_ADAPTERS[name](lens);
     });
-}
-
-function getEntitySignals(entity: Entity, explore: EntityExploreResponse | null) {
-  const signals: Array<{ label: string; value: string; level: 'strong' | 'normal' | 'weak' }> = [];
-  const confidence = typeof entity.metadata?.confidence === 'number' ? entity.metadata.confidence : null;
-  const verification = entity.verificationState || 'unverified';
-  const connectionCount = explore?.relatedEntities?.length || 0;
-
-  signals.push({
-    label: 'Confidence',
-    value: confidence === null ? 'Unknown' : `${Math.round(confidence * 100)}%`,
-    level: confidence === null ? 'weak' : confidence >= 0.7 ? 'strong' : confidence >= 0.45 ? 'normal' : 'weak'
-  });
-
-  signals.push({
-    label: 'Verification',
-    value: formatSignalText(verification),
-    level: verification === 'verified' ? 'strong' : verification === 'rejected' ? 'weak' : 'normal'
-  });
-
-  signals.push({
-    label: 'Connections',
-    value: `${connectionCount}`,
-    level: connectionCount > 2 ? 'strong' : connectionCount > 0 ? 'normal' : 'weak'
-  });
-
-  if (entity.metadata?.source || explore?.sources?.length) {
-    signals.push({
-      label: 'Source',
-      value: entity.metadata?.source ? 'Recorded' : `${explore?.sources?.length || 0} link${explore?.sources?.length === 1 ? '' : 's'}`,
-      level: 'strong'
-    });
-  } else {
-    signals.push({
-      label: 'Source',
-      value: 'Missing',
-      level: 'weak'
-    });
-  }
-
-  const hasSpatial =
-    Boolean(entity.attributes.bbox)
-    || Boolean(entity.attributes.location)
-    || Boolean(entity.attributes.centroid)
-    || Boolean(entity.attributes.coordinates)
-    || Boolean(entity.attributes.spatialCoverage);
-  const hasTemporal =
-    Boolean(entity.attributes.year)
-    || Boolean(entity.attributes.date)
-    || Boolean(entity.attributes.time)
-    || Boolean(entity.attributes.temporalCoverage)
-    || Boolean(entity.attributes.start);
-
-  signals.push({
-    label: 'Spatial',
-    value: hasSpatial ? 'Present' : 'None',
-    level: hasSpatial ? 'strong' : 'normal'
-  });
-
-  signals.push({
-    label: 'Temporal',
-    value: hasTemporal ? 'Present' : 'None',
-    level: hasTemporal ? 'strong' : 'normal'
-  });
-
-  return signals;
-}
-
-function getEntityReviewNotes(
-  entity: Entity,
-  explore: EntityExploreResponse | null,
-  signals: Array<{ label: string; value: string; level: 'strong' | 'normal' | 'weak' }>
-) {
-  const notes: Array<{ text: string; level: 'warning' | 'info' }> = [];
-  const signalByLabel = new Map(signals.map(signal => [signal.label, signal]));
-  const confidenceSignal = signalByLabel.get('Confidence');
-  const sourceSignal = signalByLabel.get('Source');
-  const connectionsSignal = signalByLabel.get('Connections');
-  const spatialSignal = signalByLabel.get('Spatial');
-  const temporalSignal = signalByLabel.get('Temporal');
-  const layer = getEntityLayer(entity.type);
-
-  if (confidenceSignal?.level === 'weak') {
-    notes.push({
-      text: 'Treat this object as tentative until confidence improves or a human reviews it.',
-      level: 'warning'
-    });
-  }
-
-  if (sourceSignal?.level === 'weak') {
-    notes.push({
-      text: 'Source evidence is missing; check the original import or linked paper/repository before relying on it.',
-      level: 'warning'
-    });
-  }
-
-  if (connectionsSignal?.value === '0') {
-    notes.push({
-      text: 'No graph connections yet; this object is not contributing much to reasoning or comparison.',
-      level: 'info'
-    });
-  }
-
-  if (layer === 'world' && spatialSignal?.value === 'None') {
-    notes.push({
-      text: 'World object has no spatial footprint; map behavior may be limited.',
-      level: 'warning'
-    });
-  }
-
-  if (['Paper', 'Dataset', 'Report'].includes(entity.type) && temporalSignal?.value === 'None') {
-    notes.push({
-      text: 'No temporal metadata detected; timeline views may stay sparse.',
-      level: 'info'
-    });
-  }
-
-  if ((explore?.capabilities?.length || 0) > 0) {
-    notes.push({
-      text: `Available actions: ${explore!.capabilities.slice(0, 3).join(', ')}.`,
-      level: 'info'
-    });
-  }
-
-  return notes.slice(0, 4);
-}
-
-function formatSignalText(value: string) {
-  return value
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, char => char.toUpperCase());
 }
 
 /** Format entity attributes for display */

@@ -9,8 +9,13 @@
 export interface Entity {
   id: string;
   type: string;
+  name?: string;
+  layer?: EntityLayer;
+  category?: string;
   attributes: {
     name?: string;
+    title?: string;
+    label?: string;
     bbox?: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
     [key: string]: any;
   };
@@ -89,6 +94,8 @@ export interface RelatedEntity {
   id: string;
   type: string;
   name: string;
+  layer?: EntityLayer;
+  category?: string;
   relation: string;
   direction: 'incoming' | 'outgoing';
 }
@@ -144,17 +151,11 @@ export interface SSEErrorEvent {
 export type SSEEvent = SSEStatusEvent | SSECompletedEvent | SSEErrorEvent;
 
 // Entity layer classification
-export type EntityLayer = 'world' | 'capability' | 'source' | 'foundation';
+export type EntityLayer = 'world' | 'capability' | 'source' | 'foundation' | 'domain' | 'extension' | 'unknown';
 
-export function getEntityLayer(type: string): EntityLayer {
-  const worldTypes = ['Basin', 'Region', 'Watershed', 'River', 'Lake', 'Glacier', 'Hazard', 'FloodEvent'];
-  const capabilityTypes = ['Dataset', 'Model', 'Sensor', 'Gauge', 'Algorithm', 'Claim', 'Evidence', 'Software', 'Workflow', 'API'];
-  const sourceTypes = ['Paper', 'Repository', 'Report', 'News', 'Source'];
-
-  if (worldTypes.includes(type)) return 'world';
-  if (capabilityTypes.includes(type)) return 'capability';
-  if (sourceTypes.includes(type)) return 'source';
-  return 'foundation';
+export function getEntityLayer(entity: Pick<Entity, 'layer' | 'type'> | string): EntityLayer {
+  if (typeof entity === 'string') return 'foundation';
+  return entity.layer || 'foundation';
 }
 
 // Alpha Access types

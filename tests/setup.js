@@ -1,29 +1,24 @@
 /**
- * Teruvion Test Setup
- * Initializes test environment, mocks, and utilities
+ * Teruvion test setup.
  */
 
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
 
-// Test configuration
 const TEST_CONFIG = {
   timeout: 30000,
   tempDir: path.join(__dirname, '.temp'),
   fixturesDir: path.join(__dirname, 'helpers', 'fixtures')
 };
 
-// Ensure temp directory exists
+const pendingTests = [];
+
 if (!fs.existsSync(TEST_CONFIG.tempDir)) {
   fs.mkdirSync(TEST_CONFIG.tempDir, { recursive: true });
 }
 
-// Test utilities
 const testUtils = {
-  /**
-   * Create a temporary file for testing
-   */
   createTempFile(content, extension = '.json') {
     const filename = `test-${Date.now()}-${Math.random().toString(36).substr(2, 6)}${extension}`;
     const filepath = path.join(TEST_CONFIG.tempDir, filename);
@@ -31,21 +26,15 @@ const testUtils = {
     return filepath;
   },
 
-  /**
-   * Clean up temporary files
-   */
   cleanup() {
-    if (fs.existsSync(TEST_CONFIG.tempDir)) {
-      const files = fs.readdirSync(TEST_CONFIG.tempDir);
-      for (const file of files) {
-        fs.unlinkSync(path.join(TEST_CONFIG.tempDir, file));
-      }
+    if (!fs.existsSync(TEST_CONFIG.tempDir)) return;
+
+    const files = fs.readdirSync(TEST_CONFIG.tempDir);
+    for (const file of files) {
+      fs.unlinkSync(path.join(TEST_CONFIG.tempDir, file));
     }
   },
 
-  /**
-   * Load fixture file
-   */
   loadFixture(name) {
     const filepath = path.join(TEST_CONFIG.fixturesDir, name);
     if (!fs.existsSync(filepath)) {
@@ -54,47 +43,37 @@ const testUtils = {
     return JSON.parse(fs.readFileSync(filepath, 'utf8'));
   },
 
-  /**
-   * Assert that an object has specific properties
-   */
   assertHasProps(obj, props, message = '') {
     for (const prop of props) {
-      assert.ok(obj.hasOwnProperty(prop), `${message}: Missing property '${prop}'`);
+      assert.ok(Object.prototype.hasOwnProperty.call(obj, prop), `${message}: Missing property '${prop}'`);
     }
   },
 
-  /**
-   * Assert that an array is not empty
-   */
   assertNotEmpty(arr, message = 'Array should not be empty') {
     assert.ok(Array.isArray(arr), 'Expected an array');
     assert.ok(arr.length > 0, message);
   },
 
-  /**
-   * Deep clone an object
-   */
   deepClone(obj) {
     return JSON.parse(JSON.stringify(obj));
   }
 };
 
-// Test runner helper
 function describe(name, fn) {
-  console.log(`\n📦 ${name}`);
+  console.log(`\n[Suite] ${name}`);
   try {
     fn();
   } catch (err) {
-    console.error(`  ❌ Suite setup failed: ${err.message}`);
+    console.error(`  [FAIL] Suite setup failed: ${err.message}`);
     process.exitCode = 1;
   }
 }
 
 function it(name, fn) {
-  const fullName = `  ✓ ${name}`;
+  const fullName = `  [PASS] ${name}`;
+
   try {
     if (fn.length === 1) {
-      // Async test with callback
       const done = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Test timeout')), TEST_CONFIG.timeout);
         fn((err) => {
@@ -103,33 +82,43 @@ function it(name, fn) {
           else resolve();
         });
       });
-      done.then(() => console.log(fullName)).catch(err => {
-        console.error(`  ❌ ${name}: ${err.message}`);
-        process.exitCode = 1;
-      });
-    } else {
-      // Sync test
-      const result = fn();
-      if (result && result.then) {
-        result.then(() => console.log(fullName)).catch(err => {
-          console.error(`  ❌ ${name}: ${err.message}`);
+
+      pendingTests.push(done
+        .then(() => console.log(fullName))
+        .catch((err) => {
+          console.error(`  [FAIL] ${name}: ${err.message}`);
           process.exitCode = 1;
-        });
-      } else {
-        console.log(fullName);
-      }
+        }));
+      return;
+    }
+
+    const result = fn();
+    if (result && result.then) {
+      pendingTests.push(result
+        .then(() => console.log(fullName))
+        .catch((err) => {
+          console.error(`  [FAIL] ${name}: ${err.message}`);
+          process.exitCode = 1;
+        }));
+    } else {
+      console.log(fullName);
     }
   } catch (err) {
-    console.error(`  ❌ ${name}: ${err.message}`);
+    console.error(`  [FAIL] ${name}: ${err.message}`);
     process.exitCode = 1;
   }
 }
 
-// Export test utilities
+async function waitForTests() {
+  const tests = pendingTests.splice(0, pendingTests.length);
+  await Promise.all(tests);
+}
+
 module.exports = {
   assert,
   TEST_CONFIG,
   testUtils,
   describe,
-  it
+  it,
+  waitForTests
 };

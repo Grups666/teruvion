@@ -15,7 +15,29 @@ class TimelineLens extends Lens {
   }
 
   getRelevantEntityTypes() {
-    return ['TimeRange', 'Time', 'Event', 'Paper'];
+    const temporalFields = new Set([
+      'year',
+      'date',
+      'start',
+      'end',
+      'time',
+      'timestamp',
+      'temporalCoverage',
+      'temporalSpan',
+      'publishedAt',
+      'createdAt',
+      'updatedAt'
+    ]);
+
+    return Object.entries(this.ontology.ENTITY_SCHEMAS || {})
+      .filter(([, schema]) => {
+        const fields = [
+          ...(schema.required || []),
+          ...(schema.optional || [])
+        ];
+        return fields.some(field => temporalFields.has(field));
+      })
+      .map(([type]) => type);
   }
 
   getRelevantRelationTypes() {
@@ -57,47 +79,45 @@ class TimelineLens extends Lens {
   }
 
   _extractTemporalInfo(entity) {
-    // Paper with year
-    if (entity.attributes.year) {
+    const attributes = entity.attributes || {};
+    const metadata = entity.metadata || {};
+
+    if (attributes.year) {
       return {
-        start: entity.attributes.year,
-        end: entity.attributes.year,
-        label: String(entity.attributes.year)
+        start: this._parseTime(attributes.year),
+        end: this._parseTime(attributes.year),
+        label: String(attributes.year)
       };
     }
 
-    // TimeRange
-    if (entity.type === 'TimeRange') {
+    if (attributes.start || attributes.end) {
       return {
-        start: this._parseTime(entity.attributes.start),
-        end: this._parseTime(entity.attributes.end),
-        label: `${entity.attributes.start} - ${entity.attributes.end}`
+        start: this._parseTime(attributes.start),
+        end: this._parseTime(attributes.end || attributes.start),
+        label: this._formatRangeLabel(attributes.start, attributes.end || attributes.start)
       };
     }
 
-    // Dataset with temporal coverage
-    if (entity.attributes.temporalCoverage) {
-      const coverage = entity.attributes.temporalCoverage;
-      if (typeof coverage === 'string' && coverage.includes('-')) {
-        const [start, end] = coverage.split('-').map(s => parseInt(s.trim()));
-        return {
-          start,
-          end,
-          label: coverage
-        };
-      }
+    const coverage = attributes.temporalCoverage || attributes.temporalSpan || metadata.temporalCoverage;
+    if (coverage) {
+      return this._parseCoverage(coverage);
     }
 
-    // Event
-    if (entity.type === 'Event' || entity.type === 'FloodEvent') {
-      if (entity.attributes.date || entity.metadata?.date) {
-        const dateStr = entity.attributes.date || entity.metadata.date;
-        return {
-          start: this._parseTime(dateStr),
-          end: this._parseTime(dateStr),
-          label: dateStr
-        };
-      }
+    const pointInTime = attributes.date ||
+      attributes.time ||
+      attributes.timestamp ||
+      attributes.publishedAt ||
+      attributes.createdAt ||
+      attributes.updatedAt ||
+      metadata.date ||
+      metadata.timestamp;
+
+    if (pointInTime) {
+      return {
+        start: this._parseTime(pointInTime),
+        end: this._parseTime(pointInTime),
+        label: String(pointInTime)
+      };
     }
 
     return null;
@@ -113,6 +133,52 @@ class TimelineLens extends Lens {
     return null;
   }
 
+  _parseCoverage(coverage) {
+    if (Array.isArray(coverage)) {
+      const [startValue, endValue = startValue] = coverage;
+      return {
+        start: this._parseTime(startValue),
+        end: this._parseTime(endValue),
+        label: this._formatRangeLabel(startValue, endValue)
+      };
+    }
+
+    if (typeof coverage === 'object') {
+      const startValue = coverage.start || coverage.from || coverage.begin;
+      const endValue = coverage.end || coverage.to || coverage.finish || startValue;
+      return {
+        start: this._parseTime(startValue),
+        end: this._parseTime(endValue),
+        label: this._formatRangeLabel(startValue, endValue)
+      };
+    }
+
+    if (typeof coverage === 'string') {
+      const rangeMatch = coverage.match(/(\d{4})(?:[^\d]+)(\d{4})/);
+      if (rangeMatch) {
+        return {
+          start: parseInt(rangeMatch[1], 10),
+          end: parseInt(rangeMatch[2], 10),
+          label: coverage
+        };
+      }
+      const parsed = this._parseTime(coverage);
+      return {
+        start: parsed,
+        end: parsed,
+        label: coverage
+      };
+    }
+
+    return null;
+  }
+
+  _formatRangeLabel(start, end) {
+    if (start === undefined && end === undefined) return '';
+    if (start === end || end === undefined) return String(start);
+    return `${start} - ${end}`;
+  }
+
   _buildTimeline(events) {
     if (events.length === 0) {
       return { intervals: [], span: null };
@@ -120,7 +186,11 @@ class TimelineLens extends Lens {
 
     const years = events
       .map(e => e.start)
-      .filter(y => y !== null);
+      .filter(y => y !== null && !Number.isNaN(y));
+
+    if (years.length === 0) {
+      return { intervals: [], span: null };
+    }
 
     const minYear = Math.min(...years);
     const maxYear = Math.max(...years);

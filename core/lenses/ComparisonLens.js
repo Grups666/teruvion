@@ -11,11 +11,16 @@ class ComparisonLens extends Lens {
   }
 
   getDescription() {
-    return 'Side-by-side comparison of methods, datasets, or models';
+    return 'Side-by-side comparison of compatible research objects';
   }
 
   getRelevantEntityTypes() {
-    return ['Method', 'Model', 'Dataset', 'Experiment'];
+    return Object.entries(this.ontology.ENTITY_SCHEMAS || {})
+      .filter(([, schema]) => {
+        const layer = schema.layer;
+        return layer === 'capability' || layer === 'source' || layer === 'world' || layer === 'extension';
+      })
+      .map(([type]) => type);
   }
 
   getRelevantRelationTypes() {
@@ -24,13 +29,11 @@ class ComparisonLens extends Lens {
 
   async render(projectId, options = {}) {
     const entities = this.getEntities(projectId);
-    const entityType = options.entityType || 'Method';
     const compareIds = options.entityIds || [];
 
-    // Get entities to compare
     let compareEntities = compareIds.length > 0
       ? compareIds.map(id => this.store.getEntity(id)).filter(Boolean)
-      : entities.filter(e => e.type === entityType);
+      : this._selectComparableEntities(entities, options);
 
     if (compareEntities.length < 2) {
       return {
@@ -51,11 +54,13 @@ class ComparisonLens extends Lens {
 
     return {
       type: 'comparison',
-      entityType,
+      entityType: this._describeComparisonScope(compareEntities),
       entities: compareEntities.map(e => ({
         id: e.id,
         name: e.getDisplayName(),
-        type: e.type
+        type: e.type,
+        layer: this._getLayer(e.type),
+        category: this._categorizeType(e.type)
       })),
       comparison,
       metrics,
@@ -146,6 +151,58 @@ class ComparisonLens extends Lens {
    */
   compareByIds(entityIds) {
     return this.render(null, { entityIds });
+  }
+
+  _selectComparableEntities(entities, options) {
+    if (options.entityType) {
+      return entities.filter(e => e.type === options.entityType);
+    }
+
+    const typeBucket = this._largestBucket(entities, entity => entity.type);
+    if (typeBucket.length >= 2) {
+      return typeBucket;
+    }
+
+    const categoryBucket = this._largestBucket(entities, entity =>
+      `${this._getLayer(entity.type)}:${this._categorizeType(entity.type)}`
+    );
+
+    if (categoryBucket.length >= 2) {
+      return categoryBucket;
+    }
+
+    return entities;
+  }
+
+  _largestBucket(entities, keyFn) {
+    const buckets = new Map();
+    for (const entity of entities) {
+      const key = keyFn(entity);
+      if (!buckets.has(key)) {
+        buckets.set(key, []);
+      }
+      buckets.get(key).push(entity);
+    }
+
+    return Array.from(buckets.values())
+      .sort((a, b) => b.length - a.length)[0] || [];
+  }
+
+  _describeComparisonScope(entities) {
+    const types = new Set(entities.map(e => e.type));
+    if (types.size === 1) {
+      return entities[0].type;
+    }
+
+    const layerCategories = new Set(entities.map(e =>
+      `${this._getLayer(e.type)}:${this._categorizeType(e.type)}`
+    ));
+
+    if (layerCategories.size === 1) {
+      return Array.from(layerCategories)[0];
+    }
+
+    return 'mixed';
   }
 }
 

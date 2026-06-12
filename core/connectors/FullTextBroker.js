@@ -81,8 +81,7 @@ class FullTextBroker {
   }
 
   /**
-   * 找OA入口（Unpaywall + OpenAlex）
-   */
+   * 找OA入口（Unpaywall + OpenAlex�?   */
   async _locateOA(doi, metadata) {
     const sources = [];
     let oaStatus = 'unknown';
@@ -134,6 +133,8 @@ class FullTextBroker {
       });
     }
 
+    sources.push(this._doiLandingPageSource(doi));
+
     // 3. PMC for biomedical
     if (this._isPMC(doi, metadata)) {
       const pmcId = await this._resolvePMCId(doi);
@@ -146,25 +147,39 @@ class FullTextBroker {
       }
     }
 
-    // 4. arXiv for preprints
-    if (doi.includes('arxiv') || metadata.source?.includes('arxiv.org')) {
-      const arxivId = this._extractArxivId(doi);
-      if (arxivId) {
-        sources.push({
-          type: 'arxiv_html',
-          url: `https://arxiv.org/abs/${arxivId}`,
-          license: 'open-access'
-        });
-      }
-    }
-
-    // Sort by priority: HTML > XML > PDF
+    // Sort by priority: publisher/HTML > XML > PDF
     sources.sort((a, b) => {
-      const priority = { oa_html: 1, pmc_xml: 2, openalex_oa: 3, arxiv_html: 4, oa_pdf: 5 };
+      const priority = { publisher_html: 1, oa_html: 2, pmc_xml: 3, openalex_oa: 4, oa_pdf: 5 };
       return (priority[a.type] || 99) - (priority[b.type] || 99);
     });
 
-    return { sources, oaStatus };
+    return { sources: this._dedupeSources(sources.filter(Boolean)), oaStatus };
+  }
+
+  _doiLandingPageSource(doi) {
+    const normalized = (doi || '').replace(/^https?:\/\/doi\.org\//i, '');
+    if (!normalized) return null;
+
+    return {
+      type: 'publisher_html',
+      url: `https://doi.org/${normalized}`,
+      license: 'publisher-page',
+      version: 'published'
+    };
+  }
+
+  _dedupeSources(sources) {
+    const seen = new Set();
+    const unique = [];
+
+    for (const source of sources) {
+      const key = `${source.type}:${source.url}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(source);
+    }
+
+    return unique;
   }
 
   /**
@@ -202,7 +217,7 @@ class FullTextBroker {
       };
     }
 
-    // PDF (需要额外解析)
+    // PDF (需要额外解�?
     if (contentType.includes('pdf')) {
       // For MVP, we'll just note PDF availability but not parse
       // GROBID integration would be needed for proper PDF parsing
@@ -218,8 +233,7 @@ class FullTextBroker {
   }
 
   /**
-   * 解析结构（HTML/XML → sections）
-   */
+   * 解析结构（HTML/XML �?sections�?   */
   async _parseStructure(content, sourceType) {
     if (content.type === 'html') {
       return this._parseHTMLStructure(content.text);
@@ -234,8 +248,7 @@ class FullTextBroker {
   }
 
   /**
-   * 解析HTML结构（section detection）
-   */
+   * 解析HTML结构（section detection�?   */
   _parseHTMLStructure(html) {
     const $ = cheerio.load(html);
     const sections = {};
@@ -251,19 +264,32 @@ class FullTextBroker {
       '.section-title'
     ];
 
-    // Extract abstract
-    const abstract = $('abstract, .abstract, #abstract').text().trim();
+    // Extract abstract from common scholarly HTML metadata or containers.
+    const abstract = this._cleanText(
+      $('abstract, .abstract, #abstract, [data-test="abstract"], [role="doc-abstract"]').first().text()
+    );
     if (abstract) {
       sections.abstract = abstract;
     }
 
     // Extract sections based on heading text
     $('h1, h2, h3').each((i, el) => {
-      const heading = $(el).text().toLowerCase().trim();
-      const content = $(el).nextUntil('h1, h2, h3').text().trim();
+      const heading = this._normalizeSectionName($(el).text());
+      let content = this._cleanText($(el).nextUntil('h1, h2, h3').text());
+
+      if (content.length < 100) {
+        content = this._cleanText(
+          $(el)
+            .closest('section, [data-container-section], [role="doc-abstract"]')
+            .find('[data-test="section-content"], p, li')
+            .text()
+        );
+      }
+
+      const minSectionLength = heading === 'abstract' ? 20 : 100;
 
       // Detect section type from heading (LLM will classify later)
-      if (content.length > 100) {
+      if (heading && content.length > minSectionLength && !sections[heading]) {
         // Store with original heading as key
         sections[heading] = content.substring(0, 10000); // Limit per section
       }
@@ -300,6 +326,17 @@ class FullTextBroker {
       references: [], // Would need reference parser
       totalLength
     };
+  }
+
+  _normalizeSectionName(text) {
+    return this._cleanText(text)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  _cleanText(text) {
+    return (text || '').replace(/\s+/g, ' ').trim();
   }
 
   /**
@@ -339,8 +376,7 @@ class FullTextBroker {
   }
 
   /**
-   * 纯文本结构解析（fallback）
-   */
+   * 纯文本结构解析（fallback�?   */
   _parseTextStructure(text) {
     const sections = {};
 
@@ -405,21 +441,6 @@ class FullTextBroker {
     } catch (err) {
       console.warn('[FullTextBroker] PMC ID resolution failed:', err.message);
     }
-
-    return null;
-  }
-
-  /**
-   * 提取arXiv ID
-   */
-  _extractArxivId(doi) {
-    // arXiv DOI format: 10.48550/arXiv.2101.12345
-    const match = doi.match(/arxiv\.(\d+\.\d+)/i);
-    if (match) return match[1];
-
-    // Direct arXiv ID
-    const directMatch = doi.match(/(\d{4}\.\d{4,5})/);
-    if (directMatch) return directMatch[1];
 
     return null;
   }

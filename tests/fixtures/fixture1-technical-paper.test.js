@@ -27,6 +27,9 @@ const gnnPaper = {
     year: 2023,
     venue: 'NeurIPS',
     keywords: ['graph neural networks', 'spatiotemporal', 'forecasting', 'deep learning'],
+    algorithms: [
+      { name: 'SpatioTemporal Graph Convolutional Network', type: 'graph neural network' }
+    ],
     abstract: 'We present a novel graph neural network architecture for spatiotemporal forecasting that captures both spatial dependencies through graph convolution and temporal dynamics through recurrent mechanisms. The model is evaluated on traffic flow prediction and sensor network interpolation tasks.'
   },
   text: `

@@ -8,7 +8,9 @@
 class Lens {
   constructor(store, ontology, projectRegistry = null) {
     this.store = store;
-    this.ontology = ontology;
+    this.ontology = ontology && typeof ontology.getEntityLayer === 'function'
+      ? ontology
+      : require('../registry/ontology');
     this.projectRegistry = projectRegistry;
   }
 
@@ -120,90 +122,14 @@ class Lens {
    * Updated to support Five-Layer Ontology
    */
   _categorizeType(type) {
-    // Layer-based categorization
-    const layerCategories = {
-      // Layer 0: Foundation
-      foundation: ['Entity', 'Claim', 'Evidence', 'Data', 'Process', 'Event', 'Action', 'Agent', 'Uncertainty', 'Result', 'Metric'],
-
-      // Layer 1: Source
-      source: ['Source', 'Paper', 'Preprint', 'Repository', 'DatasetPage', 'Report', 'AssessmentReport', 'News', 'PolicyDocument', 'StandardDocument'],
-
-      // Layer 2: Capability - Data
-      data: ['Dataset', 'Variable', 'Coverage', 'Resolution', 'DataQuality', 'DataProduct'],
-
-      // Layer 2: Capability - Observation
-      observation: ['Sensor', 'Satellite', 'Gauge', 'Station', 'RemoteSensingSystem', 'InSituNetwork'],
-
-      // Layer 2: Capability - Modeling
-      modeling: ['Model', 'Algorithm', 'Simulation', 'Forecasting', 'Calibration', 'Validation', 'Method'],
-
-      // Layer 2: Capability - Computing
-      computing: ['Software', 'API', 'Workflow', 'Pipeline', 'CloudService', 'Interface'],
-
-      // Layer 2: Capability - Governance
-      governance: ['Policy', 'Regulation', 'Institution', 'Stakeholder', 'Standard', 'Agreement'],
-
-      // Layer 2: Capability - Socioeconomic
-      socioeconomic: ['PopulationDataset', 'EconomicIndicator', 'ExposureDataset', 'VulnerabilityIndex'],
-
-      // Layer 2: Capability - Evidence
-      evidence: ['Assessment', 'Indicator', 'EvidenceChain', 'RiskAssessment', 'ImpactAssessment'],
-
-      // Layer 2: Capability - Action
-      action: ['Intervention', 'AdaptationMeasure', 'MitigationMeasure', 'EmergencyResponse'],
-
-      // Layer 3: World - Earth Objects
-      'earth-object': ['Region', 'Basin', 'Watershed', 'Glacier', 'Lake', 'Aquifer', 'Coastline', 'River'],
-
-      // Layer 3: World - Earth Variables
-      'earth-variable': ['EarthVariable', 'Streamflow', 'Precipitation', 'Temperature', 'SoilMoisture', 'GroundwaterLevel'],
-
-      // Layer 3: World - Hazards
-      hazard: ['Hazard', 'FloodEvent', 'DroughtEvent', 'Heatwave', 'Wildfire', 'Landslide'],
-
-      // Layer 3: World - Risks
-      risk: ['EarthRisk', 'FloodRisk', 'DroughtRisk', 'Exposure', 'Vulnerability'],
-
-      // Layer 3: World - Infrastructure
-      infrastructure: ['Infrastructure', 'Dam', 'Reservoir', 'PowerGrid', 'WaterSupplySystem'],
-
-      // Layer 3: World - Model Outputs
-      'model-output': ['ModelOutput', 'Forecast', 'Projection'],
-
-      // Layer 3: World - Scenarios
-      scenario: ['EarthScenario', 'ClimateScenario', 'DevelopmentScenario'],
-
-      // Legacy compatibility
-      knowledge: ['Claim', 'Hypothesis'],
-      resource: ['Paper', 'Dataset', 'Model', 'Code', 'Figure'],
-      context: ['Location', 'TimeRange', 'Time'],
-      process: ['Workflow', 'Process', 'Event']
-    };
-
-    for (const [cat, types] of Object.entries(layerCategories)) {
-      if (types.includes(type)) return cat;
-    }
-
-    return 'other';
+    return this.ontology.ENTITY_SCHEMAS?.[type]?.category || 'other';
   }
 
   /**
    * Get layer for entity type
    */
   _getLayer(type) {
-    const layerMap = {
-      foundation: ['Entity', 'Claim', 'Evidence', 'Data', 'Process', 'Event', 'Action', 'Agent', 'Uncertainty', 'Result', 'Metric'],
-      source: ['Source', 'Paper', 'Preprint', 'Repository', 'DatasetPage', 'Report', 'News', 'PolicyDocument'],
-      capability: ['Dataset', 'Variable', 'Model', 'Sensor', 'Satellite', 'Gauge', 'Algorithm', 'Software', 'Workflow', 'Policy', 'Intervention', 'Assessment'],
-      world: ['Region', 'Basin', 'Watershed', 'Glacier', 'Lake', 'EarthVariable', 'Streamflow', 'Precipitation', 'Hazard', 'FloodEvent', 'EarthRisk', 'Forecast', 'Projection'],
-      domain: []
-    };
-
-    for (const [layer, types] of Object.entries(layerMap)) {
-      if (types.includes(type)) return layer;
-    }
-
-    return 'unknown';
+    return this.ontology.getEntityLayer(type);
   }
 
   /**

@@ -79,7 +79,9 @@ describe('Source Role Evaluator', () => {
     const result = evaluator.score({
       type: 'Paper',
       title: 'Global flood forecasting using deep learning',
-      abstract: 'This paper presents a hydrological model for predicting floods in river basins.'
+      abstract: 'This paper presents a hydrological model.',
+      regions: [{ name: 'Example basin' }],
+      hazards: [{ type: 'flood' }]
     });
 
     assert.ok(result.roles.earth_content >= 0.4, `earth_content should be detected, got ${result.roles.earth_content}`);
@@ -121,6 +123,18 @@ describe('Source Role Evaluator', () => {
     });
 
     assert.ok(result.roles.event_signal >= 0.3, `event_signal should be detected, got ${result.roles.event_signal}`);
+  });
+
+  it('should not infer roles from partial source type substrings', () => {
+    const evaluator = new SourceRoleEvaluator();
+    const result = evaluator.score({
+      type: 'Reportage',
+      title: 'Magazine profile without structured Digital Earth metadata'
+    });
+
+    assert.strictEqual(result.roles.governance_capability, 0, 'Reportage should not match Report');
+    assert.strictEqual(result.roles.evidence_assessment, 0, 'Reportage should not match Report');
+    assert.strictEqual(result.roles.event_signal, 0, 'Reportage should not match Report');
   });
 
   it('should detect multiple roles for rich sources', () => {
