@@ -24,6 +24,7 @@ export type CockpitSignal = {
   detail: string;
   status: 'ready' | 'review' | 'blocked' | 'pending';
   targetId?: string | null;
+  edges?: Array<{ to: string; label?: string }>;
 };
 
 export type CockpitFocusItem = {
@@ -241,7 +242,7 @@ export function getCockpitFocusItems(input: {
       return children.slice(0, 6).map((child: any) => ({
         label: child.label,
         value: child.value,
-        detail: child.detail || workflowNode.summary || 'This detail comes from the protocol-level workflow outline.',
+        detail: child.detail || workflowNode.summary || 'Source-backed detail from the selected route node.',
         children: child.children || []
       }));
     }
@@ -250,7 +251,7 @@ export function getCockpitFocusItems(input: {
       {
         label: workflowNode.type || 'Route Node',
         value: workflowNode.label,
-        detail: workflowNode.summary || 'This node is part of the extracted technical route.'
+        detail: workflowNode.summary || 'This node is part of the extracted research route.'
       }
     ];
   }
@@ -443,7 +444,16 @@ function mapBriefStatus(
 }
 
 function getWorkflowOutlineSignals(project: Project): CockpitSignal[] {
-  const nodes = project.metadata?.decomposition?.workflowOutline?.nodes || [];
+  const outline = project.metadata?.decomposition?.workflowOutline;
+  const nodes = outline?.nodes || [];
+  const nodeIds = new Set(nodes.map(node => node.id));
+  const edgesBySource = new Map<string, Array<{ to: string; label?: string }>>();
+  for (const edge of outline?.edges || []) {
+    if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) continue;
+    const list = edgesBySource.get(edge.from) || [];
+    list.push({ to: edge.to, label: edge.label });
+    edgesBySource.set(edge.from, list);
+  }
   const visibleNodes = nodes
     .filter(node => node.id !== 'source')
     .map(node => normalizeRouteNode(node, project))
@@ -458,7 +468,8 @@ function getWorkflowOutlineSignals(project: Project): CockpitSignal[] {
     value: node.label,
     detail: node.summary || 'Extracted from available source material.',
     status: mapWorkflowNodeStatus(node.status),
-    targetId: node.objectId || null
+    targetId: node.objectId || null,
+    edges: (edgesBySource.get(node.id) || []).filter(edge => visibleNodes.some(target => target.id === edge.to))
   }));
 }
 

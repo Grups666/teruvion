@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import {
   Background,
   BackgroundVariant,
+  MarkerType,
   ReactFlow,
   type Edge,
   type Node
@@ -13,6 +14,7 @@ export type ResearchRouteSignal = {
   value: string;
   detail: string;
   status: 'ready' | 'review' | 'blocked' | 'pending';
+  edges?: Array<{ to: string; label?: string }>;
 };
 
 type Props = {
@@ -22,48 +24,23 @@ type Props = {
   variant?: 'overview' | 'detail' | 'micro';
 };
 
-const STAGE_POSITIONS = [
-  { x: 40, y: 140 },
-  { x: 300, y: 58 },
-  { x: 570, y: 145 },
-  { x: 820, y: 58 },
-  { x: 1080, y: 145 },
-  { x: 700, y: 275 }
-];
-
-const DETAIL_POSITIONS = [
-  { x: 40, y: 92 },
-  { x: 310, y: 34 },
-  { x: 580, y: 92 },
-  { x: 850, y: 34 },
-  { x: 1120, y: 92 },
-  { x: 610, y: 210 }
-];
-
-const MICRO_POSITIONS = [
-  { x: 70, y: 70 },
-  { x: 340, y: 34 },
-  { x: 610, y: 70 },
-  { x: 420, y: 180 },
-  { x: 160, y: 180 }
-];
-
-function getPositions(variant: Props['variant']) {
-  if (variant === 'detail') return DETAIL_POSITIONS;
-  if (variant === 'micro') return MICRO_POSITIONS;
-  return STAGE_POSITIONS;
+function getPosition(index: number, total: number, variant: Props['variant']) {
+  const isMicro = variant === 'micro';
+  const isDetail = variant === 'detail';
+  const width = isMicro ? 720 : isDetail ? 1180 : 1240;
+  const centerY = isMicro ? 110 : isDetail ? 132 : 186;
+  const amplitude = isMicro ? 62 : isDetail ? 70 : 92;
+  const spacing = total <= 1 ? 0 : width / Math.max(total - 1, 1);
+  const x = total <= 1 ? width / 2 - 85 : index * spacing + 26;
+  const wave = Math.sin((index / Math.max(total - 1, 1)) * Math.PI * 1.7 - 0.45);
+  const y = centerY + wave * amplitude;
+  return { x, y };
 }
 
 export default function ResearchRouteGraph({ signals, activeKey, onSelect, variant = 'overview' }: Props) {
   const { nodes, edges } = useMemo(() => {
-    const positions = getPositions(variant);
     const graphNodes: Node[] = signals.map((signal, index) => {
-      const position = positions[index] || {
-        x: 80 + index * 220,
-        y: variant === 'overview'
-          ? index % 2 === 0 ? 130 : 250
-          : index % 2 === 0 ? 78 : 170
-      };
+      const position = getPosition(index, signals.length, variant);
 
       return {
         id: signal.key,
@@ -88,14 +65,31 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect, varia
       };
     });
 
-    const graphEdges: Edge[] = signals.slice(1).map((signal, index) => ({
+    const knownKeys = new Set(signals.map(signal => signal.key));
+    const explicitEdges = signals.flatMap(signal => (signal.edges || [])
+      .filter(edge => knownKeys.has(edge.to))
+      .map(edge => ({
+        id: `${signal.key}-${edge.to}`,
+        source: signal.key,
+        target: edge.to,
+        label: edge.label,
+        animated: activeKey === signal.key || activeKey === edge.to,
+        type: 'smoothstep',
+        className: 'research-flow-edge',
+        markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12 }
+      })));
+
+    const sequentialEdges = signals.slice(1).map((signal, index) => ({
       id: `${signals[index].key}-${signal.key}`,
       source: signals[index].key,
       target: signal.key,
       animated: activeKey === signal.key || activeKey === signals[index].key,
       type: 'smoothstep',
-      className: 'research-flow-edge'
+      className: 'research-flow-edge',
+      markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12 }
     }));
+
+    const graphEdges: Edge[] = explicitEdges.length > 0 ? explicitEdges : sequentialEdges;
 
     return { nodes: graphNodes, edges: graphEdges };
   }, [activeKey, onSelect, signals, variant]);

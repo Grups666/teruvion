@@ -754,7 +754,7 @@ export default function Home() {
                 <div className="technical-route">
                   <div className="technical-route-head">
                     <span>Research Graph</span>
-                    <span>Click a node to open its inner route</span>
+                    <span>Open a node to inspect its inner route</span>
                   </div>
                   <ResearchRouteGraph
                     signals={cockpitSignals}
@@ -772,7 +772,7 @@ export default function Home() {
                 <div className={`route-drilldown ${activeCockpitSignal.status}`}>
                   <div className="route-drilldown-head">
                     <div>
-                      <span>Inside Selected Node</span>
+                      <span>Node Detail</span>
                       <strong>{activeCockpitSignal.label}</strong>
                     </div>
                     <em>{activeCockpitSignal.value}</em>
@@ -794,7 +794,7 @@ export default function Home() {
                   )}
                   {activeFocusItem && (
                     <div className="route-focus-card">
-                      <span>Focused Layer</span>
+                      <span>Inner Route</span>
                       <strong>{activeFocusItem.value}</strong>
                       <p>{activeFocusItem.detail}</p>
                       {focusMicroGraph.length > 0 && (
@@ -1279,8 +1279,8 @@ function buildFocusMicroGraph(item: {
   if (Array.isArray(item.children) && item.children.length > 0) {
     return item.children.slice(0, 5).map(child => ({
       label: child.label,
-      value: child.value,
-      detail: child.detail || 'Protocol-derived detail from the selected route node.'
+        value: child.value,
+        detail: child.detail || 'Detail from the selected route node.'
     }));
   }
 
@@ -1288,12 +1288,12 @@ function buildFocusMicroGraph(item: {
     {
       label: 'Meaning',
       value: item.label,
-      detail: item.value || 'This node summarizes the selected route layer.'
+      detail: item.value || 'This node summarizes part of the source route.'
     },
     {
       label: 'Evidence',
       value: summarizeInline(item.detail, 64),
-      detail: 'Use this as a review cue, not a hidden system object.'
+      detail: 'Use this as a review cue before relying on the interpretation.'
     },
     {
       label: 'Next Check',
