@@ -328,6 +328,11 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(stages.includes('evidence'), 'Should include evidence stage');
     assert.deepStrictEqual(stageOrders, [...stageOrders].sort((a, b) => a - b), 'Should sort route nodes by stage order');
     assert.ok(routeNodes.every(node => node.type && node.summary), 'Each route node should have readable display fields');
+    const nodeWithNestedChildren = routeNodes.find(node => node.children?.some(child => child.children?.length > 0));
+    assert.ok(nodeWithNestedChildren, 'Route child nodes should expose nested details for deeper in-panel graph drilldown');
+    const nestedLabels = nodeWithNestedChildren.children.flatMap(child => (child.children || []).map(detail => detail.label));
+    assert.ok(nestedLabels.includes('Object Type'), 'Nested route details should include ontology object type');
+    assert.ok(nestedLabels.includes('Field'), 'Nested route details should include the inspected field');
   });
 
   it('should classify workflow stages from ontology category instead of name patterns', () => {

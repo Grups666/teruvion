@@ -1476,7 +1476,12 @@ Return JSON with this structure:`;
       attributes.venue ? { label: 'Venue', value: attributes.venue } : null,
       attributes.year ? { label: 'Year', value: String(attributes.year) } : null,
       attributes.authors ? { label: 'Authors', value: Array.isArray(attributes.authors) ? attributes.authors.slice(0, 5).join(', ') : String(attributes.authors) } : null
-    ].filter(Boolean);
+    ]
+      .filter(Boolean)
+      .map(child => ({
+        ...child,
+        children: this._routeChildDetails(source, child.label, child.value)
+      }));
   }
 
   _objectChildren(object) {
@@ -1486,8 +1491,44 @@ Return JSON with this structure:`;
       .slice(0, 5)
       .map(([key, value]) => ({
         label: this._humanizeSectionTitle(key, key),
-        value: Array.isArray(value) ? value.slice(0, 4).join(', ') : this._summarizeText(String(value), 140)
+        value: Array.isArray(value) ? value.slice(0, 4).join(', ') : this._summarizeText(String(value), 140),
+        children: this._routeChildDetails(object, key, value)
       }));
+  }
+
+  _routeChildDetails(object = {}, attributeKey = '', attributeValue = '') {
+    const provenance = object.provenance || {};
+    const confidence = typeof object.confidence === 'number'
+      ? object.confidence
+      : typeof object.metadata?.confidence === 'number' ? object.metadata.confidence : null;
+    const details = [
+      object.type ? {
+        label: 'Object Type',
+        value: object.type,
+        detail: 'Ontology role used to place this node in the research route.'
+      } : null,
+      confidence !== null ? {
+        label: 'Confidence',
+        value: `${Math.round(confidence * 100)}%`,
+        detail: 'Review signal from extraction, not a guarantee of correctness.'
+      } : null,
+      provenance.method || provenance.source || provenance.section ? {
+        label: 'Evidence',
+        value: provenance.method || provenance.source || provenance.section,
+        detail: provenance.section
+          ? `Linked to source section: ${provenance.section}.`
+          : 'Derived from available source, connector, or extraction protocol.'
+      } : null,
+      {
+        label: 'Field',
+        value: this._humanizeSectionTitle(attributeKey, attributeKey || 'Detail'),
+        detail: Array.isArray(attributeValue)
+          ? `List with ${attributeValue.length} visible item${attributeValue.length === 1 ? '' : 's'}.`
+          : 'Scalar detail from the selected route node.'
+      }
+    ];
+
+    return details.filter(Boolean).slice(0, 4);
   }
 
   _objectSummary(object, fallback) {
