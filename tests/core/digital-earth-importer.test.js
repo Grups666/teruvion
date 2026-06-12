@@ -190,4 +190,53 @@ describe('DigitalEarthImporter', () => {
       triple.object === 'region-global'
     ));
   });
+
+  it('should enrich linked GitHub resources with static reproducibility review', async () => {
+    const importer = new DigitalEarthImporter(null, null, null, null);
+    importer.connectorRegistry = {
+      findConnector(url) {
+        if (url !== 'https://github.com/example/research-code') return null;
+        return {
+          getName() {
+            return 'GitHubConnector';
+          },
+          async fetch() {
+            return {
+              metadata: {
+                repositoryReview: {
+                  grade: 'B',
+                  summary: 'Static review found partial reproducibility material.',
+                  checks: {
+                    readme: true,
+                    license: false,
+                    dependencyManifest: true,
+                    notebookOrScript: true,
+                    dataInstructions: false,
+                    dockerfile: false,
+                    runInstructions: true
+                  },
+                  warnings: ['License is missing.']
+                }
+              }
+            };
+          }
+        };
+      }
+    };
+    const decomposition = {
+      externalResources: [{
+        type: 'repository',
+        label: 'Research code',
+        url: 'https://github.com/example/research-code'
+      }]
+    };
+
+    await importer._enrichLinkedResources(decomposition);
+
+    const resource = decomposition.externalResources[0];
+    assert.strictEqual(resource.reproducibilityGrade, 'B');
+    assert.ok(resource.reviewHint.includes('Static reproducibility grade B'));
+    assert.ok(resource.verificationFocus.includes('license'));
+    assert.strictEqual(resource.enrichment.source, 'github-static-review');
+  });
 });

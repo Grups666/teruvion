@@ -125,6 +125,8 @@ export interface Decomposition {
     investigationLabel?: string;
     routeRelevance?: string;
     verificationFocus?: string;
+    reproducibilityGrade?: string;
+    enrichment?: Record<string, any>;
     reviewHint?: string;
   }>;
   inferredLimitations?: Array<{

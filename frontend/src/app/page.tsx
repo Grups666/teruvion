@@ -1204,6 +1204,7 @@ type ProjectResource = {
   investigationLabel?: string;
   routeRelevance?: string;
   verificationFocus?: string;
+  reproducibilityGrade?: string;
   reviewHint?: string;
 };
 
@@ -1280,6 +1281,13 @@ function resourcePriority(resource: ProjectResource) {
 }
 
 function resourceSignal(resource: ProjectResource) {
+  if (resource.reproducibilityGrade) {
+    const grade = resource.reproducibilityGrade.toUpperCase();
+    return {
+      label: `Static grade ${grade}`,
+      level: ['A', 'B'].includes(grade) ? 'strong' : grade === 'C' ? 'normal' : 'weak'
+    };
+  }
   if (resource.investigationLabel) {
     return { label: resource.investigationLabel, level: resourcePriority(resource) >= 80 ? 'strong' : 'normal' };
   }

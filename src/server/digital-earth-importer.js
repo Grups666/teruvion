@@ -140,6 +140,7 @@ class DigitalEarthImporter {
       this._notifyProgress(projectId, 'decomposition', 'started');
 
       const decomposition = await this.decomposer.decompose(input, content, admissionResult);
+      await this._enrichLinkedResources(decomposition, signal);
       console.log('[DigitalEarthImporter] Decomposition:', {
         capabilities: decomposition.capabilityObjects?.length || 0,
         world: decomposition.worldObjects?.length || 0,
@@ -347,6 +348,53 @@ class DigitalEarthImporter {
     project.metadata.importDiagnosis = importDiagnosis;
     project.metadata.importReadiness = importReadiness;
     project.metadata.importActions = buildProjectActionPlan(importDiagnosis, importReadiness);
+  }
+
+  async _enrichLinkedResources(decomposition = {}, signal) {
+    const resources = decomposition.externalResources || [];
+    const candidates = resources
+      .filter(resource => resource?.url && String(resource.type || '').toLowerCase() === 'repository')
+      .slice(0, 2);
+
+    for (const resource of candidates) {
+      if (signal?.aborted) throw new Error('Import cancelled');
+      const connector = this.connectorRegistry.findConnector(resource.url);
+      if (!connector || connector.getName() !== 'GitHubConnector') continue;
+
+      try {
+        const linkedContent = await connector.fetch(resource.url);
+        const review = linkedContent?.metadata?.repositoryReview;
+        if (!review) continue;
+
+        resource.reproducibilityGrade = review.grade;
+        resource.routeRelevance = review.summary || resource.routeRelevance;
+        resource.verificationFocus = this._resourceVerificationFocusFromReview(review) || resource.verificationFocus;
+        resource.reviewHint = `Static reproducibility grade ${review.grade}. ${review.warnings?.[0] || review.summary || 'Inspect repository before reuse.'}`;
+        resource.investigationLabel = resource.investigationLabel || 'Reproduce method';
+        resource.enrichment = {
+          source: 'github-static-review',
+          checkedAt: new Date().toISOString(),
+          grade: review.grade
+        };
+      } catch (error) {
+        resource.enrichment = {
+          source: 'github-static-review',
+          status: 'unavailable',
+          error: error.message
+        };
+      }
+    }
+  }
+
+  _resourceVerificationFocusFromReview(review = {}) {
+    if (!review.checks) return null;
+    const missing = Object.entries(review.checks)
+      .filter(([, passed]) => !passed)
+      .map(([key]) => key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase())
+      .slice(0, 3);
+    return missing.length > 0
+      ? `missing ${missing.join(', ')}`
+      : 'README, license, dependencies, runnable examples, and data instructions';
   }
 
   _registerEntityKeys(entityMap, obj, entityId) {
