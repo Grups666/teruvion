@@ -69,10 +69,6 @@ export default function Home() {
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    setAccessGranted(window.localStorage.getItem('teruvionAccessGranted') === 'true');
-  }, []);
-
-  useEffect(() => {
     if (accessGranted) {
       loadData();
     }
@@ -204,8 +200,7 @@ export default function Home() {
         setAccessError(result.error || 'Invalid invite code');
         return;
       }
-      window.localStorage.setItem('teruvionAccessGranted', 'true');
-      window.localStorage.setItem('teruvionAccessCode', code.toUpperCase());
+      api.setAccessCode(code);
       setAccessGranted(true);
       setStatus('Access granted');
     } catch (err) {
@@ -690,7 +685,13 @@ export default function Home() {
             <>
               <div className="project-panel-header">
                 <div>
-                  <div className="project-panel-title">{selectedProject.name}</div>
+                  {sourceCapsule && isExternalUrl(sourceCapsule.source) ? (
+                    <a className="project-panel-title project-panel-title-link" href={sourceCapsule.source!} target="_blank" rel="noreferrer">
+                      {sourceCapsule.title}
+                    </a>
+                  ) : (
+                    <div className="project-panel-title">{sourceCapsule?.title || selectedProject.name}</div>
+                  )}
                   <div className="project-panel-subtitle">
                     {projectReadiness?.label || formatSignalText(selectedProject.analysis?.status || 'Project')}
                     {selectedProject.metadata?.admission?.depth ? ` - ${formatSignalText(selectedProject.metadata.admission.depth)}` : ''}
@@ -1364,6 +1365,17 @@ function shortProjectName(project: Project) {
 function buildConstellationPoints(count: number, variant: 'main' | 'detail' | 'micro') {
   if (count <= 0) return [];
   if (count === 1) return [{ x: 50, y: 50 }];
+
+  if (variant === 'main') {
+    const layouts: Record<number, Array<{ x: number; y: number }>> = {
+      2: [{ x: 28, y: 50 }, { x: 72, y: 50 }],
+      3: [{ x: 22, y: 50 }, { x: 58, y: 28 }, { x: 78, y: 66 }],
+      4: [{ x: 20, y: 46 }, { x: 48, y: 27 }, { x: 72, y: 45 }, { x: 55, y: 72 }],
+      5: [{ x: 18, y: 47 }, { x: 46, y: 28 }, { x: 50, y: 70 }, { x: 76, y: 38 }, { x: 79, y: 66 }],
+      6: [{ x: 17, y: 47 }, { x: 38, y: 27 }, { x: 58, y: 31 }, { x: 80, y: 45 }, { x: 69, y: 70 }, { x: 35, y: 72 }]
+    };
+    if (layouts[count]) return layouts[count];
+  }
 
   const radiusByVariant = {
     main: 34,

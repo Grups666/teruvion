@@ -80,6 +80,42 @@ async function initializeCoreEngine() {
 // Initialize on module load
 initializeCoreEngine();
 
+function getAccessSecret(req) {
+  const accessHeader = Array.isArray(req.headers['x-teruvion-access'])
+    ? req.headers['x-teruvion-access'][0]
+    : req.headers['x-teruvion-access'];
+  const adminHeader = Array.isArray(req.headers['x-admin-secret'])
+    ? req.headers['x-admin-secret'][0]
+    : req.headers['x-admin-secret'];
+  return accessHeader || adminHeader || req.query.access;
+}
+
+function isPublicAlphaPath(pathname) {
+  return pathname === '/alpha/access/verify'
+    || pathname === '/alpha/apply'
+    || pathname === '/alpha/invites/verify'
+    || pathname === '/alpha/memberships/activate';
+}
+
+function requireAppAccess(req, res, next) {
+  if (isPublicAlphaPath(req.path)) {
+    return next();
+  }
+
+  if (!llm.getAdminSecret()) {
+    console.error('[Access] ADMIN_SECRET or local adminSecret is not configured');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (!isAdminSecret(getAccessSecret(req))) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  return next();
+}
+
+router.use(requireAppAccess);
+
 function serializeRelatedEntityWithEvidence(entity, relation, direction, rel) {
   return {
     ...serializeRelatedEntity(entity, relation, direction, ontology),
@@ -775,25 +811,7 @@ router.post('/alpha/access/verify', async (req, res) => {
       return res.json({ valid: true, role: 'admin' });
     }
 
-    const normalizedCode = code.toUpperCase();
-    if (!/^[A-Z0-9]{8}$/.test(normalizedCode)) {
-      return res.json({ valid: false, error: 'Invalid access code' });
-    }
-
-    const invite = inviteStore.findByCode(normalizedCode);
-    if (!invite) {
-      return res.json({ valid: false, error: 'Access code not found' });
-    }
-
-    if (invite.status !== 'used' && inviteStore.isExpired(invite)) {
-      return res.json({ valid: false, error: 'Access code has expired' });
-    }
-
-    return res.json({
-      valid: true,
-      role: 'alpha_user',
-      email: invite.email
-    });
+    return res.json({ valid: false, error: 'Invalid access code' });
   } catch (err) {
     console.error('[Alpha] Access verify error:', err);
     res.status(500).json({ error: err.message });

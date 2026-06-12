@@ -47,11 +47,19 @@ function resolveApiBase(): string {
 const API_BASE = resolveApiBase();
 
 class APIClient {
+  private accessCode: string | null = null;
+
+  setAccessCode(code: string | null): void {
+    const trimmed = String(code || '').trim();
+    this.accessCode = trimmed || null;
+  }
+
   private async request<T>(path: string, options?: RequestInit): Promise<T> {
     const res = await fetch(`${API_BASE}/api${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(this.accessCode ? { 'X-Teruvion-Access': this.accessCode } : {}),
         ...options?.headers,
       },
     });
@@ -122,7 +130,8 @@ class APIClient {
     onEvent: (event: SSEEvent) => void,
     onError?: () => void
   ): () => void {
-    const es = new EventSource(`${API_BASE}/api/projects/${projectId}/events`);
+    const accessQuery = this.accessCode ? `?access=${encodeURIComponent(this.accessCode)}` : '';
+    const es = new EventSource(`${API_BASE}/api/projects/${projectId}/events${accessQuery}`);
 
     es.onmessage = (event) => {
       const parsed = JSON.parse(event.data) as SSEEvent;

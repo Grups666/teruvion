@@ -238,7 +238,7 @@ export function getCockpitFocusItems(input: {
   if (workflowNode) {
     const children = workflowNode.children || [];
     if (children.length > 0) {
-      return children.slice(0, 6).map(child => ({
+      return children.slice(0, 6).map((child: any) => ({
         label: child.label,
         value: child.value,
         detail: child.detail || workflowNode.summary || 'This detail comes from the protocol-level workflow outline.',
@@ -442,21 +442,135 @@ function mapBriefStatus(
 
 function getWorkflowOutlineSignals(project: Project): CockpitSignal[] {
   const nodes = project.metadata?.decomposition?.workflowOutline?.nodes || [];
-  const visibleNodes = nodes.filter(node => node.id !== 'source').slice(0, 5);
+  const visibleNodes = nodes
+    .filter(node => node.id !== 'source')
+    .map(node => normalizeRouteNode(node, project))
+    .filter(Boolean)
+    .slice(0, 6);
+
   if (visibleNodes.length === 0) return [];
 
   return visibleNodes.map(node => ({
     key: node.id,
-    label: node.type || 'Route',
+    label: node.displayType || node.type || 'Route',
     value: node.label,
-    detail: node.summary || 'Protocol-level technical route node.',
+    detail: node.summary || 'Extracted from available source material.',
     status: mapWorkflowNodeStatus(node.status),
     targetId: node.objectId || null
   }));
 }
 
 function getWorkflowOutlineNode(project: Project, key: string) {
-  return (project.metadata?.decomposition?.workflowOutline?.nodes || []).find(node => node.id === key) || null;
+  const node = (project.metadata?.decomposition?.workflowOutline?.nodes || []).find(item => item.id === key) || null;
+  return node ? normalizeRouteNode(node, project) : null;
+}
+
+function normalizeRouteNode(node: any, project: Project) {
+  if (!node) return null;
+  const stage = String(node.stage || '').toLowerCase();
+  const objectType = String(node.objectType || node.type || '').toLowerCase();
+  const rawLabel = String(node.label || '').trim();
+  const rawSummary = String(node.summary || '').trim();
+  const brief = project.metadata?.decomposition?.researchBrief;
+  const sourceTitle = brief?.title || project.name || 'Research source';
+
+  if (isInternalRouteValue(rawLabel) && isInternalRouteValue(rawSummary)) {
+    return null;
+  }
+
+  const displayType = getRouteDisplayType(stage, objectType, node.type);
+  const label = isInternalRouteValue(rawLabel)
+    ? fallbackRouteValue(stage, sourceTitle, rawSummary)
+    : rawLabel;
+  const summary = cleanRouteSummary(rawSummary, stage, brief?.oneLine);
+  const children = filterRouteChildren(node.children || [], stage);
+
+  if (!label && !summary) return null;
+
+  return {
+    ...node,
+    displayType,
+    label: summarizeRouteText(label || displayType, 72),
+    summary,
+    children
+  };
+}
+
+function getRouteDisplayType(stage: string, objectType: string, fallback?: string) {
+  if (stage === 'data' || objectType.includes('dataset') || objectType.includes('variable')) return 'Data';
+  if (stage === 'method' || objectType.includes('model') || objectType.includes('algorithm') || objectType.includes('method')) return 'Method';
+  if (stage === 'execution' || objectType.includes('workflow')) return 'Workflow';
+  if (stage === 'context' || objectType.includes('region') || objectType.includes('hazard') || objectType.includes('risk')) return 'Study Context';
+  if (stage === 'evidence' || objectType.includes('claim') || objectType.includes('evidence')) return 'Finding';
+  if (stage === 'resource') return 'Resource';
+  return fallback || 'Route';
+}
+
+function fallbackRouteValue(stage: string, sourceTitle: string, summary: string) {
+  if (stage === 'method') return 'Extracted method';
+  if (stage === 'data') return 'Input data';
+  if (stage === 'context') return summarizeRouteText(sourceTitle, 64);
+  if (stage === 'evidence') return summarizeRouteText(summary || 'Claim evidence', 64);
+  if (stage === 'execution') return 'Research workflow';
+  return summarizeRouteText(sourceTitle, 64);
+}
+
+function cleanRouteSummary(summary: string, stage: string, brief?: string) {
+  if (!summary || isInternalRouteValue(summary)) {
+    if (stage === 'context') return 'Spatial or Earth-system scope extracted from available source material.';
+    if (stage === 'evidence') return 'Finding-level support is provisional until source evidence is inspected.';
+    if (stage === 'method') return 'Method node extracted from source text, metadata, or linked research objects.';
+    if (stage === 'data') return 'Data node extracted from source text, metadata, or linked resources.';
+    return brief || 'Route node extracted from available source material.';
+  }
+  return summarizeRouteText(summary, 180);
+}
+
+function filterRouteChildren(children: any[], stage: string): any[] {
+  return children
+    .filter(child => child && !isInternalRouteLabel(child.label) && !isInternalRouteValue(child.value))
+    .slice(0, 5)
+    .map(child => ({
+      ...child,
+      label: formatRouteChildLabel(child.label, stage),
+      value: summarizeRouteText(child.value, 120),
+      detail: summarizeRouteText(child.detail || '', 160),
+      children: (child.children || [])
+        .filter((detail: any) => detail && !isInternalRouteLabel(detail.label) && !isInternalRouteValue(detail.value))
+        .slice(0, 4)
+        .map((detail: any) => ({
+          ...detail,
+          value: summarizeRouteText(detail.value, 110),
+          detail: summarizeRouteText(detail.detail || '', 150)
+        }))
+    }));
+}
+
+function formatRouteChildLabel(label: string, stage: string) {
+  const normalized = String(label || '').toLowerCase();
+  if (normalized === 'description' || normalized === 'summary') return 'What it does';
+  if (normalized === 'statement') return 'Claim';
+  if (normalized === 'source text') return 'Source Evidence';
+  if (normalized === 'name' || normalized === 'title') return getRouteDisplayType(stage, '', 'Detail');
+  return label;
+}
+
+function isInternalRouteLabel(value: string) {
+  const normalized = String(value || '').toLowerCase().trim();
+  return ['object type', 'confidence', 'field', 'depth', 'extraction', 'review state'].includes(normalized);
+}
+
+function isInternalRouteValue(value: string) {
+  const normalized = String(value || '').toLowerCase().trim();
+  return !normalized
+    || ['paper', 'source', 'deep', 'hybrid extraction', 'metadata only', 'ready', 'connected', 'global view', 'workflow readable', 'evidence available'].includes(normalized)
+    || /^\d+%$/.test(normalized);
+}
+
+function summarizeRouteText(value: string, limit: number) {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, Math.max(0, limit - 3)).trim()}...`;
 }
 
 function mapWorkflowNodeStatus(status?: string): CockpitSignal['status'] {
