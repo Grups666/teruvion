@@ -258,24 +258,26 @@ export function getCockpitFocusItems(input: {
   if (input.signal.key === 'source') {
     return [
       {
-        label: 'Identity',
-        value: input.sourceCapsule?.type || input.project.metadata?.sourceType || 'Source',
-        detail: sourceDiagnosis?.detail || 'Source identity is derived from connector and metadata protocols.'
+        label: 'Original',
+        value: input.sourceCapsule?.source ? 'Linked' : 'Recorded',
+        detail: input.sourceCapsule?.source
+          ? 'The original source can be opened for review.'
+          : 'The source was imported, but no public link is attached yet.'
       },
       {
-        label: 'Depth',
-        value: input.sourceCapsule?.depth || formatSignalText(input.project.metadata?.admission?.depth || 'Pending'),
-        detail: 'Admission depth controls how far Teruvion should try to decompose the source.'
+        label: 'Brief',
+        value: input.sourceCapsule?.title || input.project.name || 'Research source',
+        detail: input.sourceCapsule?.brief || sourceDiagnosis?.detail || 'Teruvion is assembling a readable research route.'
       },
       {
-        label: 'Extraction',
-        value: input.sourceCapsule?.extraction || input.quality?.method || 'Pending',
-        detail: input.quality?.coverage?.detail || 'Extraction reports the available source evidence, not a fabricated capability.'
+        label: 'Evidence',
+        value: input.quality?.coverage?.label || 'Review source',
+        detail: input.quality?.coverage?.detail || 'Use the original source and extracted route before relying on this result.'
       },
       {
-        label: 'Confidence',
-        value: input.sourceCapsule?.confidence || 'Unknown',
-        detail: 'Confidence is a review signal for this import, not a guarantee of correctness.'
+        label: 'Review State',
+        value: input.sourceCapsule?.reviewState || 'Needs review',
+        detail: 'This is a review cue, not a claim that the extracted interpretation is correct.'
       }
     ];
   }

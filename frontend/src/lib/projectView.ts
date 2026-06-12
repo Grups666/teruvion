@@ -59,6 +59,8 @@ export interface SourceCapsule {
   depth: string;
   extraction: string;
   confidence: string;
+  brief: string;
+  reviewState: string;
 }
 
 export interface ObjectConstellationNode {
@@ -259,6 +261,12 @@ export function getSourceCapsule(project: Project, quality: ProjectQuality | nul
   const confidence = typeof decomposition?.confidence === 'number'
     ? `${Math.round(decomposition.confidence * 100)}%`
     : 'Unknown';
+  const brief = decomposition?.researchBrief?.oneLine
+    || sourceObject.attributes?.abstract
+    || sourceObject.attributes?.description
+    || project.description
+    || quality?.summary
+    || 'Teruvion is still assembling the source into a research route.';
 
   return {
     title,
@@ -272,8 +280,18 @@ export function getSourceCapsule(project: Project, quality: ProjectQuality | nul
     ]),
     depth: formatSignalText(project.metadata?.admission?.depth || 'pending'),
     extraction: quality?.method || 'Pending',
-    confidence
+    confidence,
+    brief: summarizeSourceCapsuleText(brief, 220),
+    reviewState: confidence === 'Unknown'
+      ? 'Needs review'
+      : `${confidence} extraction confidence`
   };
+}
+
+function summarizeSourceCapsuleText(value: unknown, maxLength: number) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
 }
 
 function selectExternalSourceLink(candidates: unknown[]): string | null {

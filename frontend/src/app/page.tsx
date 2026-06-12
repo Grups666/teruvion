@@ -694,7 +694,6 @@ export default function Home() {
                   )}
                   <div className="project-panel-subtitle">
                     {projectReadiness?.label || formatSignalText(selectedProject.analysis?.status || 'Project')}
-                    {selectedProject.metadata?.admission?.depth ? ` - ${formatSignalText(selectedProject.metadata.admission.depth)}` : ''}
                   </div>
                 </div>
                 <button className="project-panel-close" aria-label="Close project panel" onClick={() => setSelectedProjectId(null)}>
@@ -718,23 +717,16 @@ export default function Home() {
                       {projectVenueLine && <span>{projectVenueLine}</span>}
                     </div>
                   )}
-                  <div className="capsule-grid">
-                    <span>
-                      <strong>{sourceCapsule.type}</strong>
-                      Type
-                    </span>
-                    <span>
-                      <strong>{sourceCapsule.depth}</strong>
-                      Depth
-                    </span>
-                    <span>
-                      <strong>{sourceCapsule.extraction}</strong>
-                      Extraction
-                    </span>
-                    <span>
-                      <strong>{sourceCapsule.confidence}</strong>
-                      Confidence
-                    </span>
+                  <p className="capsule-brief">{sourceCapsule.brief}</p>
+                  <div className="capsule-review-row">
+                    {isExternalUrl(sourceCapsule.source) ? (
+                      <a href={sourceCapsule.source!} target="_blank" rel="noreferrer">
+                        Open original source
+                      </a>
+                    ) : (
+                      <span>Original source not linked</span>
+                    )}
+                    <span>{sourceCapsule.reviewState}</span>
                   </div>
                 </div>
               )}
