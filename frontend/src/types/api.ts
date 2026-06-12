@@ -98,11 +98,13 @@ export interface ProjectReadinessSummary {
 }
 
 export type ProjectActionPriority = 'high' | 'normal' | 'low';
+export type ProjectActionOperation = 'inspect' | 'reimport' | 'wait';
 
 export interface ProjectActionItem {
   id?: string;
   label: string;
   reason?: string;
+  operation?: ProjectActionOperation;
   targetLayer: string | null;
   fallbackLayer?: string | null;
   priority?: ProjectActionPriority;

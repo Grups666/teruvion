@@ -232,13 +232,19 @@ export default function Home() {
     const input = importInput.trim();
     if (!input) return;
 
+    await submitImport(input, true);
+  }
+
+  async function submitImport(input: string, clearInput: boolean) {
     setImporting(true);
     setImportError(null);
     setStatus('Importing...');
 
     try {
       const result = await api.importSource(input);
-      setImportInput('');
+      if (clearInput) {
+        setImportInput('');
+      }
 
       // Add temporary project
       setProjects(prev => [...prev, {
@@ -451,6 +457,20 @@ export default function Home() {
       console.error('Failed to copy project summary:', err);
       setStatus('Copy failed');
     }
+  }
+
+  async function runProjectAction(action: { label: string; operation?: string; targetLayer: DisplayLayer | null; fallbackLayer?: DisplayLayer | null }) {
+    if (action.operation === 'reimport') {
+      const source = selectedProject?.metadata?.source;
+      if (typeof source === 'string' && source.trim()) {
+        await submitImport(source, false);
+        return;
+      }
+      setStatus('No source available to restart');
+      return;
+    }
+
+    selectActionTarget(action);
   }
 
   function selectActionTarget(action: { label: string; targetLayer: DisplayLayer | null; fallbackLayer?: DisplayLayer | null }) {
@@ -835,7 +855,7 @@ export default function Home() {
                         type="button"
                         key={action.label}
                         className={action.priority === 'high' ? 'high' : ''}
-                        onClick={() => selectActionTarget(action)}
+                        onClick={() => runProjectAction(action)}
                       >
                         <span>{action.label}</span>
                         {action.reason && <small>{action.reason}</small>}

@@ -172,6 +172,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
         id: 'wait-for-import',
         label: 'Wait for import completion',
         reason: byKey.get('pipeline')?.detail || 'The import pipeline is still running.',
+        operation: 'wait',
         targetLayer: null,
         fallbackLayer: null,
         priority: 'normal'
@@ -180,6 +181,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
         id: 'review-source-after-import',
         label: 'Review source coverage once extraction finishes',
         reason: 'Coverage determines whether Teruvion can extract evidence, regions, methods, and object links.',
+        operation: 'inspect',
         targetLayer: 'source',
         fallbackLayer: null,
         priority: 'normal'
@@ -196,6 +198,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
         id: wasCancelled ? 'restart-import' : 'fix-import-failure',
         label: wasCancelled ? 'Restart import' : 'Fix failed import',
         reason: pipeline?.detail || 'The pipeline failed before a stable graph was created.',
+        operation: wasCancelled ? 'reimport' : 'inspect',
         targetLayer: 'source',
         fallbackLayer: null,
         priority: 'high'
@@ -215,6 +218,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
       id: 'verify-source-coverage',
       label: 'Verify source coverage',
       reason: source.detail,
+      operation: 'inspect',
       targetLayer: 'source',
       fallbackLayer: null,
       priority: source.status === 'missing' ? 'high' : 'normal'
@@ -226,6 +230,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
       id: 'add-spatial-anchor',
       label: 'Add or verify spatial scope',
       reason: spatial.detail,
+      operation: 'inspect',
       targetLayer: 'world',
       fallbackLayer: 'source',
       priority: 'high'
@@ -237,6 +242,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
       id: 'attach-capability',
       label: 'Attach methods, data, or code',
       reason: capability.detail,
+      operation: 'inspect',
       targetLayer: 'capability',
       fallbackLayer: 'source',
       priority: 'high'
@@ -248,6 +254,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
       id: 'inspect-evidence',
       label: 'Inspect evidence limitations',
       reason: evidence.detail,
+      operation: 'inspect',
       targetLayer: 'source',
       fallbackLayer: 'capability',
       priority: 'normal'
@@ -259,6 +266,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
       id: 'review-object-links',
       label: 'Review missing object links',
       reason: graph.detail,
+      operation: 'inspect',
       targetLayer: 'source',
       fallbackLayer: 'capability',
       priority: graph.status === 'missing' ? 'high' : 'normal'
@@ -269,6 +277,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
     id: 'inspect-object-evidence',
     label: 'Open an object to inspect evidence',
     reason: 'Object-level inspection shows provenance, confidence, relations, and available actions.',
+    operation: 'inspect',
     targetLayer: 'foundation',
     fallbackLayer: 'source',
     priority: 'normal'

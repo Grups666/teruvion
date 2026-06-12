@@ -130,6 +130,7 @@ describe('ProjectDiagnostics', () => {
     const actions = buildProjectActionPlan(diagnosis, readiness);
 
     assert.strictEqual(actions[0].id, 'verify-source-coverage');
+    assert.strictEqual(actions[0].operation, 'inspect');
     assert.ok(actions.some(action => action.id === 'add-spatial-anchor'));
     assert.ok(actions.every(action => action.label && action.reason));
     assert.ok(actions.length <= 4);
@@ -143,6 +144,7 @@ describe('ProjectDiagnostics', () => {
     const actions = buildProjectActionPlan(diagnosis, readiness);
 
     assert.strictEqual(actions[0].id, 'wait-for-import');
+    assert.strictEqual(actions[0].operation, 'wait');
     assert.strictEqual(actions[0].targetLayer, null);
     assert.strictEqual(actions[1].targetLayer, 'source');
   });
@@ -154,6 +156,7 @@ describe('ProjectDiagnostics', () => {
 
     assert.strictEqual(readiness.status, 'blocked');
     assert.strictEqual(actions[0].id, 'restart-import');
+    assert.strictEqual(actions[0].operation, 'reimport');
     assert.strictEqual(actions[0].priority, 'high');
   });
 });

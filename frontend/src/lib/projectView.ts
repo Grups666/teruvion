@@ -338,6 +338,7 @@ export function getRecommendedNextActions(
 function normalizeProjectAction(action: ProjectActionItem): ProjectNextAction {
   return {
     ...action,
+    operation: action.operation || 'inspect',
     targetLayer: normalizeDisplayLayer(action.targetLayer),
     fallbackLayer: normalizeDisplayLayer(action.fallbackLayer)
   };
