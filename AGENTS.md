@@ -74,6 +74,19 @@ Prefer stable extension points over one-off branches:
 
 Avoid hardcoded domain assumptions in foundation code. Domain examples are allowed in tests and fixtures, but they must not become the only path through the system.
 
+## Agent Runtime
+
+LLM-heavy work must go through `core/utils/llm.js`, which can route to `core/agents/AgentRuntime.js`.
+
+Current providers:
+
+- `api`: direct HTTP LLM API, the default.
+- `claude-code`: non-interactive Claude Code-compatible CLI provider.
+
+Do not call Claude Code directly from admission, connectors, decomposers, lenses, or UI code. Use the shared wrapper so the same source admission, decomposition, route extraction, visual explanation, limitation review, and future deep-analysis jobs can switch providers by configuration.
+
+Claude Code is a harness for longer reasoning and structured extraction. It is not evidence and does not bypass schema validation, provenance requirements, fallback visibility, or safe-execution rules.
+
 ## Documentation
 
 Keep public docs concentrated in:

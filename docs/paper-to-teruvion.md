@@ -139,6 +139,19 @@ Configuration:
 - `GITHUB_TOKEN`
 - `OPENALEX_API_KEY`
 - `OPENALEX_EMAIL`
+- `TERUVION_AGENT_PROVIDER`
+- `TERUVION_AGENT_COMMAND`
+- `TERUVION_AGENT_ARGS`
+- `TERUVION_AGENT_PROMPT_MODE`
+- `TERUVION_AGENT_TIMEOUT`
+- `TERUVION_AGENT_FALLBACK_TO_API`
+
+Agent provider options:
+
+- `api`: direct HTTP LLM API, default.
+- `claude-code`: route LLM-heavy calls through a Claude Code-compatible CLI.
+
+The agent runtime sits behind the shared LLM wrapper, so admission, decomposition, route extraction, figure explanation, limitation review, and future deep-analysis jobs can switch providers without business modules calling Claude Code directly.
 
 If the LLM is unavailable, callers must surface the failure or fall back explicitly. The system should not silently label speculative extraction as verified.
 

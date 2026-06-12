@@ -5,10 +5,12 @@
 
 const fs = require('fs');
 const path = require('path');
+const AgentRuntime = require('../agents/AgentRuntime');
 
 class LLM {
   constructor() {
     this.config = null;
+    this.agentRuntime = null;
   }
 
   /**
@@ -21,6 +23,7 @@ class LLM {
     const localConfig = this._loadLocalConfig();
     const localModels = localConfig.models || {};
     const localIntegrations = localConfig.integrations || {};
+    const localAgent = localConfig.agent || {};
     const localGitHub = localIntegrations.github || {};
     const localOpenAlex = localIntegrations.openAlex || {};
     const baseUrl = process.env.ANTHROPIC_BASE_URL
@@ -40,6 +43,28 @@ class LLM {
           || localModels.engineering
           || localModels.default
           || 'claude-3-5-sonnet-latest'
+      },
+      agent: {
+        ...localAgent,
+        provider: process.env.TERUVION_AGENT_PROVIDER
+          || localAgent.provider
+          || 'api',
+        fallbackToApi: process.env.TERUVION_AGENT_FALLBACK_TO_API
+          ? process.env.TERUVION_AGENT_FALLBACK_TO_API !== 'false'
+          : localAgent.fallbackToApi !== false,
+        claudeCode: {
+          ...(localAgent.claudeCode || {}),
+          command: process.env.TERUVION_AGENT_COMMAND
+            || localAgent.claudeCode?.command,
+          args: process.env.TERUVION_AGENT_ARGS
+            ? process.env.TERUVION_AGENT_ARGS.split(/\s+/).filter(Boolean)
+            : localAgent.claudeCode?.args,
+          promptMode: process.env.TERUVION_AGENT_PROMPT_MODE
+            || localAgent.claudeCode?.promptMode,
+          timeout: process.env.TERUVION_AGENT_TIMEOUT
+            ? Number(process.env.TERUVION_AGENT_TIMEOUT)
+            : localAgent.claudeCode?.timeout
+        }
       },
       integrations: {
         ...localIntegrations,
@@ -99,6 +124,19 @@ class LLM {
    */
   async chat(params) {
     const config = this.loadConfig();
+    const agent = this.getAgentRuntime();
+
+    if (agent.isEnabled() && params.agent !== false) {
+      return agent.chat(params, {
+        fallback: () => this._chatAPI({ ...params, agent: false })
+      });
+    }
+
+    return this._chatAPI(params);
+  }
+
+  async _chatAPI(params) {
+    const config = this.loadConfig();
 
     const apiUrl = config.apiUrl || config.baseUrl;
     const model = params.model || config.models?.engineering || 'glm-5.1';
@@ -150,6 +188,19 @@ class LLM {
    * Call LLM with prompt
    */
   async call(prompt, options = {}) {
+    const config = this.loadConfig();
+    const agent = this.getAgentRuntime();
+
+    if (agent.isEnabled() && options.agent !== false) {
+      return agent.call(prompt, options, {
+        fallback: () => this._callAPI(prompt, { ...options, agent: false })
+      });
+    }
+
+    return this._callAPI(prompt, options);
+  }
+
+  async _callAPI(prompt, options = {}) {
     const config = this.loadConfig();
 
     const apiUrl = config.apiUrl || config.baseUrl;
@@ -326,6 +377,23 @@ class LLM {
   getAdminSecret() {
     const config = this.loadConfig();
     return config.adminSecret;
+  }
+
+  getAgentRuntime() {
+    const config = this.loadConfig();
+    if (!this.agentRuntime) {
+      this.agentRuntime = new AgentRuntime(config.agent || {});
+    }
+    return this.agentRuntime;
+  }
+
+  getAgentStatus() {
+    const agent = this.getAgentRuntime();
+    return {
+      enabled: agent.isEnabled(),
+      provider: agent.providerName(),
+      fallbackToApi: this.loadConfig().agent?.fallbackToApi !== false
+    };
   }
 }
 

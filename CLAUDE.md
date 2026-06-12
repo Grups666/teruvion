@@ -85,6 +85,19 @@ Build against durable contracts:
 - provenance and extraction mode
 - lens output contracts
 
+## Agent Runtime
+
+All LLM-heavy work should go through `core/utils/llm.js`. That wrapper can route calls through `core/agents/AgentRuntime.js`.
+
+Current providers:
+
+- `api`: direct HTTP LLM API, the default.
+- `claude-code`: non-interactive Claude Code-compatible CLI provider.
+
+Do not call Claude Code directly from business modules. Admission, decomposition, research route extraction, figure explanation, limitation review, and future deep-analysis jobs should use the shared wrapper so provider choice stays configurable.
+
+Claude Code is a harness for longer reasoning and structured extraction. Its output must still pass schema parsing, provenance checks, fallback reporting, and safe-execution rules.
+
 ## Configuration
 
 Use environment variables as the public contract:
@@ -97,6 +110,12 @@ Use environment variables as the public contract:
 - `OPENALEX_EMAIL`
 - `PORT`
 - `ADMIN_SECRET`
+- `TERUVION_AGENT_PROVIDER`
+- `TERUVION_AGENT_COMMAND`
+- `TERUVION_AGENT_ARGS`
+- `TERUVION_AGENT_PROMPT_MODE`
+- `TERUVION_AGENT_TIMEOUT`
+- `TERUVION_AGENT_FALLBACK_TO_API`
 
 Local-only overrides may live in `_local/config/llm.local.jsonc`.
 The alpha admin secret may also live in `_local/config/admin.local.json`:

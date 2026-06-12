@@ -73,6 +73,30 @@ The decomposer can produce objects through several modes:
 
 Fallback modes must stay visible in project and object UI. The system should not present fallback output as verified intelligence.
 
+## Agent Runtime
+
+All LLM-heavy code should route through `core/utils/llm.js`. That wrapper now delegates to a switchable agent runtime before falling back to the direct HTTP LLM API.
+
+Configured providers:
+
+- `api`: default direct LLM API path.
+- `claude-code`: non-interactive Claude Code-compatible CLI provider.
+
+The provider is selected through environment variables or `_local/config/llm.local.jsonc`:
+
+```bash
+TERUVION_AGENT_PROVIDER=api
+TERUVION_AGENT_PROVIDER=claude-code
+TERUVION_AGENT_COMMAND=claude
+TERUVION_AGENT_ARGS="-p --dangerously-skip-permissions"
+TERUVION_AGENT_PROMPT_MODE=argument
+TERUVION_AGENT_FALLBACK_TO_API=true
+```
+
+This runtime is intentionally below admission, decomposition, route extraction, limitation review, and future deep-analysis jobs. Business modules should not call Claude Code directly. They should call the shared LLM wrapper and let the configured agent provider decide how to execute the work.
+
+Claude Code should be treated as a deep-analysis harness, not as a trusted source of evidence. Its outputs must still pass schema parsing, provenance checks, and visible fallback/error reporting.
+
 ## Design Principles
 
 - **Object-centric**: sources become typed objects and relations.
