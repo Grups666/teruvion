@@ -78,10 +78,24 @@ Fallback modes must stay visible in project and object UI. The system should not
 - **Object-centric**: sources become typed objects and relations.
 - **Evidence-first**: preserve source, provenance, confidence, coverage, and verification state.
 - **Small core**: keep the foundation generic; push domain-specific behavior into ontology extensions, connectors, lenses, or future modules.
+- **Multi-source by design**: project views and extraction protocols should support paper plus repository, paper plus dataset, report plus policy resource, news plus event context, and multiple comparable sources without special-case rewrites.
+- **Normalized source contracts**: source-specific retrieval belongs in connectors; downstream code should consume normalized metadata, sections, figures, tables, resources, provenance, and coverage.
 - **No silent fallback**: unavailable LLMs, abstract-only content, missing keys, and partial source coverage must be visible.
 - **Static by default**: inspect remote repositories; do not execute untrusted code.
 - **Model-agnostic**: treat LLMs as soft intelligence providers, not the durable product asset.
 - **Code as hard link, LLM as soft link**: code defines protocols, storage, UI states, and verification boundaries; LLMs assist extraction and synthesis inside those boundaries.
+
+## Generality Boundary
+
+Foundation code must not be tuned to one article, publisher, repository, dataset host, or research domain. A connector may contain source-specific retrieval details, but only if it normalizes the result into reusable contracts for the decomposer and lenses.
+
+Examples and fixtures can mention specific domains or sources, but production paths should answer the same generic questions:
+
+- What source material is available?
+- What structured sections, figures, tables, resources, and links were found?
+- What objects and relations can be extracted with provenance?
+- Which parts are verified, inferred, fallback, or missing?
+- How can multiple sources be compared or merged inside one project?
 
 ## Extension Direction
 

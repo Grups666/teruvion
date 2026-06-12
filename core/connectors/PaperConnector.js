@@ -1,6 +1,6 @@
 /**
  * PaperConnector - Universal paper fetcher using OpenAlex API
- * Handles: DOIs, paper URLs (Nature, arXiv, etc.), paper titles
+ * Handles: DOIs, scholarly paper URLs, and paper titles
  */
 
 const BaseConnector = require('./BaseConnector');

@@ -18,6 +18,8 @@ The ontology is organized into five layers:
 
 The core should use generic layer and entity protocols. Domain-specific entities are valid extracted objects, but foundation code should not become hardcoded to one domain.
 
+The ontology should guide extraction and comparison; it should not become the main thing displayed to users. A user imports a source to understand the source itself: its materials, method, workflow, figures, evidence, results, limitations, and reusable resources. Internal labels such as layer, depth, fallback mode, or category should support trust and inspection, not replace the source content.
+
 ## Entity Shape
 
 Stored entities follow the `TripleStore` entity shape:
@@ -96,6 +98,8 @@ Source objects represent imported materials:
 - generic Source where no richer type is known
 
 Source objects are entry points into the graph. They should preserve title, identifier, URL, DOI, authors, venue, repository metadata, source coverage, and admission metadata when available.
+
+Multiple source objects may belong to one project. The object model should support linking a paper to its repository, data archive, supplement, report, related news item, or comparison paper without adding one-off fields to the core.
 
 ## Capability Objects
 

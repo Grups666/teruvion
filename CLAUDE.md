@@ -58,6 +58,8 @@ Avoid reintroducing multiple overlapping roadmap or positioning documents. If st
 ## Foundation Principles
 
 - Keep core logic decoupled from any one domain.
+- Do not implement source understanding for one paper, one publisher, one repository, or one screenshot. Generalize from normalized source contracts.
+- Source-specific handling belongs inside connectors and must return generic metadata, sections, figures, tables, resources, provenance, and coverage to the rest of the system.
 - Treat papers, repositories, datasets, methods, regions, claims, evidence, workflows, and resources as inspectable objects.
 - Prefer stable protocols and extension points over one-off feature paths.
 - Preserve provenance and uncertainty.
@@ -65,6 +67,23 @@ Avoid reintroducing multiple overlapping roadmap or positioning documents. If st
 - Never execute untrusted remote repository code by default.
 - Mark fallback, partial, inferred, or abstract-only results clearly.
 - Keep `_local/` private and out of Git.
+
+## Multi-Source And Ontology Rules
+
+Teruvion must evolve toward multi-source projects, not single-source demos. New features should work for paper plus repository, paper plus dataset, report plus policy resource, news plus event context, and multiple comparable sources without rewriting foundation logic.
+
+The ontology is an internal reasoning and organization layer. User-facing views should reveal the imported source's real content: inputs, methods, models, workflows, figures, evidence, results, limitations, spatial/temporal context, and reusable resources. Do not make the UI primarily display internal ontology labels, extraction depth, or fallback mechanics unless they help the user judge reliability.
+
+Build against durable contracts:
+
+- source metadata
+- structured sections
+- figures and tables
+- resources and links
+- source coverage
+- ontology entities and relations
+- provenance and extraction mode
+- lens output contracts
 
 ## Configuration
 
