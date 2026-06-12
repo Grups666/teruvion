@@ -14,6 +14,7 @@ export default function AdminAlphaPage() {
   const [view, setView] = useState<'applications' | 'members'>('applications');
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [lastInviteCode, setLastInviteCode] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = sessionStorage.getItem('adminSecret');
@@ -30,6 +31,7 @@ export default function AdminAlphaPage() {
     if (!adminSecret) return;
     setLoading(true);
     setError(null);
+    setNotice(null);
 
     try {
       const [applicationResult, membershipResult] = await Promise.all([
@@ -52,6 +54,7 @@ export default function AdminAlphaPage() {
     setProcessingId(id);
     setError(null);
     setLastInviteCode(null);
+    setNotice(null);
 
     try {
       const result = await api.approveApplication(id, adminSecret);
@@ -68,6 +71,7 @@ export default function AdminAlphaPage() {
     if (!confirm('Reject this application?')) return;
     setProcessingId(id);
     setError(null);
+    setNotice(null);
 
     try {
       await api.rejectApplication(id, adminSecret);
@@ -76,6 +80,31 @@ export default function AdminAlphaPage() {
       setError(err instanceof Error ? err.message : 'Failed to reject');
     } finally {
       setProcessingId(null);
+    }
+  }
+
+  async function copyMembersCsv() {
+    const header = ['id', 'name', 'email', 'role', 'plan', 'maxJobsPerMonth', 'maxSourcesPerJob', 'createdAt'];
+    const rows = memberships.map(member => [
+      member.id,
+      member.name,
+      member.email,
+      member.role,
+      member.plan,
+      String(member.quota.maxJobsPerMonth),
+      String(member.quota.maxSourcesPerJob),
+      member.createdAt
+    ]);
+    const csv = [header, ...rows]
+      .map(row => row.map(escapeCsvCell).join(','))
+      .join('\n');
+
+    try {
+      await navigator.clipboard.writeText(csv);
+      setError(null);
+      setNotice('Members CSV copied');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to copy members CSV');
     }
   }
 
@@ -127,6 +156,12 @@ export default function AdminAlphaPage() {
           </div>
         )}
 
+        {notice && (
+          <div className="mb-4 text-sm text-blue-800 bg-blue-50 px-4 py-3 rounded-md">
+            {notice}
+          </div>
+        )}
+
         {lastInviteCode && (
           <div className="mb-4 text-sm text-green-800 bg-green-50 px-4 py-3 rounded-md">
             <span className="font-medium">Invite code generated: </span>
@@ -135,19 +170,29 @@ export default function AdminAlphaPage() {
         )}
 
         {(applications.length > 0 || memberships.length > 0) && (
-          <div className="flex gap-2 mb-6 text-sm">
-            <button
-              onClick={() => setView('applications')}
-              className={`px-3 py-2 rounded-md ${view === 'applications' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}
-            >
-              Applications ({stats.total})
-            </button>
-            <button
-              onClick={() => setView('members')}
-              className={`px-3 py-2 rounded-md ${view === 'members' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}
-            >
-              Members ({stats.members})
-            </button>
+          <div className="flex justify-between gap-3 mb-6 text-sm">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setView('applications')}
+                className={`px-3 py-2 rounded-md ${view === 'applications' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}
+              >
+                Applications ({stats.total})
+              </button>
+              <button
+                onClick={() => setView('members')}
+                className={`px-3 py-2 rounded-md ${view === 'members' ? 'bg-black text-white' : 'bg-gray-100 text-gray-600'}`}
+              >
+                Members ({stats.members})
+              </button>
+            </div>
+            {view === 'members' && memberships.length > 0 && (
+              <button
+                onClick={copyMembersCsv}
+                className="px-3 py-2 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50"
+              >
+                Copy CSV
+              </button>
+            )}
           </div>
         )}
 
@@ -285,4 +330,11 @@ export default function AdminAlphaPage() {
       </div>
     </div>
   );
+}
+
+function escapeCsvCell(value: string) {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
