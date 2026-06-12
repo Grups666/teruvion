@@ -39,6 +39,7 @@ Main runtime components:
 - Project status, events, cancellation, export, and decomposition lookup.
 - Lens-based recomposition for graph views.
 - Frontend exploration of imported projects and entities.
+- Alpha application, invite, membership, and quota administration.
 
 ## Not Current Runtime Features
 
@@ -140,6 +141,15 @@ GET  /api/triples/:entityId
 POST /api/admission/evaluate
 GET  /api/lenses
 GET  /api/projects/:projectId/lens/:lensName
+
+POST /api/alpha/apply
+GET  /api/alpha/applications
+POST /api/alpha/applications/:id/approve
+POST /api/alpha/applications/:id/reject
+POST /api/alpha/invites/verify
+POST /api/alpha/memberships/activate
+GET  /api/alpha/memberships
+PATCH /api/alpha/memberships/:id/quota
 ```
 
 ## Test
@@ -157,6 +167,8 @@ Alpha email/admin smoke test on a configured host:
 npm run test:email
 node scripts/test-alpha-apply.js
 ```
+
+Manual verification checklist: see `docs/verification.md`.
 
 ## Repository
 
