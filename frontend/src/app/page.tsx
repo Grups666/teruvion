@@ -685,22 +685,38 @@ export default function Home() {
               )}
 
               {activeCockpitSignal && (
-                <div className={`cockpit-focus ${activeCockpitSignal.status}`}>
-                  <div className="cockpit-focus-head">
-                    <span>{activeCockpitSignal.label} View</span>
-                    <strong>{activeCockpitSignal.value}</strong>
+                <div className={`route-drilldown ${activeCockpitSignal.status}`}>
+                  <div className="route-drilldown-head">
+                    <div>
+                      <span>Route Detail</span>
+                      <strong>{activeCockpitSignal.label}</strong>
+                    </div>
+                    <em>{activeCockpitSignal.value}</em>
                   </div>
                   <p>{activeCockpitSignal.detail}</p>
                   {cockpitFocusItems.length > 0 && (
-                    <div className="cockpit-focus-grid">
-                      {cockpitFocusItems.map(item => (
-                        <div className="cockpit-focus-item" key={`${activeCockpitSignal.key}-${item.label}`}>
+                    <div className="route-drilldown-path">
+                      {cockpitFocusItems.map((item, index) => (
+                        <div className="route-subnode" key={`${activeCockpitSignal.key}-${item.label}`}>
+                          <i>{index + 1}</i>
                           <span>{item.label}</span>
                           <strong>{item.value}</strong>
                           <small>{item.detail}</small>
                         </div>
                       ))}
                     </div>
+                  )}
+                  {activeCockpitSignal.targetId && (
+                    <button
+                      type="button"
+                      className="route-open-detail"
+                      onClick={() => {
+                        setSelectedEntityId(activeCockpitSignal.targetId || null);
+                        setStatus(`${activeCockpitSignal.label} detail opened`);
+                      }}
+                    >
+                      Open deeper detail
+                    </button>
                   )}
                 </div>
               )}
