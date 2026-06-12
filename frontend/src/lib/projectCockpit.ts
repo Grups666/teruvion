@@ -47,8 +47,8 @@ const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
     const targetId = lens.regions?.[0]?.id || lens.features?.[0]?.id || null;
     return {
       name: 'Map',
-      value: `${featureCount} feature${featureCount !== 1 ? 's' : ''}`,
-      detail: regionCount > 0 ? `${regionCount} region${regionCount !== 1 ? 's' : ''}` : 'No spatial feature',
+      value: featureCount > 0 ? 'Spatial anchor' : 'Global view',
+      detail: regionCount > 0 ? 'Study area is available for map inspection.' : 'No explicit study area was extracted yet.',
       status: featureCount > 0 ? 'ready' : 'empty',
       targetId
     };
@@ -61,8 +61,8 @@ const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
       || null;
     return {
       name: 'Workflow',
-      value: `${nodeCount} node${nodeCount !== 1 ? 's' : ''}`,
-      detail: stageCount > 0 ? `${stageCount} stage${stageCount !== 1 ? 's' : ''}` : 'No pipeline stage',
+      value: nodeCount > 0 ? 'Workflow readable' : 'Workflow missing',
+      detail: stageCount > 0 ? 'A procedural path can be inspected.' : 'No clear method or execution path was extracted.',
       status: nodeCount > 0 ? 'ready' : 'empty',
       targetId
     };
@@ -73,8 +73,8 @@ const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
     const targetId = lens.chains?.[0]?.entityId || lens.graph?.nodes?.[0]?.id || null;
     return {
       name: 'Evidence',
-      value: `${claims} claim${claims !== 1 ? 's' : ''}`,
-      detail: chains > 0 ? `${chains} chain${chains !== 1 ? 's' : ''}` : 'No evidence chain',
+      value: claims > 0 ? 'Evidence available' : 'Evidence sparse',
+      detail: chains > 0 ? 'Claims can be traced back to source evidence.' : 'No inspectable evidence chain was extracted.',
       status: claims > 0 ? 'ready' : 'empty',
       targetId
     };
@@ -84,7 +84,7 @@ const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
     const targetId = lens.events?.[0]?.entityId || null;
     return {
       name: 'Timeline',
-      value: `${events} event${events !== 1 ? 's' : ''}`,
+      value: events > 0 ? 'Timeline available' : 'No timeline',
       detail: lens.timeline?.span ? String(lens.timeline.span) : 'No temporal span',
       status: events > 0 ? 'ready' : 'empty',
       targetId
@@ -95,8 +95,8 @@ const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
     const targetId = lens.entities?.[0]?.id || null;
     return {
       name: 'Comparison',
-      value: `${compared} object${compared !== 1 ? 's' : ''}`,
-      detail: compared >= 2 ? 'Comparable set' : 'Needs at least 2 objects',
+      value: compared >= 2 ? 'Comparable' : 'Needs another source',
+      detail: compared >= 2 ? 'A comparison view can be opened.' : 'Load another related source before comparison.',
       status: compared >= 2 ? 'ready' : 'empty',
       targetId
     };
@@ -159,9 +159,9 @@ export function getCockpitSignals(input: {
     },
     {
       key: 'object-graph',
-      label: 'Object Graph',
-      value: `${input.entities.length} object${input.entities.length !== 1 ? 's' : ''}`,
-      detail: graphDiagnosis?.detail || `${input.stats.capability} capability, ${input.stats.world} world signal${input.stats.world !== 1 ? 's' : ''}.`,
+      label: 'Research Graph',
+      value: graphDiagnosis?.status === 'ready' ? 'Connected' : input.entities.length > 1 ? 'Needs linking' : 'Source only',
+      detail: graphDiagnosis?.detail || 'The graph shows whether source, evidence, places, methods, and resources connect into a useful research structure.',
       status: input.entities.length > 1
         ? mapCockpitStatus(graphDiagnosis?.status, input.readiness?.status, isProcessing)
         : isProcessing ? 'pending' : 'review',
@@ -170,7 +170,7 @@ export function getCockpitSignals(input: {
     {
       key: 'spatial',
       label: 'Spatial',
-      value: spatialLens?.value || spatialDiagnosis?.value || 'No feature',
+      value: spatialLens?.value || spatialDiagnosis?.value || 'No study area',
       detail: spatialLens?.detail || spatialDiagnosis?.detail || 'Map remains global until spatial evidence is extracted.',
       status: spatialLens?.status === 'ready'
         ? 'ready'
@@ -181,7 +181,7 @@ export function getCockpitSignals(input: {
       key: 'evidence',
       label: 'Evidence',
       value: evidenceLens?.value || evidenceDiagnosis?.value || 'Sparse',
-      detail: evidenceLens?.detail || evidenceDiagnosis?.detail || 'Evidence chains show whether extracted objects are backed by inspectable claims.',
+      detail: evidenceLens?.detail || evidenceDiagnosis?.detail || 'Evidence chains show whether extracted findings are backed by inspectable source material.',
       status: evidenceLens?.status === 'ready'
         ? 'ready'
         : mapCockpitStatus(evidenceDiagnosis?.status, input.readiness?.status, isProcessing),
@@ -193,7 +193,7 @@ export function getCockpitSignals(input: {
       value: workflowLens?.value || comparisonLens?.value || capabilityDiagnosis?.value || 'Not ready',
       detail: comparisonLens?.status === 'ready'
         ? comparisonLens.detail
-        : workflowLens?.detail || capabilityDiagnosis?.detail || 'Needs workflow, evidence, or comparable objects before reuse.',
+        : workflowLens?.detail || capabilityDiagnosis?.detail || 'Needs workflow, evidence, or comparable research material before reuse.',
       status: comparisonLens?.status === 'ready' || workflowLens?.status === 'ready'
         ? 'ready'
         : mapCockpitStatus(capabilityDiagnosis?.status, input.readiness?.status, isProcessing),
@@ -252,24 +252,24 @@ export function getCockpitFocusItems(input: {
   if (input.signal.key === 'object-graph') {
     return [
       {
-        label: 'Sources',
-        value: String(input.stats.source),
-        detail: 'Source objects preserve where the graph came from.'
+        label: 'Origin',
+        value: input.stats.source > 0 ? 'Recorded' : 'Missing',
+        detail: 'The source record preserves where this project came from.'
       },
       {
-        label: 'Capabilities',
-        value: String(input.stats.capability),
-        detail: capabilityDiagnosis?.detail || 'Capabilities represent methods, datasets, workflows, code, or reusable resources.'
+        label: 'Methods & Resources',
+        value: input.stats.capability > 0 ? 'Inspectable' : 'Missing',
+        detail: capabilityDiagnosis?.detail || 'Methods, datasets, workflows, code, and reusable resources can be inspected here.'
       },
       {
-        label: 'World',
-        value: String(input.stats.world),
-        detail: spatialDiagnosis?.detail || 'World objects anchor the graph to regions, events, hazards, or Earth system entities.'
+        label: 'Spatial Context',
+        value: input.stats.world > 0 ? 'Anchored' : 'Missing',
+        detail: spatialDiagnosis?.detail || 'Spatial context anchors the research to regions, events, hazards, or Earth system entities.'
       },
       {
-        label: 'Relations',
-        value: String(input.quality?.relations || 0),
-        detail: graphDiagnosis?.detail || 'Relations determine whether objects can support reasoning and comparison.'
+        label: 'Connections',
+        value: (input.quality?.relations || 0) > 0 ? 'Linked' : 'Sparse',
+        detail: graphDiagnosis?.detail || 'Connections determine whether the extracted structure can support reasoning and comparison.'
       }
     ];
   }
@@ -277,20 +277,20 @@ export function getCockpitFocusItems(input: {
   if (input.signal.key === 'spatial') {
     return [
       {
-        label: 'Map Features',
-        value: mapLens?.value || '0 features',
-        detail: mapLens?.detail || 'No spatial features are available for the map lens yet.'
+        label: 'Map State',
+        value: mapLens?.value || 'Global view',
+        detail: mapLens?.detail || 'No study area is available for the map yet.'
       },
       {
-        label: 'World Objects',
-        value: String(input.stats.world),
-        detail: spatialDiagnosis?.detail || 'Spatial views need explicit world or region objects.'
+        label: 'Study Area',
+        value: input.stats.world > 0 ? 'Detected' : 'Missing',
+        detail: spatialDiagnosis?.detail || 'Spatial views need an explicit region, event location, or geographic scope.'
       },
       {
         label: 'Map State',
         value: input.stats.world > 0 ? 'Anchored' : 'Global',
         detail: input.stats.world > 0
-          ? 'The map can focus on extracted spatial objects.'
+          ? 'The map can focus on extracted spatial context.'
           : 'The map remains global because no verified spatial anchor exists.'
       }
     ];
@@ -304,9 +304,9 @@ export function getCockpitFocusItems(input: {
         detail: evidenceDiagnosis?.detail || 'Claim-level evidence is extracted only when source coverage supports it.'
       },
       {
-        label: 'Chains',
+        label: 'Traceability',
         value: evidenceLens?.detail || 'No evidence chain',
-        detail: 'Evidence chains connect source statements to objects, relations, and reviewable conclusions.'
+        detail: 'Evidence chains connect source statements to research details, links, and reviewable conclusions.'
       },
       {
         label: 'Review State',
@@ -320,12 +320,12 @@ export function getCockpitFocusItems(input: {
     {
       label: 'Workflow',
       value: workflowLens?.value || 'No workflow',
-      detail: workflowLens?.detail || 'Workflow views need procedural objects or data-flow structure.'
+      detail: workflowLens?.detail || 'Workflow views need procedural structure or data-flow evidence.'
     },
     {
       label: 'Comparison',
       value: comparisonLens?.value || 'Unavailable',
-      detail: comparisonLens?.detail || 'Comparison needs at least two comparable objects.'
+      detail: comparisonLens?.detail || 'Comparison needs another comparable research source.'
     },
     {
       label: 'Readiness',

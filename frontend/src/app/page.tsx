@@ -169,8 +169,7 @@ export default function Home() {
       ]);
       setProjects(pData.projects || []);
       setEntities(eData.entities || []);
-      const count = pData.projects?.length || 0;
-      setStatus(count > 0 ? `${count} project${count !== 1 ? 's' : ''}` : 'Ready');
+      setStatus((pData.projects?.length || 0) > 0 ? 'Updated' : 'Ready');
     } catch (err) {
       console.error('Failed to load data:', err);
       setStatus('Error');
@@ -567,7 +566,7 @@ export default function Home() {
           {projects.length === 0 ? (
             <div className="empty-projects">
               <p>
-                Import a DOI, paper title, or repository to build the first object graph.
+                Import a DOI, paper title, or repository to build the first research graph.
               </p>
             </div>
           ) : (
@@ -769,7 +768,6 @@ export default function Home() {
                     </span>
                     <span className="quality-meta">
                       {projectQuality.method}
-                      {projectQuality.relations > 0 ? ` - ${projectQuality.relations} relation${projectQuality.relations !== 1 ? 's' : ''}` : ''}
                     </span>
                   </div>
                   <div className="quality-summary">{projectQuality.summary}</div>
@@ -815,7 +813,7 @@ export default function Home() {
                 <div className="import-diagnosis">
                   <div className="diagnosis-head">
                     <span>Import Diagnosis</span>
-                    <span>{projectDiagnosis.filter(item => item.status === 'ready').length}/{projectDiagnosis.length} ready</span>
+                    <span>{projectReadiness?.label || 'Review'}</span>
                   </div>
                   <div className="diagnosis-grid">
                     {projectDiagnosis.map(item => (
@@ -852,7 +850,7 @@ export default function Home() {
                         onClick={() => {
                           if (node.sampleEntityId) {
                             setSelectedEntityId(node.sampleEntityId);
-                            setStatus(`${node.label} object selected`);
+                            setStatus(`${DISPLAY_LAYER_LABELS[node.layer]} selected`);
                           }
                         }}
                       >
@@ -862,14 +860,14 @@ export default function Home() {
                     ))}
                   </div>
                 ) : (
-                  <div className="constellation-empty">Object graph will appear after extraction.</div>
+                  <div className="constellation-empty">Research structure will appear after extraction.</div>
                 )}
               </div>
 
               <div className="project-lenses">
                 <div className="lens-head">
                   <span>Views</span>
-                  <span>{lensesLoading ? 'Loading' : `${lensSummaries.length} view${lensSummaries.length !== 1 ? 's' : ''}`}</span>
+                  <span>{lensesLoading ? 'Loading' : 'Explore'}</span>
                 </div>
                 {lensesLoading ? (
                   <div className="lens-empty">Building project views...</div>

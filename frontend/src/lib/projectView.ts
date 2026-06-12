@@ -166,7 +166,7 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
       + (fallback?.evidenceCount || 0);
     notes.push({
       text: fallbackCount > 0
-        ? `source-text fallback produced ${fallbackCount} reviewable objects`
+        ? 'source-text fallback produced reviewable structure'
         : 'source-text fallback extraction',
       level: 'info'
     });
@@ -177,15 +177,15 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
   }
 
   if (stats.world === 0) {
-    notes.push({ text: 'no spatial/world objects', level: 'info' });
+    notes.push({ text: 'no spatial anchor', level: 'info' });
   }
 
   if (stats.capability === 0) {
-    notes.push({ text: 'no capability objects', level: 'warning' });
+    notes.push({ text: 'no method or resource structure', level: 'warning' });
   }
 
   if ((decomposition.evidenceObjects?.length || 0) === 0) {
-    notes.push({ text: 'no evidence objects', level: 'info' });
+    notes.push({ text: 'no evidence chain', level: 'info' });
   }
 
   const breadthScore =
@@ -204,7 +204,7 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
   };
 
   const confidenceText = confidence === null ? 'unknown confidence' : `${Math.round(confidence * 100)}% confidence`;
-  const summary = `${entities.length} objects extracted with ${confidenceText}.`;
+  const summary = `Research structure extracted with ${confidenceText}.`;
 
   return {
     level,
@@ -226,7 +226,7 @@ export function getProjectProgressSteps(project: Project): ProjectProgressStep[]
   const phases = [
     { key: 'fetching', label: 'Source', detail: 'Resolve metadata and source text' },
     { key: 'admission', label: 'Admission', detail: 'Assess Digital Earth relevance' },
-    { key: 'decomposition', label: 'Objects', detail: 'Extract typed objects and evidence' },
+    { key: 'decomposition', label: 'Structure', detail: 'Extract evidence, methods, places, and links' },
     { key: 'storing', label: 'Graph', detail: 'Store entities and relations' }
   ];
 
@@ -319,13 +319,13 @@ export function getRecommendedNextActions(
     actions.push({ label: 'Attach methods, data, or code', targetLayer: 'capability', fallbackLayer: 'source' });
   }
   if (quality.relations === 0 && objectCount > 1) {
-    actions.push({ label: 'Review missing object links', targetLayer: 'source', fallbackLayer: 'capability' });
+    actions.push({ label: 'Review missing research links', targetLayer: 'source', fallbackLayer: 'capability' });
   }
   if (quality.notes.some(note => note.text.includes('fallback') || note.text.includes('metadata-only'))) {
     actions.push({ label: 'Verify extraction before using it', targetLayer: 'source', fallbackLayer: 'capability' });
   }
 
-  actions.push({ label: 'Open an object to inspect evidence', targetLayer: 'foundation', fallbackLayer: 'source' });
+  actions.push({ label: 'Open a detail to inspect evidence', targetLayer: 'foundation', fallbackLayer: 'source' });
 
   const seen = new Set<string>();
   return actions.filter(action => {
@@ -394,23 +394,23 @@ export function getProjectDiagnosis(
       detail: isMetadataOnly
         ? 'Only citation metadata was available, so Teruvion cannot infer regions, methods, or evidence with high confidence.'
         : usedFallback
-          ? 'The system used source text fallback; extracted objects should be reviewed before product use.'
+          ? 'The system used source text fallback; extracted structure should be reviewed before product use.'
           : quality.coverage?.detail || 'Source coverage is sufficient for object extraction.'
     },
     {
       key: 'spatial',
       label: 'Spatial Anchor',
       status: stats.world > 0 ? 'ready' : 'missing',
-      value: stats.world > 0 ? `${stats.world} world object${stats.world === 1 ? '' : 's'}` : 'Missing',
+      value: stats.world > 0 ? 'Detected' : 'Missing',
       detail: stats.world > 0
-        ? 'Map and world lenses can focus on extracted regions, events, or Earth objects.'
-        : 'No region, bbox, event location, or Earth object was extracted yet; the map stays global until a spatial anchor exists.'
+        ? 'Map views can focus on extracted regions, events, or Earth system context.'
+        : 'No region, bbox, event location, or Earth system context was extracted yet; the map stays global until a spatial anchor exists.'
     },
     {
       key: 'capability',
       label: 'Methods & Data',
       status: stats.capability > 0 ? 'ready' : 'missing',
-      value: stats.capability > 0 ? `${stats.capability} capability object${stats.capability === 1 ? '' : 's'}` : 'Missing',
+      value: stats.capability > 0 ? 'Inspectable' : 'Missing',
       detail: stats.capability > 0
         ? 'Methods, datasets, workflows, or computing resources are available for inspection.'
         : 'No method, dataset, workflow, model, or repository capability was extracted from this source.'
@@ -419,19 +419,19 @@ export function getProjectDiagnosis(
       key: 'evidence',
       label: 'Evidence',
       status: evidenceCount > 0 ? 'ready' : 'limited',
-      value: evidenceCount > 0 ? `${evidenceCount} evidence object${evidenceCount === 1 ? '' : 's'}` : 'Sparse',
+      value: evidenceCount > 0 ? 'Traceable' : 'Sparse',
       detail: evidenceCount > 0
         ? 'Claims or evidence chains are available for review.'
-        : 'The current object graph has little claim-level evidence; treat conclusions as provisional.'
+        : 'The current research graph has little claim-level evidence; treat conclusions as provisional.'
     },
     {
       key: 'graph',
-      label: 'Object Links',
+      label: 'Research Links',
       status: quality.relations > 0 ? 'ready' : objectCount > 1 ? 'limited' : 'missing',
-      value: quality.relations > 0 ? `${quality.relations} relation${quality.relations === 1 ? '' : 's'}` : 'Sparse',
+      value: quality.relations > 0 ? 'Linked' : 'Sparse',
       detail: quality.relations > 0
-        ? 'Objects are linked enough to support graph inspection and comparison.'
-        : 'Objects are not connected enough yet; relation extraction or manual review is needed.'
+        ? 'The research structure is linked enough to support graph inspection and comparison.'
+        : 'The research structure is not connected enough yet; relation extraction or manual review is needed.'
     }
   ];
 }
@@ -487,7 +487,7 @@ export function getProjectReadiness(project: Project, diagnosis: ProjectDiagnosi
       score,
       counts,
       blockers: [],
-      nextStep: 'Open objects, inspect evidence, or compare this project with another source.'
+      nextStep: 'Open research details, inspect evidence, or compare this project with another source.'
     };
   }
 
@@ -509,9 +509,10 @@ export function buildProjectSummaryText(project: Project, quality: ProjectQualit
     '',
     `Quality: ${quality.label}`,
     `Extraction: ${quality.method}`,
-    `Objects: ${objectCount}`,
-    `Layers: ${stats.source} source, ${stats.capability} capability, ${stats.world} world, ${stats.foundation} other`,
-    `Relations: ${quality.relations}`,
+    `Research structure: ${quality.label}`,
+    `Spatial context: ${stats.world > 0 ? 'Detected' : 'Missing'}`,
+    `Methods and resources: ${stats.capability > 0 ? 'Inspectable' : 'Missing'}`,
+    `Research links: ${quality.relations > 0 ? 'Linked' : 'Sparse'}`,
     `Summary: ${quality.summary}`
   ];
 
