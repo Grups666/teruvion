@@ -335,6 +335,36 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(childLabels.length > 0, 'Nested route details should preserve content-level fields');
   });
 
+  it('should build route labels from source content without domain-specific term matching', async () => {
+    const decomposer = new DigitalEarthDecomposer();
+    const admissionResult = {
+      sourceType: 'Repository',
+      depth: 'structured',
+      activatedCategories: ['data', 'modeling', 'computing', 'evidence'],
+      activatedOntologyLayers: ['source', 'capability'],
+      sourceRoles: { modeling_capability: 0.8 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('https://example.com/route-toolkit', {
+      metadata: {
+        title: 'Route Toolkit',
+        datasets: [{ name: 'Scenario Logs' }],
+        algorithms: [{ name: 'Constraint Planner' }],
+        workflows: [{ name: 'Batch Evaluation Pipeline' }],
+        outputs: [{ name: 'Feasibility Report' }]
+      }
+    }, admissionResult);
+
+    const routeLabels = result.workflowOutline.nodes.map(node => node.label);
+
+    assert.ok(routeLabels.includes('Scenario Logs'), 'Should use data labels from metadata');
+    assert.ok(routeLabels.includes('Constraint Planner'), 'Should use method labels from metadata');
+    assert.ok(routeLabels.includes('Feasibility Report'), 'Should use output labels from metadata');
+    assert.ok(routeLabels.every(label => !['Paper', 'Repository', 'Connected'].includes(label)), 'Should not expose container or system labels as research route content');
+  });
+
   it('should classify workflow stages from ontology category instead of name patterns', () => {
     const decomposer = new DigitalEarthDecomposer();
 

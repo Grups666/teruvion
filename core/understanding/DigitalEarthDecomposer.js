@@ -1216,16 +1216,13 @@ Return JSON with this structure:`;
   _buildContentWorkflowRoute(result, content = {}) {
     const nodes = [];
     const edges = [];
-    const sourceText = this._getSourceText(content);
-    const metadata = content.metadata || {};
-    const abstract = result.sourceObject?.attributes?.abstract || metadata.abstract || content.abstract || '';
-    const allText = [metadata.title, abstract, sourceText].filter(Boolean).join('\n');
     const routeObjects = [
       ...(result.capabilityObjects || []).map(object => ({ object, layer: 'capability' })),
       ...(result.worldObjects || []).map(object => ({ object, layer: 'world' })),
       ...(result.evidenceObjects || []).map(object => ({ object, layer: 'evidence' }))
     ];
     const objectsByStage = new Map();
+    const stageFallbacks = this._buildRouteFallbacksFromMetadata(content);
 
     for (const item of routeObjects) {
       const stage = this._classifyWorkflowStage(item.object, item.layer);
@@ -1233,21 +1230,22 @@ Return JSON with this structure:`;
       objectsByStage.get(stage.key).push(item.object);
     }
 
-    const addStageNode = (stageKey, fallbackLabel, fallbackSummary, fallbackChildren = []) => {
+    const addStageNode = (stageKey) => {
       const stage = WORKFLOW_STAGE_DEFINITIONS[stageKey];
+      const fallback = stageFallbacks[stageKey] || {};
       const objects = objectsByStage.get(stageKey) || [];
       const primary = objects.find(object => !this._isGenericRouteLabel(object.name || object.attributes?.name || object.type))
         || objects[0];
       const label = primary
-        ? this._contentRouteLabel(primary, stageKey, allText)
-        : fallbackLabel;
-      const stageSummary = fallbackSummary || stage.fallbackSummary;
+        ? this._contentRouteLabel(primary, stageKey)
+        : fallback.label;
+      const stageSummary = fallback.summary || stage.fallbackSummary;
       const summary = primary
         ? this._objectSummary(primary, stageSummary) || stageSummary
         : stageSummary;
       const children = primary
         ? this._contentRouteChildren(primary, stageKey)
-        : fallbackChildren;
+        : fallback.children || [];
 
       if (!label || this._isGenericRouteLabel(label)) return;
 
@@ -1265,31 +1263,10 @@ Return JSON with this structure:`;
       });
     };
 
-    const signals = this._extractRouteSignals(allText);
-    addStageNode(
-      'data',
-      signals.dataLabel,
-      signals.dataSummary,
-      signals.dataChildren
-    );
-    addStageNode(
-      'method',
-      signals.methodLabel,
-      signals.methodSummary,
-      signals.methodChildren
-    );
-    addStageNode(
-      'context',
-      signals.contextLabel,
-      signals.contextSummary,
-      signals.contextChildren
-    );
-    addStageNode(
-      'evidence',
-      signals.outputLabel,
-      signals.outputSummary,
-      signals.outputChildren
-    );
+    addStageNode('data');
+    addStageNode('method');
+    addStageNode('context');
+    addStageNode('evidence');
 
     nodes.sort((a, b) => (a.stageOrder - b.stageOrder) || a.label.localeCompare(b.label));
 
@@ -1315,76 +1292,132 @@ Return JSON with this structure:`;
     };
   }
 
-  _extractRouteSignals(text = '') {
-    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
-    const methodTerms = this._matchTerms(normalized, [
-      'LSTM', 'encoder-decoder', 'Transformer', 'CNN', 'random forest',
-      'neural network', 'deep learning', 'machine learning', 'hydrological model',
-      'forecasting model', 'streamflow forecasting model'
-    ]);
-    const dataTerms = this._matchTerms(normalized, [
-      'meteorological input data', 'precipitation', 'temperature',
-      'streamflow', 'runoff', 'reanalysis', 'reforecast', 'forecast horizons',
-      'watershed attributes', 'observations'
-    ]);
-    const contextTerms = this._matchTerms(normalized, [
-      'ungauged watersheds', 'watersheds', 'global', 'riverine events',
-      'extreme floods', 'floods', 'river basins', 'study region'
-    ]);
-    const outputTerms = this._matchTerms(normalized, [
-      'five-day lead time', 'forecast', 'prediction', 'reliability',
-      'extreme riverine events', 'results', 'performance'
-    ]);
+  _buildRouteFallbacksFromMetadata(content = {}) {
+    const metadata = content.metadata || {};
+    const source = {
+      ...metadata,
+      datasets: metadata.datasets || content.datasets,
+      dataSources: metadata.dataSources || content.dataSources,
+      variables: metadata.variables || content.variables,
+      inputs: metadata.inputs || content.inputs,
+      observations: metadata.observations || content.observations,
+      models: metadata.models || content.models,
+      methods: metadata.methods || content.methods,
+      algorithms: metadata.algorithms || content.algorithms,
+      workflows: metadata.workflows || content.workflows,
+      regions: metadata.regions || content.regions,
+      studyRegions: metadata.studyRegions || content.studyRegions,
+      locations: metadata.locations || content.locations,
+      hazards: metadata.hazards || content.hazards,
+      risks: metadata.risks || content.risks,
+      results: metadata.results || content.results,
+      findings: metadata.findings || content.findings,
+      claims: metadata.claims || content.claims,
+      outputs: metadata.outputs || content.outputs,
+      conclusions: metadata.conclusions || content.conclusions
+    };
 
     return {
-      dataLabel: dataTerms.length ? dataTerms.slice(0, 3).join(' + ') : null,
-      dataSummary: dataTerms.length
-        ? `Input material includes ${dataTerms.slice(0, 5).join(', ')}.`
-        : '',
-      dataChildren: dataTerms.map(term => ({ label: 'Input', value: term, detail: 'Input variable or data source mentioned in available source material.' })),
-      methodLabel: methodTerms.length ? methodTerms.slice(0, 2).join(' + ') : null,
-      methodSummary: methodTerms.length
-        ? `Method route centers on ${methodTerms.slice(0, 4).join(', ')}.`
-        : '',
-      methodChildren: methodTerms.map(term => ({ label: 'Method component', value: term, detail: 'Model, algorithm, or method term mentioned in available source material.' })),
-      contextLabel: contextTerms.length ? contextTerms.slice(0, 2).join(' / ') : null,
-      contextSummary: contextTerms.length
-        ? `Study context includes ${contextTerms.slice(0, 4).join(', ')}.`
-        : '',
-      contextChildren: contextTerms.map(term => ({ label: 'Context', value: term, detail: 'Spatial, hazard, or Earth-system context from source material.' })),
-      outputLabel: outputTerms.length ? outputTerms.slice(0, 2).join(' / ') : null,
-      outputSummary: outputTerms.length
-        ? `Reported or targeted output includes ${outputTerms.slice(0, 4).join(', ')}.`
-        : '',
-      outputChildren: outputTerms.map(term => ({ label: 'Output', value: term, detail: 'Result, target, or finding signal from source material.' }))
+      data: this._routeFallbackFromFields('data', source, ['datasets', 'dataSources', 'variables', 'inputs', 'observations']),
+      method: this._routeFallbackFromFields('method', source, ['models', 'methods', 'algorithms', 'workflows']),
+      context: this._routeFallbackFromFields('context', source, ['regions', 'studyRegions', 'locations', 'hazards', 'risks']),
+      evidence: this._routeFallbackFromFields('evidence', source, ['results', 'findings', 'claims', 'outputs', 'conclusions'])
     };
   }
 
-  _contentRouteLabel(object = {}, stageKey = '', text = '') {
+  _routeFallbackFromFields(stageKey, source, fields) {
+    const children = [];
+    for (const field of fields) {
+      for (const item of this._normalizeRouteItems(source[field])) {
+        children.push({
+          label: this._humanizeSectionTitle(field, field),
+          value: this._summarizeText(item.label, 120),
+          detail: item.detail || `${WORKFLOW_STAGE_DEFINITIONS[stageKey].label} detail from structured source metadata.`
+        });
+      }
+    }
+
+    const labels = children.map(child => child.value).filter(value => !this._isGenericRouteLabel(value));
+    return {
+      label: labels.length > 0 ? labels.slice(0, 2).join(' + ') : null,
+      summary: labels.length > 0
+        ? `${WORKFLOW_STAGE_DEFINITIONS[stageKey].label} route includes ${labels.slice(0, 4).join(', ')}.`
+        : '',
+      children: children.slice(0, 6)
+    };
+  }
+
+  _normalizeRouteItems(value) {
+    const values = Array.isArray(value) ? value : value ? [value] : [];
+    return values
+      .map(item => {
+        if (typeof item === 'string' || typeof item === 'number') {
+          return { label: String(item), detail: '' };
+        }
+        if (!item || typeof item !== 'object') return null;
+        const label = item.name
+          || item.title
+          || item.label
+          || item.statement
+          || item.description
+          || item.url
+          || item.type;
+        const detail = item.description
+          || item.summary
+          || item.role
+          || item.type
+          || '';
+        return label ? { label: String(label), detail: this._summarizeText(String(detail), 160) } : null;
+      })
+      .filter(Boolean);
+  }
+
+  _contentRouteLabel(object = {}, stageKey = '') {
     const attributes = object.attributes || {};
-    const explicit = attributes.name
-      || attributes.title
-      || attributes.label
-      || attributes.statement
+    const explicit = this._pickRouteDisplayValue(attributes, stageKey)
       || object.name;
     if (explicit && !this._isGenericRouteLabel(explicit)) {
       return explicit;
     }
 
-    const sourceText = [
-      attributes.description,
-      attributes.summary,
-      attributes.abstract,
-      object.provenance?.sourceText,
-      text
-    ].filter(Boolean).join(' ');
-    const signals = this._extractRouteSignals(sourceText);
+    const children = this._contentRouteChildren(object, stageKey);
+    const childValues = children.map(child => child.value).filter(value => !this._isGenericRouteLabel(value));
+    if (childValues.length > 0) return childValues.slice(0, 2).join(' + ');
 
-    if (stageKey === 'data') return signals.dataLabel;
-    if (stageKey === 'method') return signals.methodLabel;
-    if (stageKey === 'context') return signals.contextLabel;
-    if (stageKey === 'evidence') return signals.outputLabel;
-    return explicit || object.type;
+    return null;
+  }
+
+  _pickRouteDisplayValue(attributes = {}, stageKey = '') {
+    const fields = this._routeDisplayFields(stageKey);
+    for (const field of fields) {
+      const value = attributes[field];
+      const displayValue = this._routeValueToText(value);
+      if (displayValue && !this._isGenericRouteLabel(displayValue)) return displayValue;
+    }
+    return null;
+  }
+
+  _routeDisplayFields(stageKey = '') {
+    const common = ['name', 'title', 'label', 'summary', 'description'];
+    const byStage = {
+      data: ['name', 'title', 'variable', 'variables', 'dataSource', 'source', 'role', 'description'],
+      method: ['name', 'title', 'method', 'algorithm', 'architecture', 'approach', 'description'],
+      context: ['name', 'title', 'region', 'location', 'scope', 'hazard', 'risk', 'description'],
+      evidence: ['statement', 'finding', 'result', 'output', 'conclusion', 'summary', 'description']
+    };
+    return [...(byStage[stageKey] || []), ...common];
+  }
+
+  _routeValueToText(value) {
+    if (value === undefined || value === null || value === '') return null;
+    if (Array.isArray(value)) {
+      const labels = this._normalizeRouteItems(value).map(item => item.label);
+      return labels.length > 0 ? labels.slice(0, 2).join(' + ') : null;
+    }
+    if (typeof value === 'object') {
+      return this._normalizeRouteItems(value)[0]?.label || null;
+    }
+    return String(value);
   }
 
   _contentRouteChildren(object = {}, stageKey = '') {
@@ -1393,23 +1426,12 @@ Return JSON with this structure:`;
       .slice(0, 5);
     if (children.length > 0) return children;
 
-    const attributes = object.attributes || {};
-    const sourceText = [
-      attributes.description,
-      attributes.summary,
-      attributes.abstract,
-      attributes.statement,
-      object.provenance?.sourceText
-    ].filter(Boolean).join(' ');
-    const signals = this._extractRouteSignals(sourceText);
-    const fallback = stageKey === 'data'
-      ? signals.dataChildren
-      : stageKey === 'method'
-        ? signals.methodChildren
-        : stageKey === 'context'
-          ? signals.contextChildren
-          : signals.outputChildren;
-    return fallback.slice(0, 5);
+    const provenanceText = object.provenance?.sourceText;
+    return provenanceText ? [{
+      label: WORKFLOW_STAGE_DEFINITIONS[stageKey]?.label || 'Source Detail',
+      value: this._summarizeText(provenanceText, 120),
+      detail: 'Source-grounded text attached to this route node.'
+    }] : [];
   }
 
   _isInternalRouteChild(label, value) {
@@ -1425,18 +1447,6 @@ Return JSON with this structure:`;
     return !normalized
       || ['paper', 'source', 'repository', 'connected', 'global view', 'workflow readable', 'evidence available', 'method', 'dataset', 'workflow', 'claim'].includes(normalized)
       || normalized.endsWith(' workflow');
-  }
-
-  _matchTerms(text = '', terms = []) {
-    const normalized = String(text || '').toLowerCase();
-    const matches = [];
-    for (const term of terms) {
-      const termText = String(term);
-      if (normalized.includes(termText.toLowerCase()) && !matches.some(item => item.toLowerCase() === termText.toLowerCase())) {
-        matches.push(termText);
-      }
-    }
-    return matches;
   }
 
   _classifyWorkflowStage(object, layer) {
