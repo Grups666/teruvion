@@ -1081,43 +1081,38 @@ Return JSON with this structure:`;
       });
     }
 
-    const capabilityNodes = (result.capabilityObjects || []).slice(0, 6).map((object, index) => ({
-      id: `capability-${index + 1}`,
-      objectId: object.id,
-      label: object.name || object.attributes?.name || object.type || `Capability ${index + 1}`,
-      type: object.type || 'Capability',
-      summary: this._objectSummary(object, 'Method, data, model, code, or workflow resource extracted from the source.'),
-      status: object.confidence >= 0.7 ? 'ready' : 'review',
-      children: this._objectChildren(object)
-    }));
+    const routeObjects = [
+      ...(result.capabilityObjects || []).slice(0, 8).map(object => ({ object, layer: 'capability' })),
+      ...(result.worldObjects || []).slice(0, 5).map(object => ({ object, layer: 'world' })),
+      ...(result.evidenceObjects || []).slice(0, 5).map(object => ({ object, layer: 'evidence' }))
+    ];
 
-    const worldNodes = (result.worldObjects || []).slice(0, 4).map((object, index) => ({
-      id: `world-${index + 1}`,
-      objectId: object.id,
-      label: object.name || object.attributes?.name || object.type || `World object ${index + 1}`,
-      type: object.type || 'WorldObject',
-      summary: this._objectSummary(object, 'Region, Earth system, hazard, variable, or output context extracted from the source.'),
-      status: object.confidence >= 0.7 ? 'ready' : 'review',
-      children: this._objectChildren(object)
-    }));
+    const routeNodes = routeObjects
+      .map(({ object, layer }, index) => {
+        const stage = this._classifyWorkflowStage(object, layer);
+        return {
+          id: `${stage.key}-${index + 1}`,
+          objectId: object.id,
+          label: object.name || object.attributes?.name || object.type || `${stage.label} node`,
+          type: stage.label,
+          stage: stage.key,
+          stageOrder: stage.order,
+          objectType: object.type || layer,
+          summary: this._objectSummary(object, stage.fallbackSummary),
+          status: object.confidence >= 0.7 ? 'ready' : 'review',
+          children: this._objectChildren(object)
+        };
+      })
+      .sort((a, b) => (a.stageOrder - b.stageOrder) || a.label.localeCompare(b.label))
+      .slice(0, 10);
 
-    const evidenceNodes = (result.evidenceObjects || []).slice(0, 4).map((object, index) => ({
-      id: `evidence-${index + 1}`,
-      objectId: object.id,
-      label: object.name || object.attributes?.name || object.type || `Evidence ${index + 1}`,
-      type: object.type || 'Evidence',
-      summary: this._objectSummary(object, 'Reviewable claim or evidence item extracted from source material.'),
-      status: object.confidence >= 0.7 ? 'ready' : 'review',
-      children: this._objectChildren(object)
-    }));
-
-    nodes.push(...capabilityNodes, ...worldNodes, ...evidenceNodes);
+    nodes.push(...routeNodes);
 
     for (let i = 1; i < nodes.length; i += 1) {
       edges.push({
         from: i === 1 ? 'source' : nodes[i - 1].id,
         to: nodes[i].id,
-        label: i <= capabilityNodes.length ? 'uses' : 'connects'
+        label: this._workflowEdgeLabel(nodes[i - 1], nodes[i])
       });
     }
 
@@ -1141,6 +1136,75 @@ Return JSON with this structure:`;
         relationCount: result.bridgeRelations?.length || 0
       }
     };
+  }
+
+  _classifyWorkflowStage(object, layer) {
+    const type = String(object?.type || '').toLowerCase();
+    const category = String(object?.metadata?.category || object?.category || '').toLowerCase();
+    const role = String(object?.attributes?.role || object?.metadata?.role || '').toLowerCase();
+    const text = `${type} ${category} ${role}`;
+
+    const stages = [
+      {
+        key: 'data',
+        label: 'Data',
+        order: 10,
+        fallbackSummary: 'Input data, variables, observations, or resource material used by the research route.',
+        match: ['data', 'dataset', 'variable', 'observation', 'coverage', 'repository']
+      },
+      {
+        key: 'method',
+        label: 'Method',
+        order: 20,
+        fallbackSummary: 'Method, model, algorithm, or analytical step used to transform source material.',
+        match: ['method', 'model', 'algorithm', 'software', 'computing']
+      },
+      {
+        key: 'execution',
+        label: 'Workflow',
+        order: 30,
+        fallbackSummary: 'Procedural workflow or executable route connecting data, methods, and outputs.',
+        match: ['workflow', 'experiment', 'pipeline', 'process']
+      },
+      {
+        key: 'context',
+        label: 'Context',
+        order: 40,
+        fallbackSummary: 'Spatial, temporal, hazard, risk, or Earth-system context interpreted by the research route.',
+        match: ['region', 'basin', 'hazard', 'risk', 'earth', 'world', 'scenario', 'output']
+      },
+      {
+        key: 'evidence',
+        label: 'Evidence',
+        order: 50,
+        fallbackSummary: 'Claim, result, figure, table, or evidence item used to review the research route.',
+        match: ['evidence', 'claim', 'result', 'finding', 'figure', 'table', 'indicator']
+      }
+    ];
+
+    for (const stage of stages) {
+      if (stage.match.some(token => text.includes(token))) {
+        return stage;
+      }
+    }
+
+    if (layer === 'world') return stages.find(stage => stage.key === 'context');
+    if (layer === 'evidence') return stages.find(stage => stage.key === 'evidence');
+    return {
+      key: 'resource',
+      label: 'Resource',
+      order: 35,
+      fallbackSummary: 'Reusable research resource extracted from the source.',
+      match: []
+    };
+  }
+
+  _workflowEdgeLabel(previous, next) {
+    if (!previous || previous.id === 'source') return 'introduces';
+    if (previous.stage === next.stage) return 'refines';
+    if (next.stage === 'evidence') return 'supports';
+    if (next.stage === 'context') return 'interprets';
+    return 'feeds';
   }
 
   _extractExternalResources(result, content = {}) {

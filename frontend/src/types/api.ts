@@ -92,6 +92,9 @@ export interface Decomposition {
       objectId?: string;
       label: string;
       type?: string;
+      stage?: string;
+      stageOrder?: number;
+      objectType?: string;
       summary?: string;
       status?: 'ready' | 'review' | 'blocked' | 'pending';
       children?: Array<{

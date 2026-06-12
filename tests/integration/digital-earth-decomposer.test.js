@@ -241,6 +241,40 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(hazard, 'Should have FloodEvent object');
   });
 
+  it('should order workflow outline by generic research stages', async () => {
+    const decomposer = new DigitalEarthDecomposer();
+    const admissionResult = {
+      sourceType: 'Paper',
+      depth: 'deep',
+      activatedCategories: ['data', 'modeling', 'earth-object', 'evidence'],
+      activatedOntologyLayers: ['source', 'capability', 'world'],
+      sourceRoles: { data_capability: 0.6, modeling_capability: 0.6, earth_content: 0.6 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('10.5555/stage-protocol', {
+      metadata: {
+        title: 'Generic staged research protocol',
+        datasets: [{ name: 'Input Observations' }],
+        models: [{ name: 'Predictive Model' }],
+        regions: [{ name: 'Study Region', type: 'region' }],
+        claims: [{ statement: 'Model output improves reviewable performance.' }]
+      }
+    }, admissionResult);
+
+    const routeNodes = result.workflowOutline.nodes.filter(node => node.id !== 'source');
+    const stages = routeNodes.map(node => node.stage);
+    const stageOrders = routeNodes.map(node => node.stageOrder);
+
+    assert.ok(stages.includes('data'), 'Should include data stage');
+    assert.ok(stages.includes('method'), 'Should include method stage');
+    assert.ok(stages.includes('context'), 'Should include context stage');
+    assert.ok(stages.includes('evidence'), 'Should include evidence stage');
+    assert.deepStrictEqual(stageOrders, [...stageOrders].sort((a, b) => a - b), 'Should sort route nodes by stage order');
+    assert.ok(routeNodes.every(node => node.type && node.summary), 'Each route node should have readable display fields');
+  });
+
   it('should resolve extracted object types through ontology protocol', async () => {
     const decomposer = new DigitalEarthDecomposer();
 
