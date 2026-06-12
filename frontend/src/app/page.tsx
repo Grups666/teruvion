@@ -994,7 +994,7 @@ export default function Home() {
 
                 {selectedEntitySignals.length > 0 && (
                   <div className="detail-section">
-                    <div className="detail-label">Review Signals</div>
+                    <div className="detail-label">Reliability</div>
                     <div className="signal-grid">
                       {selectedEntitySignals.map(signal => (
                         <div className={`signal-card ${signal.level}`} key={signal.label}>
@@ -1008,7 +1008,7 @@ export default function Home() {
 
                 {selectedEntityReviewNotes.length > 0 && (
                   <div className="detail-section">
-                    <div className="detail-label">Known Limits</div>
+                    <div className="detail-label">Review Notes</div>
                     <div className="review-notes">
                       {selectedEntityReviewNotes.map(note => (
                         <div className={`review-note ${note.level}`} key={note.text}>
@@ -1042,14 +1042,18 @@ export default function Home() {
                       )}
                       {selectedEntity.metadata?.source && (
                         <div>
-                          <span>Source trace</span>
+                          <span>Original source</span>
                           <strong>{sourceHost(String(selectedEntity.metadata.source))}</strong>
-                          <p>{String(selectedEntity.metadata.source)}</p>
+                          <p>
+                            <a href={String(selectedEntity.metadata.source)} target="_blank" rel="noreferrer">
+                              Open linked evidence
+                            </a>
+                          </p>
                         </div>
                       )}
                       {!selectedEntity.metadata?.source && (
                         <div>
-                          <span>Source trace</span>
+                          <span>Original source</span>
                           <strong>Not linked</strong>
                           <p>No external source is attached to this detail yet.</p>
                         </div>

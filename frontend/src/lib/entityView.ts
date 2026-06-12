@@ -106,41 +106,47 @@ export function getEntitySignals(entity: Entity, explore: EntityExploreResponse 
     level: confidence === null ? 'weak' : confidence >= 0.7 ? 'strong' : confidence >= 0.45 ? 'normal' : 'weak'
   });
 
-  signals.push({
-    label: 'Verification',
-    value: formatSignalText(verification),
-    level: verification === 'verified' ? 'strong' : verification === 'rejected' ? 'weak' : 'normal'
-  });
+  if (verification === 'verified' || verification === 'rejected') {
+    signals.push({
+      label: 'Human Review',
+      value: formatSignalText(verification),
+      level: verification === 'verified' ? 'strong' : 'weak'
+    });
+  }
 
   signals.push({
-    label: 'Connections',
-    value: connectionCount > 0 ? 'Linked' : 'Sparse',
+    label: 'Graph Role',
+    value: connectionCount > 0 ? 'Connected' : 'Needs links',
     level: connectionCount > 2 ? 'strong' : connectionCount > 0 ? 'normal' : 'weak'
   });
 
   signals.push({
-    label: 'Source',
+    label: 'Evidence',
     value: hasSource
       ? entity.metadata?.source
-        ? 'Recorded'
+        ? 'Linked source'
         : hasProvenanceText
-          ? 'Source text'
-          : 'Inspectable'
-      : 'Missing',
+          ? 'Captured text'
+          : 'Inspectable source'
+      : 'Needs source',
     level: hasSource ? 'strong' : 'weak'
   });
 
-  signals.push({
-    label: 'Spatial',
-    value: hasSpatial ? 'Present' : 'None',
-    level: hasSpatial ? 'strong' : 'normal'
-  });
+  if (hasSpatial || getEntityLayer(entity) === 'world') {
+    signals.push({
+      label: 'Map Context',
+      value: hasSpatial ? 'Available' : 'Not located',
+      level: hasSpatial ? 'strong' : 'normal'
+    });
+  }
 
-  signals.push({
-    label: 'Temporal',
-    value: hasTemporal ? 'Present' : 'None',
-    level: hasTemporal ? 'strong' : 'normal'
-  });
+  if (hasTemporal || shouldReviewTemporalMetadata(entity)) {
+    signals.push({
+      label: 'Time Context',
+      value: hasTemporal ? 'Available' : 'Not stated',
+      level: hasTemporal ? 'strong' : 'normal'
+    });
+  }
 
   return signals;
 }
@@ -156,6 +162,8 @@ export function getEntityTakeaways(
   const relationCount = explore?.relatedEntities?.length || 0;
   const sourceCount = explore?.sources?.length || 0;
   const confidence = signals.find(signal => signal.label === 'Confidence')?.value || 'Unknown';
+  const graphRole = signals.find(signal => signal.label === 'Graph Role')?.value || 'Needs links';
+  const evidenceSignal = signals.find(signal => signal.label === 'Evidence')?.value || 'Needs source';
   const role = formatSignalText(entity.category || layer || entity.type);
   const primaryScope = pickAttributeValue(entity, [
     'description',
@@ -173,30 +181,30 @@ export function getEntityTakeaways(
   const spatial = pickAttributeValue(entity, SPATIAL_FIELDS);
 
   takeaways.push({
-    label: 'What It Is',
+    label: 'Meaning',
     value: role,
-    detail: primaryScope || `${name} is represented as a ${formatSignalText(entity.type)} detail in the research graph.`
+    detail: primaryScope || `${name} is a ${getReadableResearchRole(entity).toLowerCase()} extracted from the source.`
   });
 
   takeaways.push({
-    label: 'Why It Matters',
-    value: relationCount > 0 ? 'Linked' : 'Standalone',
+    label: 'Graph Role',
+    value: graphRole,
     detail: relationCount > 0
-      ? 'This detail participates in the graph and can be used to trace methods, evidence, or context.'
-      : 'This detail is not yet connected enough to support deeper reasoning.'
+      ? 'This detail connects to other extracted material and can help trace methods, evidence, context, or reuse.'
+      : 'This detail needs stronger links before it can support deeper reasoning.'
   });
 
   takeaways.push({
-    label: 'Evidence Level',
-    value: confidence,
+    label: 'Evidence',
+    value: evidenceSignal,
     detail: sourceCount > 0
       ? 'Source material is available for inspection.'
-      : 'No linked source is visible yet; treat this as a provisional extraction.'
+      : `Extraction confidence: ${confidence}. Treat unlinked evidence as provisional.`
   });
 
   if (spatial) {
     takeaways.push({
-      label: 'Spatial Scope',
+      label: 'Map Context',
       value: compactValue(spatial),
       detail: 'This detail can contribute to map or region reasoning.'
     });
@@ -204,7 +212,7 @@ export function getEntityTakeaways(
 
   if (temporal) {
     takeaways.push({
-      label: 'Time Scope',
+      label: 'Time Context',
       value: compactValue(temporal),
       detail: 'Temporal context can support timeline or workflow interpretation.'
     });
@@ -223,10 +231,10 @@ export function getEntityResearchBrief(
   const name = getEntityName(entity);
   const role = getReadableResearchRole(entity);
   const confidence = signals.find(signal => signal.label === 'Confidence');
-  const source = signals.find(signal => signal.label === 'Source');
-  const connections = signals.find(signal => signal.label === 'Connections');
-  const spatial = signals.find(signal => signal.label === 'Spatial');
-  const temporal = signals.find(signal => signal.label === 'Temporal');
+  const source = signals.find(signal => signal.label === 'Evidence');
+  const connections = signals.find(signal => signal.label === 'Graph Role');
+  const spatial = signals.find(signal => signal.label === 'Map Context');
+  const temporal = signals.find(signal => signal.label === 'Time Context');
   const primaryScope = pickAttributeValue(entity, [
     'description',
     'abstract',
@@ -249,13 +257,13 @@ export function getEntityResearchBrief(
     role,
     headline: primaryScope
       ? compactSentence(primaryScope, 160)
-      : `${name} is a ${role.toLowerCase()} extracted into the research graph.`,
+      : `${name} is a ${role.toLowerCase()} extracted from the source.`,
     significance: relatedCount > 0
       ? 'Connected to other research details, so it can help explain methods, evidence, context, or reuse potential.'
       : 'Currently stands alone; it needs more links before it can support deeper reasoning.',
     evidence: hasExternalSource
       ? 'Source material is available for inspection.'
-      : source?.value === 'Source text'
+      : source?.value === 'Captured text'
         ? 'Backed by captured source text, but not yet linked to an external reference.'
         : 'No visible source reference yet; treat this as provisional.',
     limitation: reviewNotes[0]?.text || inferDefaultLimitation(layer, confidence, spatial, temporal),
@@ -272,8 +280,8 @@ export function getEntityResearchBrief(
         level: source?.level || 'weak'
       },
       {
-        label: 'Links',
-        value: connections?.value === '0' ? 'Sparse' : 'Linked',
+        label: 'Graph',
+        value: connections?.value || 'Needs links',
         level: connections?.level || 'weak'
       }
     ]
@@ -288,16 +296,16 @@ export function getEntityReviewNotes(
   const notes: EntityReviewNote[] = [];
   const signalByLabel = new Map(signals.map(signal => [signal.label, signal]));
   const confidenceSignal = signalByLabel.get('Confidence');
-  const sourceSignal = signalByLabel.get('Source');
-  const connectionsSignal = signalByLabel.get('Connections');
-  const spatialSignal = signalByLabel.get('Spatial');
-  const temporalSignal = signalByLabel.get('Temporal');
+  const sourceSignal = signalByLabel.get('Evidence');
+  const connectionsSignal = signalByLabel.get('Graph Role');
+  const spatialSignal = signalByLabel.get('Map Context');
+  const temporalSignal = signalByLabel.get('Time Context');
   const layer = getEntityLayer(entity);
   const provenance = getEntityProvenance(entity);
 
   if (entity.metadata?.sourceDerived) {
     notes.push({
-      text: 'Created from explicit source text fallback; review before using it as a verified research object.',
+      text: 'Created from fallback source text; verify against the original source before relying on it.',
       level: 'info'
     });
   }
@@ -311,35 +319,35 @@ export function getEntityReviewNotes(
 
   if (confidenceSignal?.level === 'weak') {
     notes.push({
-      text: 'Treat this object as tentative until confidence improves or a human reviews it.',
+      text: 'Treat this extraction as tentative until confidence improves or a human reviews it.',
       level: 'warning'
     });
   }
 
   if (sourceSignal?.level === 'weak') {
     notes.push({
-      text: 'Source evidence is missing; check the original import or linked source object before relying on it.',
+      text: 'Source evidence is missing; check the original import or linked source before relying on it.',
       level: 'warning'
     });
   }
 
-  if (connectionsSignal?.value === 'Sparse') {
+  if (connectionsSignal?.value === 'Needs links') {
     notes.push({
-      text: 'No research graph connections yet; this detail is not contributing much to reasoning or comparison.',
+      text: 'This detail is not connected to the route yet, so it contributes little to reasoning or comparison.',
       level: 'info'
     });
   }
 
-  if (layer === 'world' && spatialSignal?.value === 'None') {
+  if (layer === 'world' && spatialSignal?.value === 'Not located') {
     notes.push({
-      text: 'World object has no spatial footprint; map behavior may be limited.',
+      text: 'No map footprint is available yet; spatial interpretation is limited.',
       level: 'warning'
     });
   }
 
-  if (shouldReviewTemporalMetadata(entity) && temporalSignal?.value === 'None') {
+  if (shouldReviewTemporalMetadata(entity) && temporalSignal?.value === 'Not stated') {
     notes.push({
-      text: 'No temporal metadata detected; timeline views may stay sparse.',
+      text: 'No time context is available yet; timeline interpretation may stay sparse.',
       level: 'info'
     });
   }
@@ -376,11 +384,11 @@ function inferDefaultLimitation(
     return 'Confidence is weak or unknown, so this needs source review before use.';
   }
 
-  if (layer === 'world' && spatial?.value === 'None') {
+  if (layer === 'world' && spatial?.value === 'Not located') {
     return 'Spatial context is not explicit enough for precise map reasoning.';
   }
 
-  if (temporal?.value === 'None' && TEMPORAL_REVIEW_LAYERS.has(layer)) {
+  if (temporal?.value === 'Not stated' && TEMPORAL_REVIEW_LAYERS.has(layer)) {
     return 'Temporal context is not explicit, so timeline interpretation may be limited.';
   }
 

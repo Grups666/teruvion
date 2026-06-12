@@ -2522,6 +2522,16 @@ html, body {
   -webkit-line-clamp: 3;
 }
 
+.detail-review-evidence a {
+  color: var(--accent);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.detail-review-evidence a:hover {
+  text-decoration: underline;
+}
+
 .detail-label {
   font-size: 10px;
   font-weight: 600;

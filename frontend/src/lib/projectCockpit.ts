@@ -145,12 +145,9 @@ export function getCockpitSignals(input: {
   const sourceId = input.entities.find(entity => getDisplayLayer(entity) === 'source')?.id || firstEntityId;
   const spatialLens = lensByName.get('map');
   const evidenceLens = lensByName.get('evidence');
-  const workflowLens = lensByName.get('workflow');
-  const comparisonLens = lensByName.get('comparison');
   const sourceDiagnosis = diagnosisByKey.get('source') || diagnosisByKey.get('pipeline');
   const spatialDiagnosis = diagnosisByKey.get('spatial');
   const evidenceDiagnosis = diagnosisByKey.get('evidence');
-  const graphDiagnosis = diagnosisByKey.get('graph');
   const capabilityDiagnosis = diagnosisByKey.get('capability');
   const isProcessing = input.project.analysis?.status === 'importing' || input.project.analysis?.status === 'analyzing';
   const workflowSignals = getWorkflowOutlineSignals(input.project);
@@ -161,54 +158,45 @@ export function getCockpitSignals(input: {
 
   return [
     {
-      key: 'source',
-      label: 'Source',
-      value: input.sourceCapsule?.type || sourceDiagnosis?.value || 'Pending',
-      detail: input.sourceCapsule?.title || sourceDiagnosis?.detail || 'Resolving source identity.',
+      key: 'source-material',
+      label: 'Source Material',
+      value: input.sourceCapsule?.title || input.project.name || 'Source resolved',
+      detail: input.sourceCapsule?.brief || sourceDiagnosis?.detail || 'The original material is available, but its technical route has not been fully decomposed yet.',
       status: mapCockpitStatus(sourceDiagnosis?.status, input.readiness?.status, isProcessing),
-      targetId: sourceId
+      targetId: sourceId,
+      edges: [{ to: 'route-gap', label: 'needs' }]
     },
     {
-      key: 'object-graph',
-      label: 'Research Graph',
-      value: graphDiagnosis?.status === 'ready' ? 'Connected' : input.entities.length > 1 ? 'Needs linking' : 'Source only',
-      detail: graphDiagnosis?.detail || 'The graph shows whether source, evidence, places, methods, and resources connect into a useful research structure.',
-      status: input.entities.length > 1
-        ? mapCockpitStatus(graphDiagnosis?.status, input.readiness?.status, isProcessing)
-        : isProcessing ? 'pending' : 'review',
-      targetId: firstEntityId
+      key: 'route-gap',
+      label: 'Route Gap',
+      value: capabilityDiagnosis?.status === 'ready' ? 'Needs linking' : 'Need method-data extraction',
+      detail: capabilityDiagnosis?.detail || 'A useful research graph should expose inputs, variables, methods, workflow steps, outputs, and findings. This import has not exposed enough of that route yet.',
+      status: isProcessing ? 'pending' : 'review',
+      targetId: input.entities.find(entity => getDisplayLayer(entity) === 'capability')?.id || firstEntityId,
+      edges: [{ to: 'evidence-check', label: 'review' }]
     },
     {
-      key: 'spatial',
-      label: 'Spatial',
+      key: 'evidence-check',
+      label: 'Evidence Check',
+      value: evidenceLens?.value || evidenceDiagnosis?.value || 'Sparse',
+      detail: evidenceLens?.detail || evidenceDiagnosis?.detail || 'Use this as a review cue, not as a replacement for a content-level workflow graph.',
+      status: evidenceLens?.status === 'ready'
+        ? 'ready'
+        : mapCockpitStatus(evidenceDiagnosis?.status, input.readiness?.status, isProcessing),
+      targetId: evidenceLens?.targetId || input.entities.find(entity => entity.category === 'evidence')?.id || null,
+      edges: spatialLens?.status === 'ready' || spatialDiagnosis?.status === 'ready'
+        ? [{ to: 'spatial-context', label: 'locates' }]
+        : []
+    },
+    {
+      key: 'spatial-context',
+      label: 'Study Context',
       value: spatialLens?.value || spatialDiagnosis?.value || 'No study area',
-      detail: spatialLens?.detail || spatialDiagnosis?.detail || 'Map remains global until spatial evidence is extracted.',
+      detail: spatialLens?.detail || spatialDiagnosis?.detail || 'Map remains global until an explicit region, hazard, event, or Earth-system scope is extracted.',
       status: spatialLens?.status === 'ready'
         ? 'ready'
         : mapCockpitStatus(spatialDiagnosis?.status, input.readiness?.status, isProcessing),
       targetId: spatialLens?.targetId || input.entities.find(entity => getDisplayLayer(entity) === 'world')?.id || null
-    },
-    {
-      key: 'evidence',
-      label: 'Evidence',
-      value: evidenceLens?.value || evidenceDiagnosis?.value || 'Sparse',
-      detail: evidenceLens?.detail || evidenceDiagnosis?.detail || 'Evidence chains show whether extracted findings are backed by inspectable source material.',
-      status: evidenceLens?.status === 'ready'
-        ? 'ready'
-        : mapCockpitStatus(evidenceDiagnosis?.status, input.readiness?.status, isProcessing),
-      targetId: evidenceLens?.targetId || input.entities.find(entity => entity.category === 'evidence')?.id || null
-    },
-    {
-      key: 'reuse',
-      label: 'Reuse',
-      value: workflowLens?.value || comparisonLens?.value || capabilityDiagnosis?.value || 'Not ready',
-      detail: comparisonLens?.status === 'ready'
-        ? comparisonLens.detail
-        : workflowLens?.detail || capabilityDiagnosis?.detail || 'Needs workflow, evidence, or comparable research material before reuse.',
-      status: comparisonLens?.status === 'ready' || workflowLens?.status === 'ready'
-        ? 'ready'
-        : mapCockpitStatus(capabilityDiagnosis?.status, input.readiness?.status, isProcessing),
-      targetId: workflowLens?.targetId || comparisonLens?.targetId || input.entities.find(entity => getDisplayLayer(entity) === 'capability')?.id || null
     }
   ];
 }
@@ -485,16 +473,13 @@ function normalizeRouteNode(node: any, project: Project) {
   const rawLabel = String(node.label || '').trim();
   const rawSummary = String(node.summary || '').trim();
   const brief = project.metadata?.decomposition?.researchBrief;
-  const sourceTitle = brief?.title || project.name || 'Research source';
 
-  if (isInternalRouteValue(rawLabel) && isInternalRouteValue(rawSummary)) {
+  if (isInternalRouteValue(rawLabel)) {
     return null;
   }
 
   const displayType = getRouteDisplayType(stage, objectType, node.type);
-  const label = isInternalRouteValue(rawLabel)
-    ? fallbackRouteValue(stage, sourceTitle, rawSummary)
-    : rawLabel;
+  const label = rawLabel;
   const summary = cleanRouteSummary(rawSummary, stage, brief?.oneLine);
   const children = filterRouteChildren(node.children || [], stage);
 
@@ -517,15 +502,6 @@ function getRouteDisplayType(stage: string, objectType: string, fallback?: strin
   if (stage === 'evidence' || objectType.includes('claim') || objectType.includes('evidence')) return 'Finding';
   if (stage === 'resource') return 'Resource';
   return fallback || 'Route';
-}
-
-function fallbackRouteValue(stage: string, sourceTitle: string, summary: string) {
-  if (stage === 'method') return 'Extracted method';
-  if (stage === 'data') return 'Input data';
-  if (stage === 'context') return summarizeRouteText(sourceTitle, 64);
-  if (stage === 'evidence') return summarizeRouteText(summary || 'Claim evidence', 64);
-  if (stage === 'execution') return 'Research workflow';
-  return summarizeRouteText(sourceTitle, 64);
 }
 
 function cleanRouteSummary(summary: string, stage: string, brief?: string) {
@@ -575,8 +551,23 @@ function isInternalRouteLabel(value: string) {
 
 function isInternalRouteValue(value: string) {
   const normalized = String(value || '').toLowerCase().trim();
+  const internalPhrases = [
+    'the research structure is linked',
+    'no explicit study area',
+    'claims can be traced',
+    'a comparison view can be opened',
+    'spatial or earth-system scope extracted',
+    'finding-level support is provisional',
+    'method node extracted',
+    'data node extracted',
+    'route node extracted',
+    'source-backed detail',
+    'review signal',
+    'not a guarantee'
+  ];
   return !normalized
     || ['paper', 'source', 'deep', 'hybrid extraction', 'metadata only', 'ready', 'connected', 'global view', 'workflow readable', 'evidence available'].includes(normalized)
+    || internalPhrases.some(phrase => normalized.includes(phrase))
     || /^\d+%$/.test(normalized);
 }
 
