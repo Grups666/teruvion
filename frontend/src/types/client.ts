@@ -187,6 +187,18 @@ class APIClient {
       headers: { 'X-Admin-Secret': adminSecret },
     });
   }
+
+  async updateAlphaMembershipQuota(
+    id: string,
+    adminSecret: string,
+    quota: { maxJobsPerMonth: number; maxSourcesPerJob: number }
+  ): Promise<{ success: boolean; membership: AlphaMembership }> {
+    return this.request(`/alpha/memberships/${id}/quota`, {
+      method: 'PATCH',
+      headers: { 'X-Admin-Secret': adminSecret },
+      body: JSON.stringify(quota),
+    });
+  }
 }
 
 export const api = new APIClient();

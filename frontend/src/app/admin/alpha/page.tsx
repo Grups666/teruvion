@@ -15,6 +15,7 @@ export default function AdminAlphaPage() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [lastInviteCode, setLastInviteCode] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [quotaDrafts, setQuotaDrafts] = useState<Record<string, { maxJobsPerMonth: number; maxSourcesPerJob: number }>>({});
 
   useEffect(() => {
     const saved = sessionStorage.getItem('adminSecret');
@@ -40,6 +41,13 @@ export default function AdminAlphaPage() {
       ]);
       setApplications(applicationResult.applications);
       setMemberships(membershipResult.memberships);
+      setQuotaDrafts(Object.fromEntries(membershipResult.memberships.map(member => [
+        member.id,
+        {
+          maxJobsPerMonth: member.quota.maxJobsPerMonth,
+          maxSourcesPerJob: member.quota.maxSourcesPerJob
+        }
+      ])));
       if (applicationResult.applications.length === 0 && membershipResult.memberships.length > 0) {
         setView('members');
       }
@@ -105,6 +113,43 @@ export default function AdminAlphaPage() {
       setNotice('Members CSV copied');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to copy members CSV');
+    }
+  }
+
+  function updateQuotaDraft(id: string, field: 'maxJobsPerMonth' | 'maxSourcesPerJob', value: string) {
+    const parsed = Number(value);
+    setQuotaDrafts(prev => ({
+      ...prev,
+      [id]: {
+        ...(prev[id] || { maxJobsPerMonth: 10, maxSourcesPerJob: 5 }),
+        [field]: Number.isFinite(parsed) ? parsed : 0
+      }
+    }));
+  }
+
+  async function saveMemberQuota(member: AlphaMembership) {
+    const draft = quotaDrafts[member.id];
+    if (!draft) return;
+
+    setProcessingId(member.id);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const result = await api.updateAlphaMembershipQuota(member.id, adminSecret, draft);
+      setMemberships(prev => prev.map(item => item.id === member.id ? result.membership : item));
+      setQuotaDrafts(prev => ({
+        ...prev,
+        [member.id]: {
+          maxJobsPerMonth: result.membership.quota.maxJobsPerMonth,
+          maxSourcesPerJob: result.membership.quota.maxSourcesPerJob
+        }
+      }));
+      setNotice(`Quota updated for ${result.membership.email}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update quota');
+    } finally {
+      setProcessingId(null);
     }
   }
 
@@ -300,16 +345,43 @@ export default function AdminAlphaPage() {
                     <div className="font-medium text-gray-800">{member.role}</div>
                   </div>
                   <div className="bg-gray-50 rounded-md px-3 py-2">
-                    <div className="text-xs text-gray-400 mb-1">Quota</div>
-                    <div className="font-medium text-gray-800">
-                      {member.quota.maxJobsPerMonth} jobs/mo - {member.quota.maxSourcesPerJob} sources/job
+                    <div className="text-xs text-gray-400 mb-2">Quota</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={10000}
+                        className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-800"
+                        value={quotaDrafts[member.id]?.maxJobsPerMonth ?? member.quota.maxJobsPerMonth}
+                        onChange={event => updateQuotaDraft(member.id, 'maxJobsPerMonth', event.target.value)}
+                        aria-label={`${member.email} max jobs per month`}
+                      />
+                      <input
+                        type="number"
+                        min={1}
+                        max={10000}
+                        className="w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-800"
+                        value={quotaDrafts[member.id]?.maxSourcesPerJob ?? member.quota.maxSourcesPerJob}
+                        onChange={event => updateQuotaDraft(member.id, 'maxSourcesPerJob', event.target.value)}
+                        aria-label={`${member.email} max sources per job`}
+                      />
                     </div>
+                    <div className="mt-1 text-[11px] text-gray-400">jobs/mo - sources/job</div>
                   </div>
                 </div>
 
                 <div className="flex justify-between items-center text-xs text-gray-400">
                   <span>{member.id}</span>
-                  <span>{new Date(member.createdAt).toLocaleString()}</span>
+                  <div className="flex items-center gap-3">
+                    <span>{new Date(member.createdAt).toLocaleString()}</span>
+                    <button
+                      onClick={() => saveMemberQuota(member)}
+                      disabled={processingId === member.id}
+                      className="px-3 py-1 bg-black text-white rounded hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      {processingId === member.id ? 'Saving...' : 'Save quota'}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

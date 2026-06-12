@@ -1091,4 +1091,47 @@ router.get('/alpha/memberships', async (req, res) => {
   }
 });
 
+// PATCH /api/alpha/memberships/:id/quota - Update member quota (admin only)
+router.patch('/alpha/memberships/:id/quota', async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const { id } = req.params;
+    const { maxJobsPerMonth, maxSourcesPerJob } = req.body || {};
+    const quota = {};
+
+    if (maxJobsPerMonth !== undefined) {
+      const jobs = Number(maxJobsPerMonth);
+      if (!Number.isInteger(jobs) || jobs < 1 || jobs > 10000) {
+        return res.status(400).json({ error: 'maxJobsPerMonth must be an integer between 1 and 10000' });
+      }
+      quota.maxJobsPerMonth = jobs;
+    }
+
+    if (maxSourcesPerJob !== undefined) {
+      const sources = Number(maxSourcesPerJob);
+      if (!Number.isInteger(sources) || sources < 1 || sources > 10000) {
+        return res.status(400).json({ error: 'maxSourcesPerJob must be an integer between 1 and 10000' });
+      }
+      quota.maxSourcesPerJob = sources;
+    }
+
+    if (Object.keys(quota).length === 0) {
+      return res.status(400).json({ error: 'Missing quota fields' });
+    }
+
+    const membership = membershipStore.updateQuota(id, quota);
+    if (!membership) {
+      return res.status(404).json({ error: 'Membership not found' });
+    }
+
+    await membershipStore.save();
+
+    res.json({ success: true, membership });
+  } catch (err) {
+    console.error('[Alpha] Update membership quota error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

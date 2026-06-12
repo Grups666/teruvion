@@ -74,6 +74,23 @@ class AlphaMembershipStore {
   }
 
   /**
+   * Update quota for an existing membership
+   */
+  updateQuota(id, quota) {
+    const membership = this.memberships.get(id);
+    if (!membership) {
+      return null;
+    }
+
+    membership.quota = {
+      ...membership.quota,
+      ...quota
+    };
+
+    return membership;
+  }
+
+  /**
    * Save to disk
    */
   async save() {
