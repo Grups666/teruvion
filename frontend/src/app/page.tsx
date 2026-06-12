@@ -854,7 +854,11 @@ export default function Home() {
                       <button
                         type="button"
                         key={action.label}
-                        className={action.priority === 'high' ? 'high' : ''}
+                        className={[
+                          action.priority === 'high' ? 'high' : '',
+                          action.operation === 'wait' ? 'passive' : ''
+                        ].filter(Boolean).join(' ')}
+                        disabled={action.operation === 'wait'}
                         onClick={() => runProjectAction(action)}
                       >
                         <span>{action.label}</span>
