@@ -405,7 +405,6 @@ export default function Home() {
   const sourceCapsule = selectedProject ? getSourceCapsule(selectedProject, projectQuality) : null;
   const projectDiagnosis = selectedProject ? getProjectDiagnosis(selectedProject, projectQuality, projectStats, projectEntities.length) : [];
   const projectReadiness = selectedProject ? getProjectReadiness(selectedProject, projectDiagnosis) : null;
-  const recommendedActions = getRecommendedNextActions(selectedProject || null, projectQuality, projectStats, projectEntities.length);
   const lensSummaries = getLensSummaries(projectLenses);
   const projectBrief = selectedProject
     ? getProjectBrief({
@@ -470,6 +469,10 @@ export default function Home() {
   const projectSourceAttributes = ((projectDecomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
   const projectResources = rankProjectResources(projectDecomposition?.externalResources || []).slice(0, 6);
   const projectLimitations = (projectDecomposition?.inferredLimitations || []).slice(0, 4);
+  const recommendedActions = mergeRecommendedActions(
+    buildResourceNextActions(projectResources),
+    getRecommendedNextActions(selectedProject || null, projectQuality, projectStats, projectEntities.length)
+  );
   const projectAuthorLine = compactMetaList(
     projectDecomposition?.researchBrief?.authors
       || projectSourceAttributes.authors
@@ -487,7 +490,12 @@ export default function Home() {
       || projectSourceAttributes.journal
   );
 
-  async function runProjectAction(action: { label: string; operation?: string; targetLayer: DisplayLayer | null; fallbackLayer?: DisplayLayer | null }) {
+  async function runProjectAction(action: { label: string; operation?: string; targetLayer: DisplayLayer | null; fallbackLayer?: DisplayLayer | null; href?: string }) {
+    if (action.operation === 'open-resource' && action.href) {
+      window.open(normalizeExternalHref(action.href), '_blank', 'noopener,noreferrer');
+      return;
+    }
+
     if (action.operation === 'cancel') {
       if (!selectedProject?.id) return;
       try {
@@ -1199,6 +1207,16 @@ type ProjectResource = {
   reviewHint?: string;
 };
 
+type ProjectAction = {
+  label: string;
+  reason?: string;
+  priority?: 'high' | 'normal' | 'low';
+  operation?: string;
+  targetLayer: DisplayLayer | null;
+  fallbackLayer?: DisplayLayer | null;
+  href?: string;
+};
+
 function rankProjectResources(resources: ProjectResource[]) {
   const seen = new Set<string>();
   return resources
@@ -1208,6 +1226,42 @@ function rankProjectResources(resources: ProjectResource[]) {
       return true;
     })
     .sort((a, b) => resourcePriority(b) - resourcePriority(a));
+}
+
+function buildResourceNextActions(resources: ProjectResource[]): ProjectAction[] {
+  return resources
+    .filter(resource => resource?.url && resourcePriority(resource) >= 50)
+    .slice(0, 2)
+    .map(resource => ({
+      label: resource.investigationLabel || resourceActionLabel(resource),
+      reason: resource.verificationFocus
+        ? `Check ${resource.verificationFocus}.`
+        : resource.routeRelevance || resource.reviewHint || `Open ${resourceHost(resource.url)} to verify its role.`,
+      priority: resourcePriority(resource) >= 80 ? 'high' : 'normal',
+      operation: 'open-resource',
+      targetLayer: null,
+      href: resource.url
+    }));
+}
+
+function mergeRecommendedActions(resourceActions: ProjectAction[], fallbackActions: ProjectAction[]): ProjectAction[] {
+  const merged = [...resourceActions, ...fallbackActions];
+  const seen = new Set<string>();
+  return merged.filter(action => {
+    const key = `${action.label}:${action.href || action.targetLayer || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 4);
+}
+
+function resourceActionLabel(resource: ProjectResource) {
+  const type = String(resource.type || '').toLowerCase();
+  if (type === 'repository' || type === 'code') return 'Inspect code path';
+  if (type === 'dataset') return 'Verify data source';
+  if (type === 'supplement') return 'Inspect supplement';
+  if (type === 'paper' || type === 'doi' || type === 'source') return 'Open source evidence';
+  return 'Review linked resource';
 }
 
 function resourcePriority(resource: ProjectResource) {
