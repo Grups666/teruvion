@@ -61,6 +61,12 @@ export interface ObjectConstellationNode {
   sampleEntityId: string | null;
 }
 
+export interface ProjectNextAction {
+  label: string;
+  targetLayer: DisplayLayer | null;
+  fallbackLayer?: DisplayLayer | null;
+}
+
 type DecompositionView = Decomposition & {
   confidence?: number;
   provenance?: { extractionMethod?: string };
@@ -280,32 +286,40 @@ export function getRecommendedNextActions(
   quality: ProjectQuality | null,
   stats: ProjectStats,
   objectCount: number
-): string[] {
+): ProjectNextAction[] {
   if (!quality || quality.level === 'pending') {
-    return ['Wait for import completion', 'Review source coverage once extraction finishes'];
+    return [
+      { label: 'Wait for import completion', targetLayer: null },
+      { label: 'Review source coverage once extraction finishes', targetLayer: 'source' }
+    ];
   }
 
-  const actions: string[] = [];
+  const actions: ProjectNextAction[] = [];
 
   if (quality.coverage?.warning) {
-    actions.push('Check source coverage');
+    actions.push({ label: 'Check source coverage', targetLayer: 'source' });
   }
   if (stats.world === 0) {
-    actions.push('Review spatial scope');
+    actions.push({ label: 'Review spatial scope', targetLayer: 'world', fallbackLayer: 'source' });
   }
   if (stats.capability === 0) {
-    actions.push('Inspect methods and data manually');
+    actions.push({ label: 'Inspect methods and data manually', targetLayer: 'capability', fallbackLayer: 'source' });
   }
   if (quality.relations === 0 && objectCount > 1) {
-    actions.push('Review missing graph relations');
+    actions.push({ label: 'Review missing graph relations', targetLayer: 'source', fallbackLayer: 'capability' });
   }
   if (quality.notes.some(note => note.text.includes('fallback') || note.text.includes('metadata-only'))) {
-    actions.push('Verify fallback objects before use');
+    actions.push({ label: 'Verify fallback objects before use', targetLayer: 'source', fallbackLayer: 'capability' });
   }
 
-  actions.push('Open an object to inspect evidence');
+  actions.push({ label: 'Open an object to inspect evidence', targetLayer: 'foundation', fallbackLayer: 'source' });
 
-  return Array.from(new Set(actions)).slice(0, 4);
+  const seen = new Set<string>();
+  return actions.filter(action => {
+    if (seen.has(action.label)) return false;
+    seen.add(action.label);
+    return true;
+  }).slice(0, 4);
 }
 
 export function buildProjectSummaryText(project: Project, quality: ProjectQuality, stats: ProjectStats, objectCount: number) {

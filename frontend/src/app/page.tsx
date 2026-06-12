@@ -448,6 +448,23 @@ export default function Home() {
     }
   }
 
+  function selectActionTarget(action: { label: string; targetLayer: DisplayLayer | null; fallbackLayer?: DisplayLayer | null }) {
+    const target = action.targetLayer
+      ? projectEntities.find(entity => getDisplayLayer(entity) === action.targetLayer)
+      : null;
+    const fallback = !target && action.fallbackLayer
+      ? projectEntities.find(entity => getDisplayLayer(entity) === action.fallbackLayer)
+      : null;
+    const anyEntity = !target && !fallback ? projectEntities[0] : null;
+    const entity = target || fallback || anyEntity;
+
+    if (entity) {
+      setSelectedEntityId(entity.id);
+    }
+
+    setStatus(action.label);
+  }
+
   return (
     <div className="app-shell">
       {/* ===== Sidebar ===== */}
@@ -779,14 +796,10 @@ export default function Home() {
                     {recommendedActions.map(action => (
                       <button
                         type="button"
-                        key={action}
-                        onClick={() => {
-                          const firstEntityId = projectEntities[0]?.id;
-                          if (firstEntityId) setSelectedEntityId(firstEntityId);
-                          setStatus(action);
-                        }}
+                        key={action.label}
+                        onClick={() => selectActionTarget(action)}
                       >
-                        {action}
+                        {action.label}
                       </button>
                     ))}
                   </div>
