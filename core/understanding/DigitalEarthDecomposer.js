@@ -234,7 +234,7 @@ class DigitalEarthDecomposer {
       if (this.options.useLLM && this.llm && sourceText.length > 100) {
         try {
           llmResult = await this._extractWithLLM(input, content, normalizedAdmissionResult);
-          if (!this._hasExtractionObjects(llmResult)) {
+          if (!this._hasExtractionObjects(llmResult) && !this._hasResearchRoute(llmResult?.researchRoute)) {
             llmResult = null;
           }
           result.extractionMetadata.llmExtraction = {
@@ -242,6 +242,7 @@ class DigitalEarthDecomposer {
             worldCount: llmResult?.worldObjects?.length || 0,
             evidenceCount: llmResult?.evidenceObjects?.length || 0,
             relationCount: llmResult?.bridgeRelations?.length || 0,
+            routeNodeCount: llmResult?.researchRoute?.nodes?.length || 0,
             success: Boolean(llmResult)
           };
         } catch (llmError) {
@@ -258,6 +259,13 @@ class DigitalEarthDecomposer {
       result.worldObjects = merged.worldObjects;
       result.evidenceObjects = merged.evidenceObjects;
       result.extractionMetadata.mergeStrategy = merged.strategy;
+      result.extractionMetadata.researchRoute = merged.researchRoute
+        ? {
+            source: merged.researchRoute.provenance?.method || 'llm-research-route',
+            nodeCount: merged.researchRoute.nodes.length,
+            edgeCount: merged.researchRoute.edges.length
+          }
+        : { source: 'protocol-fallback', nodeCount: 0, edgeCount: 0 };
 
       // Update provenance
       result.provenance.sections = merged.sections;
@@ -295,7 +303,7 @@ class DigitalEarthDecomposer {
       // Calculate overall confidence
       result.confidence = this._calculateConfidence(result);
       result.researchBrief = this._buildResearchBrief(result, content, normalizedAdmissionResult);
-      result.workflowOutline = this._buildWorkflowOutline(result, content);
+      result.workflowOutline = merged.researchRoute || this._buildWorkflowOutline(result, content);
       result.externalResources = this._extractExternalResources(result, content);
       result.inferredLimitations = this._buildInferredLimitations(result);
       result.inferredLimitations = await this._buildCriticalLimitations(result, content, result.inferredLimitations);
@@ -651,11 +659,23 @@ IMPORTANT:
 - Assign confidence scores (0-1) based on how clearly the object is defined
 - Validate entity types against the provided list
 - For bridgeRelations, explain the evidence in the provenance
+- Also build researchRoute when the text exposes a technical route, workflow, repository architecture, or content structure
+- researchRoute overview nodes must describe source content: inputs, data, variables, methods, models, processes, context, outputs, findings, limitations, or reusable resources
+- Do not use container/system labels such as Paper, Source, Repository, Connected, Global view, Workflow readable, or Evidence available as overview route nodes
+- researchRoute node children can describe deeper internal structure for in-panel drilldown
 - Return valid JSON only`;
 
     // Process each chunk
     for (const chunk of chunks) {
       const chunkPrompt = `${prompt}
+
+## Research Route Contract
+If the section exposes how the source actually works, include a researchRoute object:
+- nodes should be content-level units, not Teruvion system states
+- useful node labels include concrete data, inputs, variables, methods, models, workflow steps, spatial/temporal context, results, claims, limitations, or reusable resources
+- each node may include children for deeper drilldown inside the same graph panel
+- edges should describe how one content unit feeds, supports, interprets, refines, or relates to another
+- if the section does not support a real route, omit researchRoute instead of fabricating one
 
 ## Source Text (Section: ${chunk.sections.join(', ')})
 ${chunk.text}
@@ -681,7 +701,7 @@ Return JSON for this chunk. Focus on extracting objects mentioned in this sectio
         const parsed = JSON.parse(jsonMatch[0]);
 
         // Add chunk context to results
-        if (parsed.capabilityObjects || parsed.worldObjects || parsed.evidenceObjects) {
+        if (parsed.capabilityObjects || parsed.worldObjects || parsed.evidenceObjects || parsed.researchRoute) {
           allResults.push({
             ...parsed,
             chunkInfo: {
@@ -709,7 +729,33 @@ Return JSON for this chunk. Focus on extracting objects mentioned in this sectio
 ## Source Text
 ${fullText.substring(0, this.options.maxChunkSize)}
 
-Return JSON with this structure:`;
+Return JSON with this structure:
+{
+  "capabilityObjects": [],
+  "worldObjects": [],
+  "evidenceObjects": [],
+  "bridgeRelations": [],
+  "researchRoute": {
+    "title": "Research route",
+    "summary": "One sentence describing what this source does.",
+    "nodes": [
+      {
+        "id": "short-stable-id",
+        "label": "Content-level node label",
+        "type": "Data|Method|Workflow|Context|Evidence|Resource",
+        "stage": "data|method|execution|context|evidence|resource",
+        "summary": "What this node contributes.",
+        "status": "ready|review|blocked|pending",
+        "children": [
+          { "label": "Detail label", "value": "Specific content", "detail": "Why it matters or how it connects" }
+        ]
+      }
+    ],
+    "edges": [
+      { "from": "source-node-id", "to": "target-node-id", "label": "feeds|supports|interprets|refines|relates" }
+    ]
+  }
+}`;
 
       try {
         const response = await this.llm.chat({
@@ -746,6 +792,7 @@ Return JSON with this structure:`;
       worldObjects: [],
       evidenceObjects: [],
       bridgeRelations: [],
+      researchRoute: null,
       sections: { chunks: chunkResults.length }
     };
 
@@ -753,6 +800,7 @@ Return JSON with this structure:`;
     const seenWorld = new Map();
     const seenEvidence = new Map();
     const seenRelations = new Set();
+    const routeCandidates = [];
 
     for (const chunkResult of chunkResults) {
       // Merge capability objects
@@ -812,11 +860,16 @@ Return JSON with this structure:`;
           result.bridgeRelations.push(rel);
         }
       }
+
+      if (this._hasResearchRoute(chunkResult.researchRoute)) {
+        routeCandidates.push(chunkResult.researchRoute);
+      }
     }
 
     result.capabilityObjects = Array.from(seenCapabilities.values());
     result.worldObjects = Array.from(seenWorld.values());
     result.evidenceObjects = Array.from(seenEvidence.values());
+    result.researchRoute = this._mergeResearchRoutes(routeCandidates);
 
     return result;
   }
@@ -840,6 +893,7 @@ Return JSON with this structure:`;
 
       return {
         ...merged,
+        researchRoute: null,
         strategy: hasTextFallback ? 'source-text-fallback' : 'metadata-only'
       };
     }
@@ -895,6 +949,7 @@ Return JSON with this structure:`;
     result.evidenceObjects = Array.from(evidenceByKey.values());
 
     result.bridgeRelations = llmResult.bridgeRelations || [];
+    result.researchRoute = this._normalizeResearchRoute(llmResult.researchRoute);
 
     // Merge sections
     result.sections = {
@@ -1069,6 +1124,10 @@ Return JSON with this structure:`;
       || result.evidenceObjects?.length
       || result.bridgeRelations?.length
     );
+  }
+
+  _hasResearchRoute(route) {
+    return Boolean(route?.nodes?.length >= 2);
   }
 
   _buildResearchBrief(result, content = {}, admissionResult = {}) {
@@ -1475,6 +1534,196 @@ Return JSON with this structure:`;
     if (next.stage === 'evidence') return 'supports';
     if (next.stage === 'context') return 'interprets';
     return 'feeds';
+  }
+
+  _mergeResearchRoutes(routes = []) {
+    const normalizedRoutes = routes
+      .map(route => this._normalizeResearchRoute(route))
+      .filter(Boolean);
+    if (normalizedRoutes.length === 0) return null;
+
+    const result = {
+      title: normalizedRoutes[0].title || 'Research route',
+      summary: normalizedRoutes.map(route => route.summary).filter(Boolean)[0] || 'Content-level research route extracted from the source.',
+      nodes: [],
+      edges: [],
+      provenance: {
+        method: 'llm-research-route',
+        routeCount: normalizedRoutes.length
+      }
+    };
+    const nodeByKey = new Map();
+    const edgeKeys = new Set();
+
+    for (const route of normalizedRoutes) {
+      for (const node of route.nodes || []) {
+        const key = node.id || this._slugifyRouteId(node.label);
+        if (!key || nodeByKey.has(key)) continue;
+        nodeByKey.set(key, node);
+      }
+    }
+
+    result.nodes = Array.from(nodeByKey.values())
+      .sort((a, b) => (a.stageOrder - b.stageOrder) || a.label.localeCompare(b.label))
+      .slice(0, 12);
+    const validNodeIds = new Set(result.nodes.map(node => node.id));
+
+    for (const route of normalizedRoutes) {
+      for (const edge of route.edges || []) {
+        if (!validNodeIds.has(edge.from) || !validNodeIds.has(edge.to)) continue;
+        const key = `${edge.from}:${edge.to}:${edge.label || ''}`;
+        if (edgeKeys.has(key)) continue;
+        edgeKeys.add(key);
+        result.edges.push(edge);
+      }
+    }
+
+    if (result.edges.length === 0) {
+      result.edges = this._routeEdgesFromNodeOrder(result.nodes);
+    }
+
+    return result.nodes.length >= 2 ? result : null;
+  }
+
+  _normalizeResearchRoute(route = {}) {
+    if (!route || typeof route !== 'object' || !Array.isArray(route.nodes)) return null;
+
+    const rawPairs = route.nodes
+      .map((node, index) => ({ raw: node, normalized: this._normalizeResearchRouteNode(node, index), index }))
+      .filter(pair => pair.normalized);
+    if (rawPairs.length < 2) return null;
+
+    const nodes = [];
+    const usedIds = new Set();
+    const idAliases = new Map();
+    for (const pair of rawPairs) {
+      const node = pair.normalized;
+      let id = node.id;
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `${node.id}-${suffix}`;
+        suffix += 1;
+      }
+      usedIds.add(id);
+      const normalizedNode = { ...node, id };
+      nodes.push(normalizedNode);
+      [pair.raw?.id, pair.raw?.label, pair.raw?.name, pair.raw?.title, String(pair.index + 1)].filter(Boolean).forEach(alias => {
+        idAliases.set(String(alias), normalizedNode.id);
+      });
+    }
+
+    const validNodeIds = new Set(nodes.map(node => node.id));
+    const edges = [];
+    const edgeKeys = new Set();
+    for (const edge of route.edges || []) {
+      const from = idAliases.get(String(edge?.from || edge?.source || '')) || edge?.from || edge?.source;
+      const to = idAliases.get(String(edge?.to || edge?.target || '')) || edge?.to || edge?.target;
+      if (!validNodeIds.has(from) || !validNodeIds.has(to) || from === to) continue;
+      const normalizedEdge = {
+        from,
+        to,
+        label: this._summarizeText(edge.label || edge.type || 'relates', 40)
+      };
+      const key = `${normalizedEdge.from}:${normalizedEdge.to}:${normalizedEdge.label}`;
+      if (edgeKeys.has(key)) continue;
+      edgeKeys.add(key);
+      edges.push(normalizedEdge);
+    }
+
+    return {
+      title: this._summarizeText(route.title || 'Research route', 80),
+      summary: this._summarizeText(route.summary || route.description || 'Content-level route extracted from the source.', 260),
+      nodes,
+      edges: edges.length > 0 ? edges : this._routeEdgesFromNodeOrder(nodes),
+      provenance: {
+        method: 'llm-research-route',
+        confidence: route.confidence || null
+      }
+    };
+  }
+
+  _normalizeResearchRouteNode(node = {}, index = 0) {
+    if (!node || typeof node !== 'object') return null;
+    const label = this._summarizeText(node.label || node.name || node.title || '', 82);
+    if (!label || this._isGenericRouteLabel(label)) return null;
+
+    const stage = this._normalizeWorkflowStage(node.stage || node.type || node.category);
+    const definition = WORKFLOW_STAGE_DEFINITIONS[stage];
+    const summary = this._summarizeText(
+      node.summary || node.description || node.detail || definition.fallbackSummary,
+      240
+    );
+
+    return {
+      id: this._slugifyRouteId(node.id || label || `route-${index + 1}`),
+      objectId: node.objectId || null,
+      label,
+      type: this._summarizeText(node.type || definition.label, 40),
+      stage,
+      stageOrder: definition.order,
+      objectType: node.objectType || node.type || definition.label,
+      summary,
+      status: this._normalizeRouteStatus(node.status),
+      children: this._normalizeResearchRouteChildren(node.children || node.details || node.innerRoute)
+    };
+  }
+
+  _normalizeResearchRouteChildren(children) {
+    const items = Array.isArray(children) ? children : children ? [children] : [];
+    return items
+      .map((child, index) => {
+        if (typeof child === 'string' || typeof child === 'number') {
+          const value = this._summarizeText(String(child), 140);
+          return value ? { label: `Detail ${index + 1}`, value, detail: '' } : null;
+        }
+        if (!child || typeof child !== 'object') return null;
+        const label = this._summarizeText(child.label || child.name || child.title || `Detail ${index + 1}`, 60);
+        const value = this._summarizeText(child.value || child.summary || child.description || child.detail || child.type || '', 140);
+        const detail = this._summarizeText(child.detail || child.reason || child.evidence || child.description || '', 220);
+        if (!value || this._isInternalRouteChild(label, value)) return null;
+        return { label, value, detail };
+      })
+      .filter(Boolean)
+      .slice(0, 8);
+  }
+
+  _normalizeWorkflowStage(value) {
+    const normalized = String(value || '').toLowerCase().trim();
+    if (WORKFLOW_STAGE_DEFINITIONS[normalized]) return normalized;
+    if (WORKFLOW_STAGE_BY_CATEGORY[normalized]) return WORKFLOW_STAGE_BY_CATEGORY[normalized];
+    if (['input', 'inputs', 'variable', 'variables', 'observation', 'observations'].includes(normalized)) return 'data';
+    if (['model', 'models', 'algorithm', 'algorithms', 'analysis', 'methodology'].includes(normalized)) return 'method';
+    if (['pipeline', 'process', 'procedure', 'step'].includes(normalized)) return 'execution';
+    if (['region', 'location', 'spatial', 'temporal', 'hazard', 'risk'].includes(normalized)) return 'context';
+    if (['output', 'outputs', 'result', 'results', 'finding', 'findings', 'claim', 'claims'].includes(normalized)) return 'evidence';
+    return 'resource';
+  }
+
+  _normalizeRouteStatus(status) {
+    const normalized = String(status || '').toLowerCase().trim();
+    return ['ready', 'review', 'blocked', 'pending'].includes(normalized) ? normalized : 'review';
+  }
+
+  _routeEdgesFromNodeOrder(nodes = []) {
+    const ordered = [...nodes].sort((a, b) => (a.stageOrder - b.stageOrder) || a.label.localeCompare(b.label));
+    const edges = [];
+    for (let i = 1; i < ordered.length; i += 1) {
+      edges.push({
+        from: ordered[i - 1].id,
+        to: ordered[i].id,
+        label: this._workflowEdgeLabel(ordered[i - 1], ordered[i])
+      });
+    }
+    return edges;
+  }
+
+  _slugifyRouteId(value) {
+    const slug = String(value || 'route-node')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .substring(0, 48);
+    return slug || 'route-node';
   }
 
   _extractExternalResources(result, content = {}) {

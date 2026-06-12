@@ -97,6 +97,103 @@ describe('Digital Earth Decomposer', () => {
     assert.strictEqual(result.extractionMetadata.llmExtraction.success, true);
   });
 
+  it('should prefer LLM content research route over protocol fallback route', async () => {
+    const llm = {
+      async chat(params) {
+        const userText = params.messages?.map(message => message.content).join('\n') || '';
+        if (userText.includes('"task": "Critical Review"')) {
+          return { content: JSON.stringify({ limitations: [] }) };
+        }
+
+        return {
+          content: JSON.stringify({
+            capabilityObjects: [],
+            worldObjects: [],
+            evidenceObjects: [],
+            bridgeRelations: [],
+            researchRoute: {
+              title: 'Scenario evaluation route',
+              summary: 'Scenario logs are transformed by a constraint planner into feasibility reports.',
+              nodes: [
+                {
+                  id: 'scenario-logs',
+                  label: 'Scenario Logs',
+                  type: 'Data',
+                  stage: 'data',
+                  summary: 'Structured scenario records used as the input material.',
+                  children: [
+                    { label: 'Input', value: 'Scenario records', detail: 'Source material for planning evaluation.' }
+                  ]
+                },
+                {
+                  id: 'constraint-planner',
+                  label: 'Constraint Planner',
+                  type: 'Method',
+                  stage: 'method',
+                  summary: 'Planner applies constraints to evaluate candidate actions.',
+                  children: [
+                    { label: 'Core method', value: 'Constraint-based planning', detail: 'Transforms scenarios into ranked options.' }
+                  ]
+                },
+                {
+                  id: 'feasibility-report',
+                  label: 'Feasibility Report',
+                  type: 'Evidence',
+                  stage: 'evidence',
+                  summary: 'Report summarizes feasible options and reviewable outputs.',
+                  children: [
+                    { label: 'Output', value: 'Ranked feasible options', detail: 'Used for downstream review.' }
+                  ]
+                }
+              ],
+              edges: [
+                { from: 'scenario-logs', to: 'constraint-planner', label: 'feeds' },
+                { from: 'constraint-planner', to: 'feasibility-report', label: 'produces' }
+              ]
+            }
+          })
+        };
+      }
+    };
+    const decomposer = new DigitalEarthDecomposer(llm);
+    const admissionResult = {
+      sourceType: 'Repository',
+      depth: 'deep',
+      activatedCategories: ['data', 'modeling', 'evidence'],
+      activatedOntologyLayers: ['source', 'capability'],
+      sourceRoles: { modeling_capability: 0.8 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('https://example.com/scenario-toolkit', {
+      type: 'repository',
+      title: 'Scenario Toolkit',
+      content: [
+        'Overview',
+        'The toolkit loads scenario logs, applies a constraint planner, and produces feasibility reports for review.',
+        'Methods',
+        'Scenario logs are transformed by the constraint planner before the final feasibility report is generated.',
+        'Outputs',
+        'The feasibility report contains ranked feasible options and supporting review notes.'
+      ].join('\n'),
+      metadata: {
+        title: 'Scenario Toolkit',
+        datasets: [{ name: 'Metadata Dataset' }],
+        models: [{ name: 'Metadata Model' }]
+      }
+    }, admissionResult);
+
+    const routeLabels = result.workflowOutline.nodes.map(node => node.label);
+
+    assert.strictEqual(result.workflowOutline.provenance.method, 'llm-research-route');
+    assert.deepStrictEqual(routeLabels, ['Scenario Logs', 'Constraint Planner', 'Feasibility Report']);
+    assert.ok(result.workflowOutline.edges.some(edge => edge.from === 'scenario-logs' && edge.to === 'constraint-planner'));
+    assert.ok(result.workflowOutline.nodes[1].children.some(child => child.value === 'Constraint-based planning'));
+    assert.ok(routeLabels.every(label => !['Paper', 'Source', 'Repository', 'Connected'].includes(label)));
+    assert.strictEqual(result.extractionMetadata.researchRoute.source, 'llm-research-route');
+  });
+
   it('should create source-text fallback objects when LLM extraction fails', async () => {
     const originalConsoleError = console.error;
     console.error = () => {};
