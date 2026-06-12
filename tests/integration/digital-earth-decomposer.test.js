@@ -275,6 +275,29 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(routeNodes.every(node => node.type && node.summary), 'Each route node should have readable display fields');
   });
 
+  it('should classify workflow stages from ontology category instead of name patterns', () => {
+    const decomposer = new DigitalEarthDecomposer();
+
+    const unknownNamedLikeModel = decomposer._classifyWorkflowStage({
+      type: 'ModelShapedUnknownThing',
+      metadata: { category: 'unmapped' }
+    }, 'capability');
+
+    const ontologyDataset = decomposer._classifyWorkflowStage({
+      type: 'Dataset',
+      metadata: {}
+    }, 'capability');
+
+    const ontologyClaim = decomposer._classifyWorkflowStage({
+      type: 'Claim',
+      metadata: {}
+    }, 'evidence');
+
+    assert.strictEqual(unknownNamedLikeModel.key, 'resource', 'Unknown names should not be classified by substring');
+    assert.strictEqual(ontologyDataset.key, 'data', 'Known ontology data type should map through schema category');
+    assert.strictEqual(ontologyClaim.key, 'evidence', 'Known ontology evidence type should map through schema category');
+  });
+
   it('should resolve extracted object types through ontology protocol', async () => {
     const decomposer = new DigitalEarthDecomposer();
 

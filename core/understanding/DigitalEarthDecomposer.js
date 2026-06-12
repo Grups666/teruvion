@@ -39,6 +39,75 @@ const WORLD_EXTRACTION_PROTOCOL = [
   { category: 'model-output', method: '_extractModelOutputs', section: 'modelOutputs' }
 ];
 
+const WORKFLOW_STAGE_DEFINITIONS = {
+  data: {
+    key: 'data',
+    label: 'Data',
+    order: 10,
+    fallbackSummary: 'Input data, variables, observations, or resource material used by the research route.'
+  },
+  method: {
+    key: 'method',
+    label: 'Method',
+    order: 20,
+    fallbackSummary: 'Method, model, algorithm, or analytical step used to transform source material.'
+  },
+  execution: {
+    key: 'execution',
+    label: 'Workflow',
+    order: 30,
+    fallbackSummary: 'Procedural workflow or executable route connecting data, methods, and outputs.'
+  },
+  resource: {
+    key: 'resource',
+    label: 'Resource',
+    order: 35,
+    fallbackSummary: 'Reusable research resource extracted from the source.'
+  },
+  context: {
+    key: 'context',
+    label: 'Context',
+    order: 40,
+    fallbackSummary: 'Spatial, temporal, hazard, risk, or Earth-system context interpreted by the research route.'
+  },
+  evidence: {
+    key: 'evidence',
+    label: 'Evidence',
+    order: 50,
+    fallbackSummary: 'Claim, result, figure, table, or evidence item used to review the research route.'
+  }
+};
+
+const WORKFLOW_STAGE_BY_CATEGORY = {
+  data: 'data',
+  observation: 'data',
+  'earth-variable': 'data',
+  modeling: 'method',
+  method: 'method',
+  computing: 'execution',
+  workflow: 'execution',
+  process: 'execution',
+  resource: 'resource',
+  platform: 'resource',
+  dependency: 'resource',
+  code: 'resource',
+  technical: 'resource',
+  'earth-system': 'context',
+  'earth-object': 'context',
+  spatial: 'context',
+  system: 'context',
+  hazard: 'context',
+  risk: 'context',
+  exposure: 'context',
+  infrastructure: 'context',
+  'human-activity': 'context',
+  scenario: 'context',
+  'model-output': 'evidence',
+  evidence: 'evidence',
+  knowledge: 'evidence',
+  feedback: 'evidence'
+};
+
 const TYPE_RESOLUTION_PROTOCOLS = {
   region: {
     fallback: 'Region',
@@ -1139,64 +1208,23 @@ Return JSON with this structure:`;
   }
 
   _classifyWorkflowStage(object, layer) {
-    const type = String(object?.type || '').toLowerCase();
-    const category = String(object?.metadata?.category || object?.category || '').toLowerCase();
-    const role = String(object?.attributes?.role || object?.metadata?.role || '').toLowerCase();
-    const text = `${type} ${category} ${role}`;
+    const schema = ontology.getEntitySchema?.(object?.type);
+    const category = String(
+      object?.metadata?.category
+      || object?.category
+      || schema?.category
+      || ''
+    ).toLowerCase();
+    const schemaLayer = schema?.layer || layer;
+    const stageKey = WORKFLOW_STAGE_BY_CATEGORY[category] || this._workflowStageKeyByLayer(schemaLayer || layer);
+    return WORKFLOW_STAGE_DEFINITIONS[stageKey] || WORKFLOW_STAGE_DEFINITIONS.resource;
+  }
 
-    const stages = [
-      {
-        key: 'data',
-        label: 'Data',
-        order: 10,
-        fallbackSummary: 'Input data, variables, observations, or resource material used by the research route.',
-        match: ['data', 'dataset', 'variable', 'observation', 'coverage', 'repository']
-      },
-      {
-        key: 'method',
-        label: 'Method',
-        order: 20,
-        fallbackSummary: 'Method, model, algorithm, or analytical step used to transform source material.',
-        match: ['method', 'model', 'algorithm', 'software', 'computing']
-      },
-      {
-        key: 'execution',
-        label: 'Workflow',
-        order: 30,
-        fallbackSummary: 'Procedural workflow or executable route connecting data, methods, and outputs.',
-        match: ['workflow', 'experiment', 'pipeline', 'process']
-      },
-      {
-        key: 'context',
-        label: 'Context',
-        order: 40,
-        fallbackSummary: 'Spatial, temporal, hazard, risk, or Earth-system context interpreted by the research route.',
-        match: ['region', 'basin', 'hazard', 'risk', 'earth', 'world', 'scenario', 'output']
-      },
-      {
-        key: 'evidence',
-        label: 'Evidence',
-        order: 50,
-        fallbackSummary: 'Claim, result, figure, table, or evidence item used to review the research route.',
-        match: ['evidence', 'claim', 'result', 'finding', 'figure', 'table', 'indicator']
-      }
-    ];
-
-    for (const stage of stages) {
-      if (stage.match.some(token => text.includes(token))) {
-        return stage;
-      }
-    }
-
-    if (layer === 'world') return stages.find(stage => stage.key === 'context');
-    if (layer === 'evidence') return stages.find(stage => stage.key === 'evidence');
-    return {
-      key: 'resource',
-      label: 'Resource',
-      order: 35,
-      fallbackSummary: 'Reusable research resource extracted from the source.',
-      match: []
-    };
+  _workflowStageKeyByLayer(layer) {
+    if (layer === 'world') return 'context';
+    if (layer === 'evidence') return 'evidence';
+    if (layer === 'source') return 'resource';
+    return 'resource';
   }
 
   _workflowEdgeLabel(previous, next) {
