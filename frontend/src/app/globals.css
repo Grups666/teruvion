@@ -786,19 +786,6 @@ html, body {
   text-transform: uppercase;
 }
 
-.route-graph-canvas {
-  position: relative;
-  min-height: 340px;
-  overflow: hidden;
-  border: 1px solid rgba(15, 23, 42, 0.07);
-  border-radius: 10px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(15, 118, 110, 0.08), transparent 7%),
-    radial-gradient(circle at 50% 50%, transparent 0 28%, rgba(15, 23, 42, 0.035) 29%, transparent 30%),
-    radial-gradient(circle at 50% 50%, transparent 0 47%, rgba(15, 23, 42, 0.025) 48%, transparent 49%),
-    linear-gradient(180deg, rgba(255,255,255,0.74), rgba(248,250,252,0.64));
-}
-
 .research-flow-shell {
   position: relative;
   height: 370px;
@@ -812,6 +799,24 @@ html, body {
     linear-gradient(180deg, rgba(255,255,255,0.8), rgba(248,250,252,0.66));
 }
 
+.research-flow-shell.detail {
+  height: 265px;
+  margin-top: 12px;
+  border-color: rgba(20, 184, 166, 0.12);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.08), transparent 9%),
+    linear-gradient(180deg, rgba(255,255,255,0.64), rgba(240, 253, 250, 0.4));
+}
+
+.research-flow-shell.micro {
+  height: 220px;
+  margin-top: 13px;
+  border-color: rgba(20, 184, 166, 0.12);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.08), transparent 10%),
+    rgba(255,255,255,0.5);
+}
+
 .research-flow-shell .react-flow {
   background: transparent;
 }
@@ -821,6 +826,14 @@ html, body {
   border: none;
   background: transparent;
   box-shadow: none;
+}
+
+.research-flow-shell.detail .react-flow__node {
+  width: 170px;
+}
+
+.research-flow-shell.micro .react-flow__node {
+  width: 156px;
 }
 
 .research-flow-shell .react-flow__handle {
@@ -889,6 +902,26 @@ html, body {
   transform: translateY(-1px);
 }
 
+.research-flow-node:disabled {
+  cursor: default;
+}
+
+.research-flow-node:disabled:hover {
+  transform: none;
+}
+
+.research-flow-shell.detail .research-flow-node {
+  width: 170px;
+  min-height: 76px;
+  padding: 12px 13px 12px 36px;
+}
+
+.research-flow-shell.micro .research-flow-node {
+  width: 156px;
+  min-height: 68px;
+  padding: 10px 11px 10px 32px;
+}
+
 .research-flow-node span {
   display: block;
   margin-bottom: 5px;
@@ -918,132 +951,6 @@ html, body {
   color: #64748b;
   font-size: 10px;
   line-height: 1.28;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.route-graph-lines,
-.route-detail-lines,
-.route-micro-lines {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.route-graph-lines line,
-.route-detail-lines line,
-.route-micro-lines line {
-  stroke: rgba(15, 118, 110, 0.28);
-  stroke-width: 0.7;
-  stroke-linecap: round;
-  stroke-dasharray: 2.2 2.8;
-  vector-effect: non-scaling-stroke;
-}
-
-.route-graph-nodes {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
-.route-node {
-  position: absolute;
-  left: var(--node-x);
-  top: var(--node-y);
-  width: 150px;
-  min-width: 0;
-  min-height: 64px;
-  padding: 10px 12px 10px 32px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 999px;
-  background: rgba(255,255,255,0.82);
-  color: var(--primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
-  transform: translate(-50%, -50%);
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.route-node i {
-  position: absolute;
-  top: 50%;
-  left: 11px;
-  width: 14px;
-  height: 14px;
-  transform: translateY(-50%);
-  border: 3px solid var(--surface);
-  border-radius: 999px;
-  background: var(--border);
-  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.28), 0 0 0 7px rgba(15, 118, 110, 0.055);
-}
-
-.route-node.ready i {
-  background: #14b8a6;
-}
-
-.route-node.review i,
-.route-node.pending i {
-  background: #d97706;
-}
-
-.route-node.blocked i {
-  background: #dc2626;
-}
-
-.route-node:hover,
-.route-node.active {
-  border-color: rgba(15, 23, 42, 0.4);
-  background: var(--surface);
-  transform: translate(-50%, -52%);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.11);
-  z-index: 3;
-}
-
-.route-node.active {
-  border-color: rgba(15, 118, 110, 0.72);
-  box-shadow:
-    0 0 0 4px rgba(15, 118, 110, 0.09),
-    0 18px 42px rgba(15, 23, 42, 0.12);
-}
-
-.route-node.active i {
-  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.5), 0 0 0 9px rgba(15, 118, 110, 0.12);
-}
-
-.route-node span {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--muted);
-  font-size: 9px;
-  font-weight: 720;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.route-node strong {
-  display: block;
-  min-width: 0;
-  margin-bottom: 3px;
-  overflow: hidden;
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 720;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.route-node small {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--secondary);
-  font-size: 10px;
-  line-height: 1.3;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -1313,24 +1220,6 @@ html, body {
   line-height: 1.45;
 }
 
-.route-detail-graph {
-  position: relative;
-  min-height: 245px;
-  margin-top: 12px;
-  overflow: hidden;
-  border: 1px solid rgba(20, 184, 166, 0.12);
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.1), transparent 8%),
-    linear-gradient(180deg, rgba(255,255,255,0.58), rgba(240, 253, 250, 0.42));
-}
-
-.route-drilldown-path {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
 .project-resources {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1529,90 +1418,6 @@ html, body {
   background: rgba(254, 242, 242, 0.72);
 }
 
-.route-subnode {
-  position: absolute;
-  left: var(--node-x);
-  top: var(--node-y);
-  width: 170px;
-  min-width: 0;
-  min-height: 72px;
-  padding: 10px 11px 10px 36px;
-  border: 1px solid rgba(20, 184, 166, 0.26);
-  border-radius: 999px;
-  background: rgba(255,255,255,0.86);
-  color: var(--primary);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
-  transform: translate(-50%, -50%);
-  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.route-subnode:hover {
-  border-color: rgba(20, 184, 166, 0.52);
-  transform: translate(-50%, -52%);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
-}
-
-.route-subnode.active {
-  border-color: rgba(20, 184, 166, 0.72);
-  background: rgba(240, 253, 250, 0.92);
-  box-shadow: 0 14px 30px rgba(15, 118, 110, 0.12);
-}
-
-.route-subnode i {
-  position: absolute;
-  top: 50%;
-  left: 12px;
-  display: grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  transform: translateY(-50%);
-  border-radius: 999px;
-  background: #0f766e;
-  color: var(--surface);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 760;
-  line-height: 1;
-}
-
-.route-subnode span {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.route-subnode strong {
-  display: block;
-  min-width: 0;
-  margin-bottom: 3px;
-  overflow: hidden;
-  color: var(--primary);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.route-subnode small {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--secondary);
-  font-size: 10px;
-  line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
 .route-focus-card {
   margin-top: 14px;
   padding: 13px 14px;
@@ -1646,72 +1451,6 @@ html, body {
   color: var(--secondary);
   font-size: 12px;
   line-height: 1.45;
-}
-
-.route-micro-graph {
-  position: relative;
-  min-height: 210px;
-  margin-top: 13px;
-  overflow: hidden;
-  border: 1px solid rgba(20, 184, 166, 0.12);
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.1), transparent 8%),
-    rgba(255,255,255,0.44);
-}
-
-.route-micro-nodes {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-}
-
-.route-micro-node {
-  position: absolute;
-  left: var(--node-x);
-  top: var(--node-y);
-  width: 156px;
-  min-width: 0;
-  min-height: 66px;
-  padding: 10px 11px;
-  border: 1px solid rgba(20, 184, 166, 0.18);
-  border-radius: 999px;
-  background: rgba(255,255,255,0.82);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
-  transform: translate(-50%, -50%);
-}
-
-.route-micro-node span {
-  display: block;
-  margin-bottom: 7px;
-  color: #0f766e;
-  font-size: 9px;
-  font-weight: 780;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.route-micro-node strong {
-  display: -webkit-box;
-  min-width: 0;
-  margin-bottom: 6px;
-  overflow: hidden;
-  color: #0f172a;
-  font-size: 12px;
-  font-weight: 760;
-  line-height: 1.25;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.route-micro-node small {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--secondary);
-  font-size: 10px;
-  line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 .project-brief {
@@ -3250,26 +2989,26 @@ html, body {
     font-size: 18px;
   }
 
-  .route-graph-lines,
-  .route-detail-lines,
-  .route-micro-lines {
-    display: none;
+  .research-flow-shell {
+    height: 300px;
   }
 
-  .route-graph-canvas,
-  .route-detail-graph {
-    min-height: 260px;
+  .research-flow-shell.detail {
+    height: 255px;
   }
 
-  .route-micro-graph {
-    min-height: 230px;
+  .research-flow-shell.micro {
+    height: 230px;
   }
 
-  .route-node,
-  .route-subnode,
-  .route-micro-node {
-    width: 138px;
-    min-height: 58px;
+  .research-flow-shell .react-flow__node,
+  .research-flow-shell.detail .react-flow__node,
+  .research-flow-shell.micro .react-flow__node,
+  .research-flow-node,
+  .research-flow-shell.detail .research-flow-node,
+  .research-flow-shell.micro .research-flow-node {
+    width: 148px;
+    min-height: 62px;
   }
 
   .detail-panel {

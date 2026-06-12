@@ -18,7 +18,8 @@ export type ResearchRouteSignal = {
 type Props = {
   signals: ResearchRouteSignal[];
   activeKey?: string | null;
-  onSelect: (key: string) => void;
+  onSelect?: (key: string) => void;
+  variant?: 'overview' | 'detail' | 'micro';
 };
 
 const STAGE_POSITIONS = [
@@ -30,12 +31,38 @@ const STAGE_POSITIONS = [
   { x: 700, y: 275 }
 ];
 
-export default function ResearchRouteGraph({ signals, activeKey, onSelect }: Props) {
+const DETAIL_POSITIONS = [
+  { x: 40, y: 92 },
+  { x: 310, y: 34 },
+  { x: 580, y: 92 },
+  { x: 850, y: 34 },
+  { x: 1120, y: 92 },
+  { x: 610, y: 210 }
+];
+
+const MICRO_POSITIONS = [
+  { x: 70, y: 70 },
+  { x: 340, y: 34 },
+  { x: 610, y: 70 },
+  { x: 420, y: 180 },
+  { x: 160, y: 180 }
+];
+
+function getPositions(variant: Props['variant']) {
+  if (variant === 'detail') return DETAIL_POSITIONS;
+  if (variant === 'micro') return MICRO_POSITIONS;
+  return STAGE_POSITIONS;
+}
+
+export default function ResearchRouteGraph({ signals, activeKey, onSelect, variant = 'overview' }: Props) {
   const { nodes, edges } = useMemo(() => {
+    const positions = getPositions(variant);
     const graphNodes: Node[] = signals.map((signal, index) => {
-      const position = STAGE_POSITIONS[index] || {
+      const position = positions[index] || {
         x: 80 + index * 220,
-        y: index % 2 === 0 ? 130 : 250
+        y: variant === 'overview'
+          ? index % 2 === 0 ? 130 : 250
+          : index % 2 === 0 ? 78 : 170
       };
 
       return {
@@ -46,7 +73,8 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect }: Pro
             <button
               type="button"
               className={`research-flow-node ${signal.status} ${activeKey === signal.key ? 'active' : ''}`}
-              onClick={() => onSelect(signal.key)}
+              onClick={() => onSelect?.(signal.key)}
+              disabled={!onSelect}
             >
               <span>{signal.label}</span>
               <strong>{signal.value}</strong>
@@ -70,10 +98,10 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect }: Pro
     }));
 
     return { nodes: graphNodes, edges: graphEdges };
-  }, [activeKey, onSelect, signals]);
+  }, [activeKey, onSelect, signals, variant]);
 
   return (
-    <div className="research-flow-shell">
+    <div className={`research-flow-shell ${variant}`}>
       <ReactFlow
         nodes={nodes}
         edges={edges}

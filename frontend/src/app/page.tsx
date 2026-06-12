@@ -119,6 +119,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    setActiveFocusIndex(0);
+  }, [activeCockpitKey, selectedProjectId]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadProjectLenses(projectId: string) {
@@ -439,8 +443,23 @@ export default function Home() {
     : [];
   const activeFocusItem = cockpitFocusItems[activeFocusIndex] || cockpitFocusItems[0] || null;
   const focusMicroGraph = buildFocusMicroGraph(activeFocusItem);
-  const detailGraphPoints = buildConstellationPoints(cockpitFocusItems.length, 'detail');
-  const focusGraphPoints = buildConstellationPoints(focusMicroGraph.length, 'micro');
+  const detailGraphSignals = cockpitFocusItems.map((item, index) => ({
+    key: `${activeCockpitSignal?.key || 'detail'}-${index}`,
+    label: item.label,
+    value: item.value,
+    detail: item.detail,
+    status: 'ready' as const
+  }));
+  const activeDetailGraphKey = activeFocusItem
+    ? `${activeCockpitSignal?.key || 'detail'}-${Math.max(0, cockpitFocusItems.indexOf(activeFocusItem))}`
+    : null;
+  const focusGraphSignals = focusMicroGraph.map((node, index) => ({
+    key: `${activeDetailGraphKey || 'focus'}-${index}`,
+    label: node.label,
+    value: node.value,
+    detail: node.detail,
+    status: 'review' as const
+  }));
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
   const selectedEntityTakeaways = selectedEntity ? getEntityTakeaways(selectedEntity, selectedExplore, selectedEntitySignals) : [];
@@ -760,35 +779,18 @@ export default function Home() {
                   </div>
                   <p>{activeCockpitSignal.detail}</p>
                   {cockpitFocusItems.length > 0 && (
-                    <div className="route-detail-graph">
-                      <svg className="route-detail-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                        {buildConstellationEdges(detailGraphPoints).map(edge => (
-                          <line key={edge.id} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} />
-                        ))}
-                      </svg>
-                      <div className="route-drilldown-path">
-                        {cockpitFocusItems.map((item, index) => {
-                          const point = detailGraphPoints[index] || { x: 50, y: 50 };
-                          return (
-                          <button
-                            type="button"
-                            className={`route-subnode ${activeFocusItem === item ? 'active' : ''}`}
-                            key={`${activeCockpitSignal.key}-${item.label}`}
-                            style={{ '--node-x': `${point.x}%`, '--node-y': `${point.y}%` } as React.CSSProperties}
-                            onClick={() => {
-                              setActiveFocusIndex(index);
-                              setStatus(`${item.label} inner node selected`);
-                            }}
-                          >
-                            <i>{index + 1}</i>
-                            <span>{item.label}</span>
-                            <strong>{item.value}</strong>
-                            <small>{item.detail}</small>
-                          </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <ResearchRouteGraph
+                      signals={detailGraphSignals}
+                      activeKey={activeDetailGraphKey}
+                      variant="detail"
+                      onSelect={key => {
+                        const index = detailGraphSignals.findIndex(signal => signal.key === key);
+                        if (index >= 0) {
+                          setActiveFocusIndex(index);
+                          setStatus(`${detailGraphSignals[index].label} inner node selected`);
+                        }
+                      }}
+                    />
                   )}
                   {activeFocusItem && (
                     <div className="route-focus-card">
@@ -796,29 +798,11 @@ export default function Home() {
                       <strong>{activeFocusItem.value}</strong>
                       <p>{activeFocusItem.detail}</p>
                       {focusMicroGraph.length > 0 && (
-                        <div className="route-micro-graph">
-                          <svg className="route-micro-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                            {buildConstellationEdges(focusGraphPoints).map(edge => (
-                              <line key={edge.id} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} />
-                            ))}
-                          </svg>
-                          <div className="route-micro-nodes">
-                            {focusMicroGraph.map((node, index) => {
-                              const point = focusGraphPoints[index] || { x: 50, y: 50 };
-                              return (
-                              <div
-                                className="route-micro-node"
-                                key={node.label}
-                                style={{ '--node-x': `${point.x}%`, '--node-y': `${point.y}%` } as React.CSSProperties}
-                              >
-                                <span>{node.label}</span>
-                                <strong>{node.value}</strong>
-                                <small>{node.detail}</small>
-                              </div>
-                              );
-                            })}
-                          </div>
-                        </div>
+                        <ResearchRouteGraph
+                          signals={focusGraphSignals}
+                          activeKey={focusGraphSignals[0]?.key}
+                          variant="micro"
+                        />
                       )}
                     </div>
                   )}
@@ -1340,76 +1324,6 @@ function shortProjectName(project: Project) {
     .filter(word => word.length > 1 && !stopwords.has(word.toLowerCase()))
     .slice(0, 4);
   return words.length > 0 ? words.join(' ') : cleaned.split(' ').slice(0, 4).join(' ') || 'Untitled';
-}
-
-function buildConstellationPoints(count: number, variant: 'main' | 'detail' | 'micro') {
-  if (count <= 0) return [];
-  if (count === 1) return [{ x: 50, y: 50 }];
-
-  if (variant === 'main') {
-    const layouts: Record<number, Array<{ x: number; y: number }>> = {
-      2: [{ x: 28, y: 50 }, { x: 72, y: 50 }],
-      3: [{ x: 22, y: 50 }, { x: 58, y: 28 }, { x: 78, y: 66 }],
-      4: [{ x: 20, y: 46 }, { x: 48, y: 27 }, { x: 72, y: 45 }, { x: 55, y: 72 }],
-      5: [{ x: 18, y: 47 }, { x: 46, y: 28 }, { x: 50, y: 70 }, { x: 76, y: 38 }, { x: 79, y: 66 }],
-      6: [{ x: 17, y: 47 }, { x: 38, y: 27 }, { x: 58, y: 31 }, { x: 80, y: 45 }, { x: 69, y: 70 }, { x: 35, y: 72 }]
-    };
-    if (layouts[count]) return layouts[count];
-  }
-
-  const radiusByVariant = {
-    main: 34,
-    detail: 33,
-    micro: 30
-  };
-  const centerYByVariant = {
-    main: 50,
-    detail: 51,
-    micro: 50
-  };
-  const radius = radiusByVariant[variant];
-  const center = { x: 50, y: centerYByVariant[variant] };
-  const start = variant === 'main' ? -142 : -118;
-  const sweep = variant === 'micro' ? 360 : 284;
-
-  return Array.from({ length: count }, (_, index) => {
-    const angle = count === 2
-      ? start + index * 180
-      : start + (sweep * index) / count;
-    const radians = (angle * Math.PI) / 180;
-    const yCompression = variant === 'main' ? 0.58 : 0.68;
-    return {
-      x: clampPercent(center.x + Math.cos(radians) * radius),
-      y: clampPercent(center.y + Math.sin(radians) * radius * yCompression)
-    };
-  });
-}
-
-function buildConstellationEdges(points: Array<{ x: number; y: number }>) {
-  if (points.length <= 1) return [];
-  const center = { x: 50, y: 50 };
-  const spokeEdges = points.map((point, index) => ({
-    id: `spoke-${index}`,
-    x1: center.x,
-    y1: center.y,
-    x2: point.x,
-    y2: point.y
-  }));
-  const ringEdges = points.map((point, index) => {
-    const next = points[(index + 1) % points.length];
-    return {
-      id: `ring-${index}`,
-      x1: point.x,
-      y1: point.y,
-      x2: next.x,
-      y2: next.y
-    };
-  });
-  return [...spokeEdges, ...ringEdges];
-}
-
-function clampPercent(value: number) {
-  return Math.min(90, Math.max(10, Number(value.toFixed(2))));
 }
 
 function resourceHost(url: string) {
