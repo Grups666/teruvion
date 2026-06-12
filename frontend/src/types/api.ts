@@ -122,6 +122,7 @@ export interface Decomposition {
     role?: string;
     source?: string;
     context?: string;
+    reviewHint?: string;
   }>;
   inferredLimitations?: Array<{
     id?: string;

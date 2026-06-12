@@ -866,10 +866,10 @@ export default function Home() {
                               <em>{signal.label}</em>
                             </div>
                             <strong>{resource.label || resourceHost(resource.url)}</strong>
-                            <small>{resource.context || resource.role || resource.source || resourceHost(resource.url)}</small>
+                            <small>{resourceReviewText(resource)}</small>
                             <div className="resource-foot">
                               <b>{resourceHost(resource.url)}</b>
-                              {resource.source && <i>{formatResourceSource(resource.source)}</i>}
+                              <i>{resource.role || formatResourceSource(resource.source)}</i>
                             </div>
                           </a>
                         );
@@ -1209,6 +1209,7 @@ type ProjectResource = {
   role?: string;
   source?: string;
   context?: string;
+  reviewHint?: string;
 };
 
 function rankProjectResources(resources: ProjectResource[]) {
@@ -1239,9 +1240,9 @@ function resourcePriority(resource: ProjectResource) {
 
 function resourceSignal(resource: ProjectResource) {
   const priority = resourcePriority(resource);
-  if (priority >= 80) return { label: 'High value', level: 'strong' };
-  if (priority >= 58) return { label: 'Useful', level: 'normal' };
-  return { label: 'Context', level: 'weak' };
+  if (priority >= 80) return { label: 'Reproducibility lead', level: 'strong' };
+  if (priority >= 58) return { label: 'Evidence lead', level: 'normal' };
+  return { label: 'Context lead', level: 'weak' };
 }
 
 function resourceSummary(resources: ProjectResource[]) {
@@ -1269,6 +1270,13 @@ function formatResourceSource(source?: string) {
   return String(source || '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function resourceReviewText(resource: ProjectResource) {
+  return resource.reviewHint
+    || resource.context
+    || resource.role
+    || 'Open this link to verify how it supports the research route.';
 }
 
 function formatLimitationSource(source?: string) {

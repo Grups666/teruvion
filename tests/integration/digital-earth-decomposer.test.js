@@ -150,7 +150,9 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(result.worldObjects.some(obj => obj.type === 'Region'), 'Should create global scope object from explicit source wording');
     assert.ok(result.researchBrief, 'Should build product-level research brief');
     assert.ok(result.workflowOutline?.nodes?.length >= 2, 'Should build protocol-level workflow outline');
-    assert.ok(result.externalResources.some(resource => resource.type === 'dataset'), 'Should expose external dataset resources');
+    const datasetResource = result.externalResources.find(resource => resource.type === 'dataset');
+    assert.ok(datasetResource, 'Should expose external dataset resources');
+    assert.ok(datasetResource.reviewHint?.includes('data version'), 'Dataset resources should explain what a researcher needs to verify');
     assert.ok(Array.isArray(result.inferredLimitations), 'Should report inferred limitations for the UI');
   });
 

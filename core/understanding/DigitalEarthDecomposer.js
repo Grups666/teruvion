@@ -1484,12 +1484,14 @@ Return JSON with this structure:`;
       if (!url) return;
       const normalizedUrl = String(url);
       if (resources.some(resource => resource.url === normalizedUrl)) return;
+      const type = candidate.type || this._classifyResourceUrl(normalizedUrl);
       resources.push({
         label: candidate.label || candidate.name || candidate.title || this._resourceLabelFromUrl(normalizedUrl),
         url: normalizedUrl,
-        type: candidate.type || this._classifyResourceUrl(normalizedUrl),
-        role: candidate.role || 'referenced resource',
-        source: candidate.source || 'metadata'
+        type,
+        role: candidate.role || this._resourceRole(type),
+        source: candidate.source || 'metadata',
+        reviewHint: candidate.reviewHint || this._resourceReviewHint(type, candidate.source)
       });
     };
 
@@ -1829,6 +1831,39 @@ Return JSON with this structure:`;
     if (value.includes('doi.org') || /^10\./.test(value)) return 'doi';
     if (value.endsWith('.pdf')) return 'paper';
     return 'external';
+  }
+
+  _resourceRole(type = '') {
+    const roles = {
+      repository: 'code or method implementation',
+      code: 'code or method implementation',
+      dataset: 'data or evidence source',
+      supplement: 'supplementary evidence',
+      paper: 'source document',
+      doi: 'source identifier',
+      source: 'primary source'
+    };
+    return roles[String(type || '').toLowerCase()] || 'referenced resource';
+  }
+
+  _resourceReviewHint(type = '', source = '') {
+    const normalizedType = String(type || '').toLowerCase();
+    const normalizedSource = String(source || '').toLowerCase();
+    if (normalizedType === 'repository' || normalizedType === 'code') {
+      return 'Inspect README, license, dependencies, examples, and run instructions before treating it as reproducible code.';
+    }
+    if (normalizedType === 'dataset') {
+      return 'Check access terms, data version, variables, spatial/temporal coverage, and download instructions.';
+    }
+    if (normalizedType === 'supplement') {
+      return 'Use this to verify methods, tables, figures, or additional experiment details not visible in the main text.';
+    }
+    if (normalizedType === 'paper' || normalizedType === 'doi' || normalizedType === 'source') {
+      return normalizedSource === 'sourceobject'
+        ? 'Use this as the canonical source before trusting extracted claims.'
+        : 'Open this source to verify extracted claims and citation context.';
+    }
+    return 'Review this link before using it as evidence, data, or implementation support.';
   }
 
   _normalizeSourceType(type) {
