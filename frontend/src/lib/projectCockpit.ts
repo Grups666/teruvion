@@ -147,6 +147,11 @@ export function getCockpitSignals(input: {
   const graphDiagnosis = diagnosisByKey.get('graph');
   const capabilityDiagnosis = diagnosisByKey.get('capability');
   const isProcessing = input.project.analysis?.status === 'importing' || input.project.analysis?.status === 'analyzing';
+  const workflowSignals = getWorkflowOutlineSignals(input.project);
+
+  if (workflowSignals.length > 0) {
+    return workflowSignals;
+  }
 
   return [
     {
@@ -223,6 +228,26 @@ export function getCockpitFocusItems(input: {
   const evidenceLens = lensByName.get('evidence');
   const workflowLens = lensByName.get('workflow');
   const comparisonLens = lensByName.get('comparison');
+  const workflowNode = getWorkflowOutlineNode(input.project, input.signal.key);
+
+  if (workflowNode) {
+    const children = workflowNode.children || [];
+    if (children.length > 0) {
+      return children.slice(0, 6).map(child => ({
+        label: child.label,
+        value: child.value,
+        detail: child.detail || workflowNode.summary || 'This detail comes from the protocol-level workflow outline.'
+      }));
+    }
+
+    return [
+      {
+        label: workflowNode.type || 'Route Node',
+        value: workflowNode.label,
+        detail: workflowNode.summary || 'This node is part of the extracted technical route.'
+      }
+    ];
+  }
 
   if (input.signal.key === 'source') {
     return [
@@ -344,6 +369,18 @@ export function getProjectBrief(input: {
   sourceCapsule: ReturnType<typeof getSourceCapsule> | null;
 }): ProjectBriefItem[] {
   const isProcessing = input.project.analysis?.status === 'importing' || input.project.analysis?.status === 'analyzing';
+  const protocolBrief = input.project.metadata?.decomposition?.researchBrief;
+
+  if (protocolBrief?.keyPoints?.length) {
+    return protocolBrief.keyPoints.slice(0, 4).map((item, index) => ({
+      key: item.id || `brief-${index + 1}`,
+      label: item.label,
+      value: item.value,
+      detail: item.detail,
+      status: isProcessing ? 'pending' : mapProtocolBriefStatus(item.value, protocolBrief.confidence)
+    }));
+  }
+
   const primaryGap = input.diagnosis.find(item => item.status === 'missing')
     || input.diagnosis.find(item => item.status === 'limited')
     || input.diagnosis.find(item => item.status === 'pending');
@@ -395,6 +432,37 @@ function mapBriefStatus(
   if (readinessStatus === 'blocked' || diagnosisStatus === 'missing') return 'blocked';
   if (readinessStatus === 'ready' || diagnosisStatus === 'ready') return 'ready';
   return 'review';
+}
+
+function getWorkflowOutlineSignals(project: Project): CockpitSignal[] {
+  const nodes = project.metadata?.decomposition?.workflowOutline?.nodes || [];
+  const visibleNodes = nodes.filter(node => node.id !== 'source').slice(0, 5);
+  if (visibleNodes.length === 0) return [];
+
+  return visibleNodes.map(node => ({
+    key: node.id,
+    label: node.type || 'Route',
+    value: node.label,
+    detail: node.summary || 'Protocol-level technical route node.',
+    status: mapWorkflowNodeStatus(node.status),
+    targetId: node.objectId || null
+  }));
+}
+
+function getWorkflowOutlineNode(project: Project, key: string) {
+  return (project.metadata?.decomposition?.workflowOutline?.nodes || []).find(node => node.id === key) || null;
+}
+
+function mapWorkflowNodeStatus(status?: string): CockpitSignal['status'] {
+  if (status === 'ready' || status === 'review' || status === 'blocked' || status === 'pending') return status;
+  return 'review';
+}
+
+function mapProtocolBriefStatus(value: string, confidence?: number): ProjectBriefItem['status'] {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized.includes('missing') || normalized.includes('limited') || normalized.includes('sparse')) return 'review';
+  if (typeof confidence === 'number' && confidence < 0.45) return 'review';
+  return 'ready';
 }
 
 function mapCockpitStatus(

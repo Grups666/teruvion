@@ -406,15 +406,21 @@ export default function Home() {
   const selectedEntityBrief = selectedEntity
     ? getEntityResearchBrief(selectedEntity, selectedExplore, selectedEntitySignals, selectedEntityReviewNotes)
     : null;
-  const projectSourceAttributes = ((selectedProject?.metadata?.decomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
+  const projectDecomposition = selectedProject?.metadata?.decomposition;
+  const projectSourceAttributes = ((projectDecomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
+  const projectResources = (projectDecomposition?.externalResources || []).filter(resource => resource.url).slice(0, 4);
+  const projectLimitations = (projectDecomposition?.inferredLimitations || []).slice(0, 4);
   const projectAuthorLine = compactMetaList(
-    projectSourceAttributes.authors
+    projectDecomposition?.researchBrief?.authors
+      || projectSourceAttributes.authors
       || projectSourceAttributes.author
       || projectSourceAttributes.creators
       || projectSourceAttributes.contributors
   );
   const projectVenueLine = compactMetaList(
-    projectSourceAttributes.institutions
+    projectDecomposition?.researchBrief?.institutions
+      || projectDecomposition?.researchBrief?.venue
+      || projectSourceAttributes.institutions
       || projectSourceAttributes.affiliations
       || projectSourceAttributes.venue
       || projectSourceAttributes.publisher
@@ -725,7 +731,7 @@ export default function Home() {
                 <div className="project-brief">
                   <div className="project-brief-head">
                     <span>Project Brief</span>
-                    <span>{projectReadiness?.nextStep || 'Review extracted source'}</span>
+                    <span>{projectDecomposition?.researchBrief?.oneLine || projectReadiness?.nextStep || 'Review extracted source'}</span>
                   </div>
                   <div className="project-brief-grid">
                     {projectBrief.map(item => (
@@ -735,6 +741,56 @@ export default function Home() {
                         <small>{item.detail}</small>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {(projectResources.length > 0 || projectLimitations.length > 0) && (
+                <div className="project-resources">
+                  <div className="project-resources-column">
+                    <div className="project-resources-head">
+                      <span>Resources</span>
+                      <small>{projectResources.length > 0 ? `${projectResources.length} links` : 'No link extracted'}</small>
+                    </div>
+                    <div className="project-resource-list">
+                      {projectResources.length > 0 ? projectResources.map(resource => (
+                        <a
+                          href={normalizeExternalHref(resource.url)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="project-resource"
+                          key={`${resource.type || 'resource'}-${resource.url}`}
+                        >
+                          <span>{resource.type || 'external'}</span>
+                          <strong>{resource.label}</strong>
+                          <small>{resource.role || resource.source || resource.url}</small>
+                        </a>
+                      )) : (
+                        <div className="project-resource empty">
+                          <strong>No external resource detected</strong>
+                          <small>Try a DOI, repository, data link, or richer source page.</small>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="project-resources-column">
+                    <div className="project-resources-head">
+                      <span>Limits</span>
+                      <small>{projectLimitations.length > 0 ? 'Review before use' : 'No major limit'}</small>
+                    </div>
+                    <div className="project-limit-list">
+                      {projectLimitations.length > 0 ? projectLimitations.map(limit => (
+                        <div className={`project-limit ${limit.severity || 'info'}`} key={limit.id || limit.label}>
+                          <strong>{limit.label}</strong>
+                          <small>{limit.detail}</small>
+                        </div>
+                      )) : (
+                        <div className="project-limit info">
+                          <strong>No protocol limitation reported</strong>
+                          <small>Continue inspecting source evidence and route nodes.</small>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -1027,6 +1083,13 @@ function getRelationProvenanceLabel(provenance?: Record<string, any>) {
 
 function isExternalUrl(value?: string | null) {
   return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+}
+
+function normalizeExternalHref(value: string) {
+  const trimmed = value.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^10\.\d{4,9}\//i.test(trimmed)) return `https://doi.org/${trimmed}`;
+  return trimmed;
 }
 
 function compactMetaList(value: unknown) {

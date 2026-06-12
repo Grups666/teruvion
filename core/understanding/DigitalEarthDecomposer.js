@@ -225,6 +225,10 @@ class DigitalEarthDecomposer {
 
       // Calculate overall confidence
       result.confidence = this._calculateConfidence(result);
+      result.researchBrief = this._buildResearchBrief(result, content, normalizedAdmissionResult);
+      result.workflowOutline = this._buildWorkflowOutline(result);
+      result.externalResources = this._extractExternalResources(result, content);
+      result.inferredLimitations = this._buildInferredLimitations(result);
 
     } catch (error) {
       result.error = error.message;
@@ -995,6 +999,342 @@ Return JSON with this structure:`;
       || result.evidenceObjects?.length
       || result.bridgeRelations?.length
     );
+  }
+
+  _buildResearchBrief(result, content = {}, admissionResult = {}) {
+    const source = result.sourceObject || {};
+    const attributes = source.attributes || {};
+    const metadata = content.metadata || {};
+    const abstract = attributes.abstract || metadata.abstract || content.abstract || '';
+    const authors = attributes.authors || metadata.authors || [];
+    const authorText = Array.isArray(authors)
+      ? authors.map(author => typeof author === 'string' ? author : author?.name).filter(Boolean).slice(0, 6).join(', ')
+      : String(authors || '');
+    const institutionText = this._collectAttributeValues([
+      metadata.institutions,
+      metadata.affiliations,
+      metadata.institution,
+      attributes.institution
+    ]).slice(0, 5).join(', ');
+    const title = attributes.title || source.name || metadata.title || result.input || 'Untitled source';
+
+    const keyPoints = [
+      {
+        id: 'source',
+        label: 'Source',
+        value: source.type || result.sourceType || 'Source',
+        detail: title
+      },
+      {
+        id: 'scope',
+        label: 'Scope',
+        value: result.worldObjects?.length > 0 ? 'Spatial or Earth context extracted' : 'Global or unspecified scope',
+        detail: result.worldObjects?.[0]?.name || result.worldObjects?.[0]?.attributes?.name || 'No verified study region was extracted from available source material.'
+      },
+      {
+        id: 'method',
+        label: 'Method route',
+        value: result.capabilityObjects?.length > 0 ? 'Inspectable' : 'Sparse',
+        detail: result.capabilityObjects?.[0]?.name || result.capabilityObjects?.[0]?.attributes?.name || 'No explicit method, data, or workflow object was extracted yet.'
+      },
+      {
+        id: 'evidence',
+        label: 'Evidence',
+        value: result.evidenceObjects?.length > 0 ? 'Traceable' : 'Limited',
+        detail: result.evidenceObjects?.[0]?.attributes?.statement || result.evidenceObjects?.[0]?.name || 'No claim-level evidence chain is available yet.'
+      }
+    ];
+
+    return {
+      title,
+      sourceType: source.type || result.sourceType || 'Source',
+      authors: authorText,
+      institutions: institutionText,
+      year: attributes.year || metadata.year || metadata.publicationYear || null,
+      venue: attributes.venue || metadata.venue || metadata.journal || null,
+      url: attributes.url || attributes.doi || attributes.identifier || result.input || null,
+      oneLine: this._summarizeText(abstract || attributes.description || metadata.description || title, 280),
+      keyPoints,
+      confidence: result.confidence,
+      provenance: {
+        method: 'protocol-derived',
+        llm: result.extractionMetadata?.llmExtraction?.success === true,
+        admissionDepth: admissionResult.depth || result.depth
+      }
+    };
+  }
+
+  _buildWorkflowOutline(result) {
+    const nodes = [];
+    const edges = [];
+    const source = result.sourceObject || {};
+
+    if (source.id) {
+      nodes.push({
+        id: 'source',
+        objectId: source.id,
+        label: source.name || source.attributes?.title || 'Source',
+        type: source.type || 'Source',
+        summary: 'Primary research source for this project.',
+        status: 'ready',
+        children: this._sourceChildren(source)
+      });
+    }
+
+    const capabilityNodes = (result.capabilityObjects || []).slice(0, 6).map((object, index) => ({
+      id: `capability-${index + 1}`,
+      objectId: object.id,
+      label: object.name || object.attributes?.name || object.type || `Capability ${index + 1}`,
+      type: object.type || 'Capability',
+      summary: this._objectSummary(object, 'Method, data, model, code, or workflow resource extracted from the source.'),
+      status: object.confidence >= 0.7 ? 'ready' : 'review',
+      children: this._objectChildren(object)
+    }));
+
+    const worldNodes = (result.worldObjects || []).slice(0, 4).map((object, index) => ({
+      id: `world-${index + 1}`,
+      objectId: object.id,
+      label: object.name || object.attributes?.name || object.type || `World object ${index + 1}`,
+      type: object.type || 'WorldObject',
+      summary: this._objectSummary(object, 'Region, Earth system, hazard, variable, or output context extracted from the source.'),
+      status: object.confidence >= 0.7 ? 'ready' : 'review',
+      children: this._objectChildren(object)
+    }));
+
+    const evidenceNodes = (result.evidenceObjects || []).slice(0, 4).map((object, index) => ({
+      id: `evidence-${index + 1}`,
+      objectId: object.id,
+      label: object.name || object.attributes?.name || object.type || `Evidence ${index + 1}`,
+      type: object.type || 'Evidence',
+      summary: this._objectSummary(object, 'Reviewable claim or evidence item extracted from source material.'),
+      status: object.confidence >= 0.7 ? 'ready' : 'review',
+      children: this._objectChildren(object)
+    }));
+
+    nodes.push(...capabilityNodes, ...worldNodes, ...evidenceNodes);
+
+    for (let i = 1; i < nodes.length; i += 1) {
+      edges.push({
+        from: i === 1 ? 'source' : nodes[i - 1].id,
+        to: nodes[i].id,
+        label: i <= capabilityNodes.length ? 'uses' : 'connects'
+      });
+    }
+
+    for (const relation of result.bridgeRelations || []) {
+      edges.push({
+        from: relation.from || relation.source || relation.sourceId || 'source',
+        to: relation.to || relation.target || relation.targetId || 'source',
+        label: relation.type || 'relates'
+      });
+    }
+
+    return {
+      title: 'Technical route',
+      summary: nodes.length > 1
+        ? 'A protocol-level route assembled from extracted source, capability, world, and evidence objects.'
+        : 'Only the source capsule is available; deeper method and evidence nodes need richer source material.',
+      nodes,
+      edges,
+      provenance: {
+        method: 'protocol-derived',
+        relationCount: result.bridgeRelations?.length || 0
+      }
+    };
+  }
+
+  _extractExternalResources(result, content = {}) {
+    const resources = [];
+    const addResource = (candidate = {}) => {
+      const url = candidate.url || candidate.href || candidate.doi || candidate.repo;
+      if (!url) return;
+      const normalizedUrl = String(url);
+      if (resources.some(resource => resource.url === normalizedUrl)) return;
+      resources.push({
+        label: candidate.label || candidate.name || candidate.title || this._resourceLabelFromUrl(normalizedUrl),
+        url: normalizedUrl,
+        type: candidate.type || this._classifyResourceUrl(normalizedUrl),
+        role: candidate.role || 'referenced resource',
+        source: candidate.source || 'metadata'
+      });
+    };
+
+    const sourceAttributes = result.sourceObject?.attributes || {};
+    addResource({
+      label: sourceAttributes.title || result.sourceObject?.name,
+      url: sourceAttributes.url || sourceAttributes.identifier,
+      type: result.sourceType === 'Repository' ? 'repository' : 'source',
+      role: 'primary source',
+      source: 'sourceObject'
+    });
+
+    const metadata = content.metadata || {};
+    for (const url of this._extractUrlsFromText(this._getSourceText(content))) {
+      addResource({ url, source: 'sourceText' });
+    }
+
+    [
+      metadata.url,
+      metadata.htmlUrl,
+      metadata.pdfUrl,
+      metadata.doi,
+      metadata.repo,
+      metadata.repository,
+      metadata.codeUrl,
+      metadata.dataUrl
+    ].forEach(url => addResource({ url, source: 'metadata' }));
+
+    for (const list of [metadata.links, metadata.resources, metadata.datasets, metadata.codeRepositories]) {
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        if (typeof item === 'string') addResource({ url: item, source: 'metadata' });
+        else addResource({ ...item, source: 'metadata' });
+      }
+    }
+
+    for (const object of [...(result.capabilityObjects || []), ...(result.evidenceObjects || [])]) {
+      const attributes = object.attributes || {};
+      [attributes.url, attributes.doi, attributes.repo, attributes.repository, attributes.source].forEach(url => {
+        addResource({
+          label: object.name || attributes.name || object.type,
+          url,
+          type: object.type === 'Dataset' ? 'dataset' : undefined,
+          role: object.type || 'object source',
+          source: 'object'
+        });
+      });
+    }
+
+    return resources.slice(0, 12);
+  }
+
+  _buildInferredLimitations(result) {
+    const limitations = [];
+    if ((result.worldObjects?.length || 0) === 0) {
+      limitations.push({
+        id: 'spatial-context',
+        label: 'No verified study area',
+        severity: 'warning',
+        detail: 'The current source did not expose a verified bbox, point, polygon, or region object.',
+        source: 'protocol'
+      });
+    }
+    if ((result.capabilityObjects?.length || 0) === 0) {
+      limitations.push({
+        id: 'method-route',
+        label: 'Technical route is sparse',
+        severity: 'warning',
+        detail: 'No explicit method, model, data, code, or workflow object was extracted from available source material.',
+        source: 'protocol'
+      });
+    }
+    if ((result.evidenceObjects?.length || 0) === 0) {
+      limitations.push({
+        id: 'evidence-chain',
+        label: 'Evidence chain is limited',
+        severity: 'info',
+        detail: 'No claim-level evidence object is available for direct inspection.',
+        source: 'protocol'
+      });
+    }
+    if ((result.bridgeRelations?.length || 0) === 0) {
+      limitations.push({
+        id: 'relations',
+        label: 'Graph links are sparse',
+        severity: 'info',
+        detail: 'Extracted objects are not yet connected by verified relations, so comparison and reasoning should remain cautious.',
+        source: 'protocol'
+      });
+    }
+    if (result.extractionMetadata?.llmExtraction?.success === false) {
+      limitations.push({
+        id: 'llm-extraction',
+        label: 'LLM extraction unavailable',
+        severity: 'info',
+        detail: 'The current project used metadata or source-text fallback extraction instead of deep LLM extraction.',
+        source: 'protocol'
+      });
+    }
+    return limitations;
+  }
+
+  _sourceChildren(source) {
+    const attributes = source.attributes || {};
+    return [
+      attributes.venue ? { label: 'Venue', value: attributes.venue } : null,
+      attributes.year ? { label: 'Year', value: String(attributes.year) } : null,
+      attributes.authors ? { label: 'Authors', value: Array.isArray(attributes.authors) ? attributes.authors.slice(0, 5).join(', ') : String(attributes.authors) } : null
+    ].filter(Boolean);
+  }
+
+  _objectChildren(object) {
+    const attributes = object.attributes || {};
+    return Object.entries(attributes)
+      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .slice(0, 5)
+      .map(([key, value]) => ({
+        label: this._humanizeSectionTitle(key, key),
+        value: Array.isArray(value) ? value.slice(0, 4).join(', ') : this._summarizeText(String(value), 140)
+      }));
+  }
+
+  _objectSummary(object, fallback) {
+    const attributes = object.attributes || {};
+    return this._summarizeText(
+      attributes.summary
+      || attributes.description
+      || attributes.statement
+      || attributes.abstract
+      || object.provenance?.sourceText
+      || fallback,
+      220
+    );
+  }
+
+  _collectAttributeValues(values) {
+    const result = [];
+    for (const value of values) {
+      if (!value) continue;
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === 'string') result.push(item);
+          else if (item?.name) result.push(item.name);
+          else if (item?.institution) result.push(item.institution);
+        }
+      } else if (typeof value === 'string') {
+        result.push(value);
+      }
+    }
+    return [...new Set(result.filter(Boolean))];
+  }
+
+  _summarizeText(text, maxLength = 200) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+  }
+
+  _resourceLabelFromUrl(url) {
+    try {
+      const parsed = new URL(url.startsWith('http') ? url : `https://doi.org/${url.replace(/^doi:/i, '')}`);
+      return parsed.hostname.replace(/^www\./, '');
+    } catch {
+      return 'External resource';
+    }
+  }
+
+  _extractUrlsFromText(text) {
+    const matches = String(text || '').match(/https?:\/\/[^\s)>\]},"']+/gi) || [];
+    return [...new Set(matches.map(url => url.replace(/[.;,]+$/, '')))];
+  }
+
+  _classifyResourceUrl(url) {
+    const value = String(url).toLowerCase();
+    if (value.includes('github.com')) return 'repository';
+    if (value.includes('zenodo') || value.includes('figshare') || value.includes('dataverse')) return 'dataset';
+    if (value.includes('doi.org') || /^10\./.test(value)) return 'doi';
+    if (value.endsWith('.pdf')) return 'paper';
+    return 'external';
   }
 
   _normalizeSourceType(type) {

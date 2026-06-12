@@ -66,6 +66,61 @@ export interface Decomposition {
   worldObjects?: any[];
   evidenceObjects?: any[];
   bridgeRelations?: any[];
+  researchBrief?: {
+    title?: string;
+    sourceType?: string;
+    authors?: string;
+    institutions?: string;
+    year?: string | number | null;
+    venue?: string | null;
+    url?: string | null;
+    oneLine?: string;
+    keyPoints?: Array<{
+      id?: string;
+      label: string;
+      value: string;
+      detail: string;
+    }>;
+    confidence?: number;
+    provenance?: Record<string, any>;
+  };
+  workflowOutline?: {
+    title?: string;
+    summary?: string;
+    nodes?: Array<{
+      id: string;
+      objectId?: string;
+      label: string;
+      type?: string;
+      summary?: string;
+      status?: 'ready' | 'review' | 'blocked' | 'pending';
+      children?: Array<{
+        label: string;
+        value: string;
+        detail?: string;
+      }>;
+    }>;
+    edges?: Array<{
+      from: string;
+      to: string;
+      label?: string;
+    }>;
+    provenance?: Record<string, any>;
+  };
+  externalResources?: Array<{
+    label: string;
+    url: string;
+    type?: string;
+    role?: string;
+    source?: string;
+  }>;
+  inferredLimitations?: Array<{
+    id?: string;
+    label: string;
+    severity?: 'info' | 'warning' | 'error';
+    detail: string;
+    source?: string;
+  }>;
 }
 
 export interface AdmissionResult {

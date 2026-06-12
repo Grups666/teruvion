@@ -148,6 +148,10 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(result.capabilityObjects.some(obj => obj.type === 'Dataset'), 'Should create dataset object from source text');
     assert.ok(result.evidenceObjects.some(obj => obj.type === 'Claim'), 'Should create claim object from abstract text');
     assert.ok(result.worldObjects.some(obj => obj.type === 'Region'), 'Should create global scope object from explicit source wording');
+    assert.ok(result.researchBrief, 'Should build product-level research brief');
+    assert.ok(result.workflowOutline?.nodes?.length >= 2, 'Should build protocol-level workflow outline');
+    assert.ok(result.externalResources.some(resource => resource.type === 'dataset'), 'Should expose external dataset resources');
+    assert.ok(Array.isArray(result.inferredLimitations), 'Should report inferred limitations for the UI');
   });
 
   it('should extract capability objects based on activated categories', async () => {
