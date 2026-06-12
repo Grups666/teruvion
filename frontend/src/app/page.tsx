@@ -461,6 +461,24 @@ export default function Home() {
   }
 
   async function runProjectAction(action: { label: string; operation?: string; targetLayer: DisplayLayer | null; fallbackLayer?: DisplayLayer | null }) {
+    if (action.operation === 'cancel') {
+      if (!selectedProject?.id) return;
+      try {
+        const result = await api.cancelProjectImport(selectedProject.id);
+        if (result.project) {
+          upsertProject(result.project);
+        }
+        clearProjectPoll();
+        unsubscribeRef.current?.();
+        unsubscribeRef.current = null;
+        setStatus('Import cancelled');
+      } catch (err) {
+        console.error('Failed to cancel import:', err);
+        setStatus('Cancel failed');
+      }
+      return;
+    }
+
     if (action.operation === 'reimport') {
       const source = selectedProject?.metadata?.source;
       if (typeof source === 'string' && source.trim()) {

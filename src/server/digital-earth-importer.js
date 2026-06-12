@@ -390,6 +390,14 @@ class DigitalEarthImporter {
     if (controller) {
       controller.abort();
       console.log('[DigitalEarthImporter] Import cancelled:', projectId);
+      const project = this.projectRegistry.getProject(projectId);
+      if (project) {
+        project.cancelAnalysis();
+        this._updateProjectImportProtocol(project, { status: 'cancelled' });
+        this.projectRegistry.save().catch(err => {
+          console.error('[DigitalEarthImporter] Failed to save cancelled project:', err.message);
+        });
+      }
       return true;
     }
     return false;

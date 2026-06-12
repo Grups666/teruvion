@@ -178,13 +178,13 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
         priority: 'normal'
       },
       {
-        id: 'review-source-after-import',
-        label: 'Review source coverage once extraction finishes',
-        reason: 'Coverage determines whether Teruvion can extract evidence, regions, methods, and object links.',
-        operation: 'inspect',
-        targetLayer: 'source',
+        id: 'cancel-import',
+        label: 'Cancel import',
+        reason: 'Stop this import if it is stuck or no longer needed.',
+        operation: 'cancel',
+        targetLayer: null,
         fallbackLayer: null,
-        priority: 'normal'
+        priority: 'high'
       }
     ];
   }

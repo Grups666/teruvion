@@ -1,6 +1,6 @@
 {
   "name": "teruvion",
-  "version": "0.12.32",
+  "version": "0.12.33",
   "description": "Digital Earth Intelligence Platform - Transform research sources into living, explorable object graphs",
   "main": "core/registry/TripleStore.js",
   "bin": {

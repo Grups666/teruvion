@@ -103,6 +103,10 @@ class APIClient {
     await this.request(`/projects/${id}`, { method: 'DELETE' });
   }
 
+  async cancelProjectImport(id: string): Promise<{ success: boolean; message: string; project?: Project | null }> {
+    return this.request(`/projects/${id}/cancel`, { method: 'POST' });
+  }
+
   // Import
   async importSource(input: string): Promise<ImportResponse> {
     return this.request<ImportResponse>('/import', {

@@ -98,7 +98,7 @@ export interface ProjectReadinessSummary {
 }
 
 export type ProjectActionPriority = 'high' | 'normal' | 'low';
-export type ProjectActionOperation = 'inspect' | 'reimport' | 'wait';
+export type ProjectActionOperation = 'inspect' | 'reimport' | 'cancel' | 'wait';
 
 export interface ProjectActionItem {
   id?: string;

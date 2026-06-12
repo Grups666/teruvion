@@ -146,7 +146,9 @@ describe('ProjectDiagnostics', () => {
     assert.strictEqual(actions[0].id, 'wait-for-import');
     assert.strictEqual(actions[0].operation, 'wait');
     assert.strictEqual(actions[0].targetLayer, null);
-    assert.strictEqual(actions[1].targetLayer, 'source');
+    assert.strictEqual(actions[1].id, 'cancel-import');
+    assert.strictEqual(actions[1].operation, 'cancel');
+    assert.strictEqual(actions[1].priority, 'high');
   });
 
   it('should build action plans for cancelled imports', () => {

@@ -363,7 +363,12 @@ router.post('/projects/:projectId/cancel', (req, res) => {
     const cancelled = importer.cancelImport(projectId);
 
     if (cancelled) {
-      res.json({ success: true, message: 'Import cancelled' });
+      const project = projectRegistry.getProject(projectId);
+      res.json({
+        success: true,
+        message: 'Import cancelled',
+        project: project ? project.toJSON() : null
+      });
     } else {
       res.status(404).json({ error: 'No active import found for this project' });
     }

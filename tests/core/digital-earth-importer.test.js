@@ -105,6 +105,35 @@ describe('DigitalEarthImporter', () => {
     assert.strictEqual(project.metadata.importActions[0].id, 'fix-import-failure');
   });
 
+  it('should cancel active imports and persist cancelled protocol metadata', () => {
+    const project = new Project('Importing...', 'Cancel test', {
+      id: 'project-cancel'
+    });
+    const projectRegistry = {
+      getProject(id) {
+        return id === project.id ? project : null;
+      },
+      save() {
+        return Promise.resolve();
+      }
+    };
+    const importer = new DigitalEarthImporter(null, null, projectRegistry, null);
+    let aborted = false;
+    importer.activeAnalyses.set(project.id, {
+      abort() {
+        aborted = true;
+      }
+    });
+
+    const cancelled = importer.cancelImport(project.id);
+
+    assert.strictEqual(cancelled, true);
+    assert.strictEqual(aborted, true);
+    assert.strictEqual(project.analysis.status, 'cancelled');
+    assert.strictEqual(project.metadata.importDiagnosis[0].value, 'Cancelled');
+    assert.strictEqual(project.metadata.importActions[0].id, 'restart-import');
+  });
+
   it('should resolve bridge relations from decomposer ids', async () => {
     const store = new TripleStore(':memory:');
     const importer = new DigitalEarthImporter(store, null, null, null);
