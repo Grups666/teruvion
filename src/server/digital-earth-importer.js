@@ -210,12 +210,14 @@ class DigitalEarthImporter {
     let entityCount = 0;
     let relationCount = 0;
     const projectId = project.id;
+    let sourceId = null;
 
     // 1. Store source object
     if (decomposition.sourceObject) {
       const sourceEntity = this._createEntity(decomposition.sourceObject, input, projectId);
       this.store.addEntity(sourceEntity);
-      entityMap.set(decomposition.sourceObject.name || decomposition.sourceObject.id, sourceEntity.id);
+      sourceId = sourceEntity.id;
+      this._registerEntityKeys(entityMap, decomposition.sourceObject, sourceEntity.id);
       project.addEntity(sourceEntity.id, decomposition.sourceObject.type);
       entityCount++;
     }
@@ -224,12 +226,11 @@ class DigitalEarthImporter {
     for (const cap of (decomposition.capabilityObjects || [])) {
       const entity = this._createEntity(cap, input, projectId);
       this.store.addEntity(entity);
-      entityMap.set(cap.name, entity.id);
+      this._registerEntityKeys(entityMap, cap, entity.id);
       project.addEntity(entity.id, cap.type);
       entityCount++;
 
       // Create relation from source to capability
-      const sourceId = entityMap.get(decomposition.sourceObject?.name || decomposition.sourceObject?.id);
       if (sourceId) {
         try {
           this.store.addTriple(sourceId, 'produces', entity.id, { confidence: 0.8 });
@@ -244,12 +245,11 @@ class DigitalEarthImporter {
     for (const world of (decomposition.worldObjects || [])) {
       const entity = this._createEntity(world, input, projectId);
       this.store.addEntity(entity);
-      entityMap.set(world.name, entity.id);
+      this._registerEntityKeys(entityMap, world, entity.id);
       project.addEntity(entity.id, world.type);
       entityCount++;
 
       // Create relation from source to world
-      const sourceId = entityMap.get(decomposition.sourceObject?.name || decomposition.sourceObject?.id);
       if (sourceId) {
         try {
           this.store.addTriple(sourceId, 'studies', entity.id, { confidence: 0.8 });
@@ -264,7 +264,7 @@ class DigitalEarthImporter {
     for (const evidence of (decomposition.evidenceObjects || [])) {
       const entity = this._createEntity(evidence, input, projectId);
       this.store.addEntity(entity);
-      entityMap.set(evidence.name || evidence.statement?.substring(0, 50), entity.id);
+      this._registerEntityKeys(entityMap, evidence, entity.id);
       project.addEntity(entity.id, evidence.type);
       entityCount++;
     }
@@ -311,6 +311,7 @@ class DigitalEarthImporter {
     delete attrs.metadata;
 
     return new Entity(obj.type, attrs, {
+      id: obj.id,
       ...objectMetadata,
       source,
       projectId,
@@ -320,6 +321,39 @@ class DigitalEarthImporter {
         : (obj.confidence || 0.8),
       provenance: obj.provenance || objectMetadata.provenance
     });
+  }
+
+  _registerEntityKeys(entityMap, obj, entityId) {
+    for (const key of this._getObjectReferenceKeys(obj)) {
+      entityMap.set(key, entityId);
+    }
+  }
+
+  _getObjectReferenceKeys(obj = {}) {
+    const attrs = obj.attributes || {};
+    const candidates = [
+      obj.id,
+      obj.name,
+      obj.title,
+      obj.label,
+      obj.statement,
+      attrs.id,
+      attrs.name,
+      attrs.title,
+      attrs.label,
+      attrs.statement
+    ];
+
+    if (typeof obj.statement === 'string') {
+      candidates.push(obj.statement.substring(0, 50));
+    }
+    if (typeof attrs.statement === 'string') {
+      candidates.push(attrs.statement.substring(0, 50));
+    }
+
+    return candidates
+      .filter(value => typeof value === 'string' && value.trim().length > 0)
+      .map(value => value.trim());
   }
 
   /**
