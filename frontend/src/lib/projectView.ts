@@ -36,6 +36,31 @@ export interface ProjectQuality {
   notes: ProjectQualityNote[];
 }
 
+export interface ProjectProgressStep {
+  key: string;
+  label: string;
+  status: 'done' | 'active' | 'pending' | 'failed';
+  detail: string;
+}
+
+export interface SourceCapsule {
+  title: string;
+  type: string;
+  source: string | null;
+  depth: string;
+  extraction: string;
+  confidence: string;
+}
+
+export interface ObjectConstellationNode {
+  id: string;
+  label: string;
+  type: string;
+  layer: DisplayLayer;
+  count: number;
+  sampleEntityId: string | null;
+}
+
 type DecompositionView = Decomposition & {
   confidence?: number;
   provenance?: { extractionMethod?: string };
@@ -178,6 +203,111 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
   };
 }
 
+export function getProjectProgressSteps(project: Project): ProjectProgressStep[] {
+  const progress = project.analysis?.progress;
+  const completed = new Set(progress?.completed || []);
+  const inProgress = progress?.inProgress || project.analysis?.currentPhase || null;
+  const failed = project.analysis?.status === 'failed';
+
+  const phases = [
+    { key: 'fetching', label: 'Source', detail: 'Resolve metadata and source text' },
+    { key: 'admission', label: 'Admission', detail: 'Assess Digital Earth relevance' },
+    { key: 'decomposition', label: 'Objects', detail: 'Extract typed objects and evidence' },
+    { key: 'storing', label: 'Graph', detail: 'Store entities and relations' }
+  ];
+
+  return phases.map(phase => {
+    let status: ProjectProgressStep['status'] = 'pending';
+
+    if (completed.has(phase.key) || project.metadata?.decomposition) {
+      status = 'done';
+    } else if (failed && inProgress === phase.key) {
+      status = 'failed';
+    } else if (inProgress === phase.key) {
+      status = 'active';
+    }
+
+    return { ...phase, status };
+  });
+}
+
+export function getSourceCapsule(project: Project, quality: ProjectQuality | null): SourceCapsule {
+  const decomposition = project.metadata?.decomposition as DecompositionView | undefined;
+  const sourceObject = decomposition?.sourceObject || {};
+  const sourceCoverage = project.metadata?.sourceCoverage as SourceCoverageView | undefined;
+  const title = sourceObject.name
+    || sourceObject.title
+    || sourceObject.attributes?.title
+    || sourceObject.attributes?.name
+    || project.name
+    || 'Untitled source';
+
+  const confidence = typeof decomposition?.confidence === 'number'
+    ? `${Math.round(decomposition.confidence * 100)}%`
+    : 'Unknown';
+
+  return {
+    title,
+    type: sourceObject.type || project.metadata?.sourceType || 'Source',
+    source: sourceCoverage?.source || project.metadata?.source || quality?.coverage?.source || null,
+    depth: formatSignalText(project.metadata?.admission?.depth || 'pending'),
+    extraction: quality?.method || 'Pending',
+    confidence
+  };
+}
+
+export function getObjectConstellation(entities: Entity[]): ObjectConstellationNode[] {
+  const groups = groupEntitiesByLayerForView(entities);
+
+  return (['source', 'capability', 'world', 'foundation'] as DisplayLayer[])
+    .map(layer => {
+      const items = groups[layer];
+      if (items.length === 0) return null;
+
+      return {
+        id: layer,
+        label: formatSignalText(layer),
+        type: layer,
+        layer,
+        count: items.length,
+        sampleEntityId: items[0]?.id || null
+      };
+    })
+    .filter(Boolean) as ObjectConstellationNode[];
+}
+
+export function getRecommendedNextActions(
+  quality: ProjectQuality | null,
+  stats: ProjectStats,
+  objectCount: number
+): string[] {
+  if (!quality || quality.level === 'pending') {
+    return ['Wait for import completion', 'Review source coverage once extraction finishes'];
+  }
+
+  const actions: string[] = [];
+
+  if (quality.coverage?.warning) {
+    actions.push('Check source coverage');
+  }
+  if (stats.world === 0) {
+    actions.push('Review spatial scope');
+  }
+  if (stats.capability === 0) {
+    actions.push('Inspect methods and data manually');
+  }
+  if (quality.relations === 0 && objectCount > 1) {
+    actions.push('Review missing graph relations');
+  }
+  if (quality.notes.some(note => note.text.includes('fallback') || note.text.includes('metadata-only'))) {
+    actions.push('Verify fallback objects before use');
+  }
+
+  actions.push('Open an object to inspect evidence');
+
+  return Array.from(new Set(actions)).slice(0, 4);
+}
+
 export function buildProjectSummaryText(project: Project, quality: ProjectQuality, stats: ProjectStats, objectCount: number) {
   const lines = [
     `# ${project.name}`,
@@ -211,6 +341,18 @@ export function buildProjectSummaryText(project: Project, quality: ProjectQualit
   }
 
   return lines.join('\n');
+}
+
+function groupEntitiesByLayerForView(entities: Entity[]): Record<DisplayLayer, Entity[]> {
+  return entities.reduce<Record<DisplayLayer, Entity[]>>((groups, entity) => {
+    groups[getDisplayLayer(entity)].push(entity);
+    return groups;
+  }, {
+    source: [],
+    capability: [],
+    world: [],
+    foundation: []
+  });
 }
 
 function buildProjectCoverageSummary(sourceCoverage?: SourceCoverageView): ProjectCoverageSummary | null {

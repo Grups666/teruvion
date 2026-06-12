@@ -13,8 +13,12 @@ import {
 import {
   buildProjectSummaryText,
   getDisplayLayer,
+  getObjectConstellation,
+  getProjectProgressSteps,
   getProjectQuality,
   getProjectStats,
+  getRecommendedNextActions,
+  getSourceCapsule,
   type DisplayLayer
 } from '../lib/projectView';
 
@@ -417,6 +421,10 @@ export default function Home() {
   const groupedProjectEntities = groupEntitiesByLayer(projectEntities);
   const projectStats = getProjectStats(projectEntities);
   const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
+  const projectProgressSteps = selectedProject ? getProjectProgressSteps(selectedProject) : [];
+  const sourceCapsule = selectedProject ? getSourceCapsule(selectedProject, projectQuality) : null;
+  const constellationNodes = getObjectConstellation(projectEntities);
+  const recommendedActions = getRecommendedNextActions(projectQuality, projectStats, projectEntities.length);
   const lensSummaries = getLensSummaries(projectLenses);
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
@@ -587,6 +595,46 @@ export default function Home() {
                 </button>
               </div>
 
+              {sourceCapsule && (
+                <div className="source-capsule">
+                  <div className="capsule-kicker">Source Capsule</div>
+                  <div className="capsule-title">{sourceCapsule.title}</div>
+                  <div className="capsule-grid">
+                    <span>
+                      <strong>{sourceCapsule.type}</strong>
+                      Type
+                    </span>
+                    <span>
+                      <strong>{sourceCapsule.depth}</strong>
+                      Depth
+                    </span>
+                    <span>
+                      <strong>{sourceCapsule.extraction}</strong>
+                      Extraction
+                    </span>
+                    <span>
+                      <strong>{sourceCapsule.confidence}</strong>
+                      Confidence
+                    </span>
+                  </div>
+                  {sourceCapsule.source && (
+                    <div className="capsule-source">{sourceCapsule.source}</div>
+                  )}
+                </div>
+              )}
+
+              <div className="decomposition-progress">
+                {projectProgressSteps.map(step => (
+                  <div className={`progress-step ${step.status}`} key={step.key}>
+                    <span className="progress-marker" />
+                    <span className="progress-copy">
+                      <span>{step.label}</span>
+                      <small>{step.detail}</small>
+                    </span>
+                  </div>
+                ))}
+              </div>
+
               <div className="project-panel-metrics">
                 <div className="metric">
                   <span className="metric-value">{projectStats.source}</span>
@@ -656,6 +704,41 @@ export default function Home() {
                 </div>
               )}
 
+              <div className="object-constellation">
+                <div className="constellation-head">
+                  <span>Object Constellation</span>
+                  <span>{projectEntities.length} total</span>
+                </div>
+                {constellationNodes.length > 0 ? (
+                  <div className="constellation-stage">
+                    <div className="constellation-core">
+                      <span>{projectStats.source || 1}</span>
+                      Source
+                    </div>
+                    {constellationNodes.map((node, index) => (
+                      <button
+                        type="button"
+                        className={`constellation-node ${node.layer}`}
+                        key={node.id}
+                        style={{ '--node-index': index } as React.CSSProperties}
+                        disabled={!node.sampleEntityId}
+                        onClick={() => {
+                          if (node.sampleEntityId) {
+                            setSelectedEntityId(node.sampleEntityId);
+                            setStatus(`${node.label} object selected`);
+                          }
+                        }}
+                      >
+                        <span>{node.count}</span>
+                        {node.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="constellation-empty">Object graph will appear after extraction.</div>
+                )}
+              </div>
+
               <div className="project-lenses">
                 <div className="lens-head">
                   <span>Views</span>
@@ -688,6 +771,27 @@ export default function Home() {
                   <div className="lens-empty">No lens output yet.</div>
                 )}
               </div>
+
+              {recommendedActions.length > 0 && (
+                <div className="next-actions">
+                  <div className="next-actions-head">Next Actions</div>
+                  <div className="next-action-list">
+                    {recommendedActions.map(action => (
+                      <button
+                        type="button"
+                        key={action}
+                        onClick={() => {
+                          const firstEntityId = projectEntities[0]?.id;
+                          if (firstEntityId) setSelectedEntityId(firstEntityId);
+                          setStatus(action);
+                        }}
+                      >
+                        {action}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="object-groups">
                 {projectEntities.length === 0 ? (

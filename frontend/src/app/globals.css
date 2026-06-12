@@ -454,7 +454,8 @@ html, body {
   z-index: 1200;
   display: none;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .project-panel.open {
@@ -506,6 +507,142 @@ html, body {
 .project-panel-close:hover {
   background: var(--background);
   color: var(--primary);
+}
+
+.source-capsule {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  background:
+    linear-gradient(135deg, rgba(17, 24, 39, 0.96), rgba(39, 39, 42, 0.94)),
+    var(--primary);
+  color: var(--surface);
+}
+
+.capsule-kicker {
+  margin-bottom: 8px;
+  color: rgba(255,255,255,0.58);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.capsule-title {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capsule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.capsule-grid span {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.56);
+  font-size: 10px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.capsule-grid strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: 0;
+  text-transform: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capsule-source {
+  margin-top: 10px;
+  color: rgba(255,255,255,0.56);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decomposition-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
+  background: rgba(250, 250, 250, 0.9);
+}
+
+.progress-step {
+  position: relative;
+  min-width: 0;
+  min-height: 76px;
+  padding: 14px 10px 12px;
+  border-right: 1px solid var(--border);
+}
+
+.progress-step:last-child {
+  border-right: none;
+}
+
+.progress-marker {
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin-bottom: 9px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.progress-step.done .progress-marker {
+  background: #22c55e;
+}
+
+.progress-step.active .progress-marker {
+  background: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+}
+
+.progress-step.failed .progress-marker {
+  background: #ef4444;
+}
+
+.progress-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progress-copy span {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.progress-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
 }
 
 .project-panel-metrics {
@@ -722,6 +859,120 @@ html, body {
   color: #92400e;
 }
 
+.object-constellation {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.constellation-head,
+.next-actions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.constellation-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: 112px 1fr 1fr;
+  grid-template-rows: repeat(2, minmax(52px, auto));
+  gap: 8px;
+  min-height: 120px;
+}
+
+.constellation-core {
+  grid-row: 1 / span 2;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(17, 24, 39, 0.16);
+  border-radius: 8px;
+  background: rgba(17, 24, 39, 0.94);
+  color: rgba(255,255,255,0.62);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.constellation-core span {
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.constellation-node {
+  min-width: 0;
+  min-height: 52px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(250, 250, 250, 0.9);
+  color: var(--secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.constellation-node span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--primary);
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.constellation-node.source {
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.constellation-node.capability {
+  border-color: rgba(124, 58, 237, 0.28);
+}
+
+.constellation-node.world {
+  border-color: rgba(14, 165, 233, 0.28);
+}
+
+.constellation-node.foundation {
+  border-color: rgba(107, 114, 128, 0.24);
+}
+
+.constellation-node:not(:disabled):hover {
+  background: var(--background);
+  border-color: var(--primary);
+}
+
+.constellation-node:disabled {
+  cursor: default;
+}
+
+.constellation-empty {
+  padding: 18px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .project-lenses {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
@@ -794,6 +1045,37 @@ html, body {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.next-actions {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(250, 250, 250, 0.72);
+}
+
+.next-action-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.next-action-list button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--primary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.next-action-list button:hover {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--surface);
 }
 
 .object-groups {
