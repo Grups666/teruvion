@@ -1277,6 +1277,12 @@ html, body {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
 }
 
+.route-subnode.active {
+  border-color: rgba(20, 184, 166, 0.72);
+  background: rgba(240, 253, 250, 0.92);
+  box-shadow: 0 14px 30px rgba(15, 118, 110, 0.12);
+}
+
 .route-subnode i {
   position: absolute;
   top: 10px;
@@ -1326,6 +1332,41 @@ html, body {
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.route-focus-card {
+  margin-top: 14px;
+  padding: 13px 14px;
+  border: 1px solid rgba(20, 184, 166, 0.22);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(240, 253, 250, 0.72), rgba(255,255,255,0.9));
+}
+
+.route-focus-card span {
+  display: block;
+  margin-bottom: 7px;
+  color: #0f766e;
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.route-focus-card strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.route-focus-card p {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .project-brief {
@@ -2816,14 +2857,6 @@ html, body {
 
   .project-brief {
     min-height: auto;
-  }
-
-  .route-graph-nodes {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .route-drilldown-path {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .project-resources {

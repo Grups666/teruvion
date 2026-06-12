@@ -60,6 +60,7 @@ export default function Home() {
   const [exploreLoading, setExploreLoading] = useState(false);
   const [projectLenses, setProjectLenses] = useState<Record<string, any> | null>(null);
   const [activeCockpitKey, setActiveCockpitKey] = useState<string>('source');
+  const [activeFocusIndex, setActiveFocusIndex] = useState(0);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -141,8 +142,13 @@ export default function Home() {
   useEffect(() => {
     if (selectedProjectId) {
       setActiveCockpitKey('source');
+      setActiveFocusIndex(0);
     }
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    setActiveFocusIndex(0);
+  }, [activeCockpitKey]);
 
   async function loadData() {
     try {
@@ -400,6 +406,9 @@ export default function Home() {
         sourceCapsule
       })
     : [];
+  const activeFocusItem = cockpitFocusItems[activeFocusIndex] || cockpitFocusItems[0] || null;
+  const routeGraphPath = buildGraphPath(cockpitSignals.length, 'main');
+  const detailGraphPath = buildGraphPath(cockpitFocusItems.length, 'detail');
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
   const selectedEntityTakeaways = selectedEntity ? getEntityTakeaways(selectedEntity, selectedExplore, selectedEntitySignals) : [];
@@ -671,7 +680,7 @@ export default function Home() {
                   </div>
                   <div className="route-graph-canvas" style={{ '--node-count': cockpitSignals.length } as React.CSSProperties}>
                     <svg className="route-graph-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                      <path d="M 8 50 C 24 50, 26 50, 42 50 S 58 50, 74 50 S 82 50, 92 50" />
+                      <path d={routeGraphPath} />
                     </svg>
                     <div className="route-graph-nodes">
                       {cockpitSignals.map((signal, index) => (
@@ -709,15 +718,16 @@ export default function Home() {
                   {cockpitFocusItems.length > 0 && (
                     <div className="route-detail-graph" style={{ '--detail-count': cockpitFocusItems.length } as React.CSSProperties}>
                       <svg className="route-detail-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                        <path d="M 7 50 C 22 18, 38 18, 50 50 S 78 82, 93 50" />
+                        <path d={detailGraphPath} />
                       </svg>
                       <div className="route-drilldown-path">
                         {cockpitFocusItems.map((item, index) => (
                           <button
                             type="button"
-                            className="route-subnode"
+                            className={`route-subnode ${activeFocusItem === item ? 'active' : ''}`}
                             key={`${activeCockpitSignal.key}-${item.label}`}
                             onClick={() => {
+                              setActiveFocusIndex(index);
                               setStatus(`${item.label} inner node selected`);
                             }}
                           >
@@ -728,6 +738,13 @@ export default function Home() {
                           </button>
                         ))}
                       </div>
+                    </div>
+                  )}
+                  {activeFocusItem && (
+                    <div className="route-focus-card">
+                      <span>Focused Layer</span>
+                      <strong>{activeFocusItem.value}</strong>
+                      <p>{activeFocusItem.detail}</p>
                     </div>
                   )}
                 </div>
@@ -1183,6 +1200,27 @@ function formatLimitationSource(source?: string) {
   if (source === 'llm-review') return 'LLM Review';
   if (source === 'protocol') return 'Protocol';
   return 'Review';
+}
+
+function buildGraphPath(count: number, variant: 'main' | 'detail') {
+  if (count <= 1) return 'M 50 50';
+
+  const left = variant === 'main' ? 8 : 7;
+  const right = variant === 'main' ? 92 : 93;
+  const usableWidth = right - left;
+  const points = Array.from({ length: count }, (_, index) => {
+    const x = left + (usableWidth * index) / Math.max(count - 1, 1);
+    const y = variant === 'main'
+      ? 50
+      : index % 2 === 0 ? 42 : 58;
+    return { x, y };
+  });
+
+  return points.slice(1).reduce((path, point, index) => {
+    const previous = points[index];
+    const midX = (previous.x + point.x) / 2;
+    return `${path} C ${midX.toFixed(2)} ${previous.y.toFixed(2)}, ${midX.toFixed(2)} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+  }, `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`);
 }
 
 function resourceHost(url: string) {
