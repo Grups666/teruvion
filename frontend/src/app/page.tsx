@@ -666,26 +666,32 @@ export default function Home() {
               {cockpitSignals.length > 0 && (
                 <div className="technical-route">
                   <div className="technical-route-head">
-                    <span>Technical Route</span>
-                    <span>Click a step to inspect it</span>
+                    <span>Research Graph</span>
+                    <span>Click a node to open its inner route</span>
                   </div>
-                  <div className="technical-route-track">
-                    {cockpitSignals.map((signal, index) => (
-                      <button
-                        type="button"
-                        key={signal.key}
-                        className={`route-node ${signal.status} ${activeCockpitSignal?.key === signal.key ? 'active' : ''}`}
-                        style={{ '--route-index': index } as React.CSSProperties}
-                        onClick={() => {
-                          setActiveCockpitKey(signal.key);
-                          setStatus(`${signal.label} route selected`);
-                        }}
-                      >
-                        <span>{signal.label}</span>
-                        <strong>{signal.value}</strong>
-                        <small>{signal.detail}</small>
-                      </button>
-                    ))}
+                  <div className="route-graph-canvas" style={{ '--node-count': cockpitSignals.length } as React.CSSProperties}>
+                    <svg className="route-graph-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                      <path d="M 8 50 C 24 50, 26 50, 42 50 S 58 50, 74 50 S 82 50, 92 50" />
+                    </svg>
+                    <div className="route-graph-nodes">
+                      {cockpitSignals.map((signal, index) => (
+                        <button
+                          type="button"
+                          key={signal.key}
+                          className={`route-node ${signal.status} ${activeCockpitSignal?.key === signal.key ? 'active' : ''}`}
+                          style={{ '--route-index': index } as React.CSSProperties}
+                          onClick={() => {
+                            setActiveCockpitKey(signal.key);
+                            setStatus(`${signal.label} graph node selected`);
+                          }}
+                        >
+                          <i aria-hidden="true" />
+                          <span>{signal.label}</span>
+                          <strong>{signal.value}</strong>
+                          <small>{signal.detail}</small>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -694,35 +700,35 @@ export default function Home() {
                 <div className={`route-drilldown ${activeCockpitSignal.status}`}>
                   <div className="route-drilldown-head">
                     <div>
-                      <span>Route Detail</span>
+                      <span>Inside Selected Node</span>
                       <strong>{activeCockpitSignal.label}</strong>
                     </div>
                     <em>{activeCockpitSignal.value}</em>
                   </div>
                   <p>{activeCockpitSignal.detail}</p>
                   {cockpitFocusItems.length > 0 && (
-                    <div className="route-drilldown-path">
-                      {cockpitFocusItems.map((item, index) => (
-                        <div className="route-subnode" key={`${activeCockpitSignal.key}-${item.label}`}>
-                          <i>{index + 1}</i>
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                          <small>{item.detail}</small>
-                        </div>
-                      ))}
+                    <div className="route-detail-graph" style={{ '--detail-count': cockpitFocusItems.length } as React.CSSProperties}>
+                      <svg className="route-detail-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                        <path d="M 7 50 C 22 18, 38 18, 50 50 S 78 82, 93 50" />
+                      </svg>
+                      <div className="route-drilldown-path">
+                        {cockpitFocusItems.map((item, index) => (
+                          <button
+                            type="button"
+                            className="route-subnode"
+                            key={`${activeCockpitSignal.key}-${item.label}`}
+                            onClick={() => {
+                              setStatus(`${item.label} inner node selected`);
+                            }}
+                          >
+                            <i>{index + 1}</i>
+                            <span>{item.label}</span>
+                            <strong>{item.value}</strong>
+                            <small>{item.detail}</small>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  )}
-                  {activeCockpitSignal.targetId && (
-                    <button
-                      type="button"
-                      className="route-open-detail"
-                      onClick={() => {
-                        setSelectedEntityId(activeCockpitSignal.targetId || null);
-                        setStatus(`${activeCockpitSignal.label} detail opened`);
-                      }}
-                    >
-                      Open deeper detail
-                    </button>
                   )}
                 </div>
               )}
