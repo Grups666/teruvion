@@ -468,7 +468,7 @@ export default function Home() {
   const projectDecomposition = selectedProject?.metadata?.decomposition;
   const projectSourceAttributes = ((projectDecomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
   const projectResources = rankProjectResources(projectDecomposition?.externalResources || []).slice(0, 6);
-  const projectLimitations = (projectDecomposition?.inferredLimitations || []).slice(0, 4);
+  const projectLimitations = rankProjectLimitations(projectDecomposition?.inferredLimitations || []).slice(0, 4);
   const recommendedActions = mergeRecommendedActions(
     buildResourceNextActions(projectResources),
     getRecommendedNextActions(selectedProject || null, projectQuality, projectStats, projectEntities.length)
@@ -1234,7 +1234,7 @@ function buildResourceNextActions(resources: ProjectResource[]): ProjectAction[]
     .filter(resource => resource?.url && resourcePriority(resource) >= 50)
     .slice(0, 2)
     .map(resource => ({
-      label: resource.investigationLabel || resourceActionLabel(resource),
+      label: resourceActionLabel(resource),
       reason: resource.verificationFocus
         ? `Check ${resource.verificationFocus}.`
         : resource.routeRelevance || resource.reviewHint || `Open ${resourceHost(resource.url)} to verify its role.`,
@@ -1258,6 +1258,10 @@ function mergeRecommendedActions(resourceActions: ProjectAction[], fallbackActio
 
 function resourceActionLabel(resource: ProjectResource) {
   const type = String(resource.type || '').toLowerCase();
+  if (resource.reproducibilityGrade && (type === 'repository' || type === 'code')) {
+    return `Review static grade ${resource.reproducibilityGrade.toUpperCase()} code`;
+  }
+  if (resource.investigationLabel) return resource.investigationLabel;
   if (type === 'repository' || type === 'code') return 'Inspect code path';
   if (type === 'dataset') return 'Verify data source';
   if (type === 'supplement') return 'Inspect supplement';
@@ -1338,6 +1342,27 @@ function formatLimitationSource(source?: string) {
   return 'Review';
 }
 
+type ProjectLimitation = {
+  id?: string;
+  label: string;
+  severity?: 'info' | 'warning' | 'error';
+  detail: string;
+  source?: string;
+};
+
+function rankProjectLimitations(limitations: ProjectLimitation[]) {
+  const priority: Record<string, number> = {
+    error: 30,
+    warning: 20,
+    info: 10
+  };
+  return [...limitations].sort((a, b) => {
+    const severityDiff = (priority[b.severity || 'info'] || 0) - (priority[a.severity || 'info'] || 0);
+    if (severityDiff !== 0) return severityDiff;
+    return String(a.label || '').localeCompare(String(b.label || ''));
+  });
+}
+
 function buildFocusMicroGraph(item: {
   label: string;
   value: string;
@@ -1348,8 +1373,8 @@ function buildFocusMicroGraph(item: {
   if (Array.isArray(item.children) && item.children.length > 0) {
     return item.children.slice(0, 5).map(child => ({
       label: child.label,
-        value: child.value,
-        detail: child.detail || 'Detail from the selected route node.'
+      value: child.value,
+      detail: child.detail || 'Detail from the selected route node.'
     }));
   }
 
