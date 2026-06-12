@@ -1769,16 +1769,48 @@ html, body {
   text-align: right;
 }
 
-.detail-code {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.7;
-  background: var(--background);
-  padding: 16px;
+.takeaway-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.takeaway-card {
+  padding: 12px;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  background: var(--background);
+}
+
+.takeaway-card span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.takeaway-card strong {
+  display: block;
+  min-width: 0;
+  margin-bottom: 6px;
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.takeaway-card p {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .signal-grid {
@@ -1845,7 +1877,7 @@ html, body {
   color: #92400e;
 }
 
-/* ===== Object Graph Inspector ===== */
+/* ===== Research Graph Inspector ===== */
 .graph-view {
   display: flex;
   flex-direction: column;

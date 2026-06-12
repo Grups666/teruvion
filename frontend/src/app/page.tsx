@@ -9,7 +9,8 @@ import {
   formatSignalText,
   getEntityName,
   getEntityReviewNotes,
-  getEntitySignals
+  getEntitySignals,
+  getEntityTakeaways
 } from '../lib/entityView';
 import {
   buildProjectSummaryText,
@@ -405,6 +406,7 @@ export default function Home() {
     : [];
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
+  const selectedEntityTakeaways = selectedEntity ? getEntityTakeaways(selectedEntity, selectedExplore, selectedEntitySignals) : [];
 
   async function copyProjectSummary() {
     if (!selectedProject || !projectQuality) return;
@@ -967,9 +969,24 @@ export default function Home() {
               </div>
 
               <div className="detail-body">
+                {selectedEntityTakeaways.length > 0 && (
+                  <div className="detail-section">
+                    <div className="detail-label">Key Takeaways</div>
+                    <div className="takeaway-list">
+                      {selectedEntityTakeaways.map(item => (
+                        <div className="takeaway-card" key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                          <p>{item.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {selectedEntitySignals.length > 0 && (
                   <div className="detail-section">
-                    <div className="detail-label">Object Signals</div>
+                    <div className="detail-label">Review Signals</div>
                     <div className="signal-grid">
                       {selectedEntitySignals.map(signal => (
                         <div className={`signal-card ${signal.level}`} key={signal.label}>
@@ -983,7 +1000,7 @@ export default function Home() {
 
                 {selectedEntityReviewNotes.length > 0 && (
                   <div className="detail-section">
-                    <div className="detail-label">Review Notes</div>
+                    <div className="detail-label">Known Limits</div>
                     <div className="review-notes">
                       {selectedEntityReviewNotes.map(note => (
                         <div className={`review-note ${note.level}`} key={note.text}>
@@ -994,23 +1011,15 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Object Graph */}
+                {/* Research Graph */}
                 <div className="detail-section">
-                  <div className="detail-label">Object Graph</div>
+                  <div className="detail-label">Research Graph</div>
                   <EntityGraphView
                     selectedEntity={selectedEntity}
                     explore={selectedExplore}
                     loading={exploreLoading}
                     onSelectEntity={setSelectedEntityId}
                   />
-                </div>
-
-                {/* Key Attributes */}
-                <div className="detail-section">
-                  <div className="detail-label">Properties</div>
-                  <div className="detail-code">
-                    {formatAttributes(selectedEntity)}
-                  </div>
                 </div>
 
                 {/* Confidence */}
@@ -1178,20 +1187,4 @@ function groupEntitiesByLayer(entities: Entity[]) {
   }
 
   return groups;
-}
-
-/** Format entity attributes for display */
-function formatAttributes(entity: Entity): string {
-  const display: Record<string, any> = {};
-  const skip = new Set(['name', 'id', 'type']);
-
-  for (const [key, value] of Object.entries(entity.attributes)) {
-    if (skip.has(key) || value === undefined || value === null) continue;
-    if (Array.isArray(value) && value.length === 0) continue;
-    display[key] = value;
-  }
-
-  return Object.keys(display).length > 0
-    ? JSON.stringify(display, null, 2)
-    : 'No additional properties';
 }

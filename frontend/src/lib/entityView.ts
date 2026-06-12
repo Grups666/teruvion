@@ -14,6 +14,12 @@ export interface EntityReviewNote {
   level: 'warning' | 'info';
 }
 
+export interface EntityTakeaway {
+  label: string;
+  value: string;
+  detail: string;
+}
+
 const SPATIAL_FIELDS = [
   'bbox',
   'location',
@@ -125,6 +131,74 @@ export function getEntitySignals(entity: Entity, explore: EntityExploreResponse 
   return signals;
 }
 
+export function getEntityTakeaways(
+  entity: Entity,
+  explore: EntityExploreResponse | null,
+  signals: EntitySignal[]
+): EntityTakeaway[] {
+  const takeaways: EntityTakeaway[] = [];
+  const layer = getEntityLayer(entity);
+  const name = getEntityName(entity);
+  const relationCount = explore?.relatedEntities?.length || 0;
+  const sourceCount = explore?.sources?.length || 0;
+  const confidence = signals.find(signal => signal.label === 'Confidence')?.value || 'Unknown';
+  const role = formatSignalText(entity.category || layer || entity.type);
+  const primaryScope = pickAttributeValue(entity, [
+    'description',
+    'abstract',
+    'summary',
+    'purpose',
+    'objective',
+    'method',
+    'model',
+    'dataset',
+    'region',
+    'spatialCoverage'
+  ]);
+  const temporal = pickAttributeValue(entity, TEMPORAL_FIELDS);
+  const spatial = pickAttributeValue(entity, SPATIAL_FIELDS);
+
+  takeaways.push({
+    label: 'What It Is',
+    value: role,
+    detail: primaryScope || `${name} is represented as a ${formatSignalText(entity.type)} object in the research graph.`
+  });
+
+  takeaways.push({
+    label: 'Why It Matters',
+    value: relationCount > 0 ? `${relationCount} link${relationCount === 1 ? '' : 's'}` : 'Standalone',
+    detail: relationCount > 0
+      ? 'This object participates in the graph and can be used to trace methods, evidence, or context.'
+      : 'This object is not yet connected enough to support deeper reasoning.'
+  });
+
+  takeaways.push({
+    label: 'Evidence Level',
+    value: confidence,
+    detail: sourceCount > 0
+      ? `${sourceCount} source link${sourceCount === 1 ? '' : 's'} support inspection.`
+      : 'No linked source is visible yet; treat this as a provisional extraction.'
+  });
+
+  if (spatial) {
+    takeaways.push({
+      label: 'Spatial Scope',
+      value: compactValue(spatial),
+      detail: 'This object can contribute to map or region reasoning.'
+    });
+  }
+
+  if (temporal) {
+    takeaways.push({
+      label: 'Time Scope',
+      value: compactValue(temporal),
+      detail: 'Temporal context can support timeline or workflow interpretation.'
+    });
+  }
+
+  return takeaways.slice(0, 5);
+}
+
 export function getEntityReviewNotes(
   entity: Entity,
   explore: EntityExploreResponse | null,
@@ -220,4 +294,31 @@ function hasMeaningfulValue(value: unknown) {
 
 function getEntityProvenance(entity: Entity) {
   return entity.metadata?.provenance || (entity as any).provenance || null;
+}
+
+function pickAttributeValue(entity: Entity, fields: readonly string[]) {
+  for (const field of fields) {
+    const value = entity.attributes[field];
+    if (hasMeaningfulValue(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function compactValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map(item => compactValue(item)).join(', ').slice(0, 80);
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value)
+      .filter(([, entryValue]) => hasMeaningfulValue(entryValue))
+      .slice(0, 3)
+      .map(([key, entryValue]) => `${formatSignalText(key)}: ${String(entryValue)}`);
+    return entries.join('; ').slice(0, 80);
+  }
+
+  return String(value).slice(0, 80);
 }
