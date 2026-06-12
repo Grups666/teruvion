@@ -529,7 +529,7 @@ export default function Home() {
             {projects.length > 0 && (
               <button
                 onClick={clearAll}
-                style={{ background: 'none', border: 'none', font: 'inherit', fontSize: '10px', color: 'var(--muted)', cursor: 'pointer' }}
+                className="section-action"
               >
                 Clear all
               </button>
@@ -581,7 +581,7 @@ export default function Home() {
         </div>
 
         <div className="sidebar-footer">
-          <span style={{ fontSize: '11px', color: 'var(--muted)', letterSpacing: '0.5px' }}>
+          <span className="sidebar-status">
             {status}
           </span>
         </div>
@@ -919,23 +919,14 @@ export default function Home() {
                 {selectedEntity.metadata?.confidence && (
                   <div className="detail-section">
                     <div className="detail-label">Confidence</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{
-                        flex: 1,
-                        height: 4,
-                        background: 'var(--border)',
-                        borderRadius: 2,
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{
-                          height: '100%',
-                          width: `${selectedEntity.metadata.confidence * 100}%`,
-                          background: 'var(--primary)',
-                          borderRadius: 2,
-                          transition: 'width 0.3s'
-                        }} />
+                    <div className="confidence-meter">
+                      <div className="confidence-track">
+                        <div
+                          className="confidence-fill"
+                          style={{ width: `${selectedEntity.metadata.confidence * 100}%` }}
+                        />
                       </div>
-                      <span style={{ fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+                      <span className="confidence-value">
                         {(selectedEntity.metadata.confidence * 100).toFixed(0)}%
                       </span>
                     </div>
@@ -946,7 +937,7 @@ export default function Home() {
                 {selectedEntity.metadata?.source && (
                   <div className="detail-section">
                     <div className="detail-label">Source</div>
-                    <div className="detail-value" style={{ fontSize: '13px', color: 'var(--secondary)' }}>
+                    <div className="detail-value detail-source">
                       {selectedEntity.metadata.source}
                     </div>
                   </div>

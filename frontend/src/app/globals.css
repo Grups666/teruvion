@@ -249,6 +249,20 @@ html, body {
   color: var(--muted);
 }
 
+.section-action {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.section-action:hover {
+  color: var(--primary);
+}
+
 .empty-projects {
   padding: 24px 4px;
   text-align: left;
@@ -357,6 +371,12 @@ html, body {
 
 .project-delete:hover {
   color: #ef4444;
+}
+
+.sidebar-status {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.5px;
 }
 
 /* ===== Entity List ===== */
@@ -1271,6 +1291,41 @@ html, body {
 .detail-value {
   font-size: 14px;
   line-height: 1.6;
+}
+
+.detail-source {
+  color: var(--secondary);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.confidence-meter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.confidence-track {
+  flex: 1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+
+.confidence-value {
+  min-width: 34px;
+  color: var(--secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .detail-code {
