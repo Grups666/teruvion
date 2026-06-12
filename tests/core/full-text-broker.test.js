@@ -39,6 +39,15 @@ describe('FullTextBroker', () => {
             <p>${longMethods}</p>
           </div>
         </section>
+        <section>
+          <h2>Data availability</h2>
+          <p>
+            Data are available from
+            <a href="https://zenodo.org/records/10397664">Zenodo archive</a>.
+            Code is available from
+            <a href="https://github.com/example/flood-model">source code repository</a>.
+          </p>
+        </section>
         <figure>
           <figcaption>Model forecast reliability across regions.</figcaption>
         </figure>
@@ -53,5 +62,33 @@ describe('FullTextBroker', () => {
     assert.ok(structured.totalLength > 10000, 'Should retain enough text for full-text validation');
     assert.ok(broker._validateFullText(structured), 'Should validate as full text');
     assert.strictEqual(structured.figures.length, 1, 'Should extract figure captions');
+    assert.ok(structured.resources.some(resource => resource.type === 'dataset'), 'Should classify data repository links');
+    assert.ok(structured.resources.some(resource => resource.type === 'repository'), 'Should classify code repository links');
+  });
+
+  it('should extract scholarly resource metadata without publisher-specific rules', () => {
+    const broker = new FullTextBroker();
+    const html = `
+      <html>
+        <head>
+          <meta name="citation_pdf_url" content="https://publisher.example/article.pdf" />
+          <meta name="citation_supplementary_material" content="https://publisher.example/supplement.zip" />
+        </head>
+        <body>
+          <p>
+            Supporting information and dataset are available at
+            <a href="https://figshare.com/articles/dataset/example/123">dataset archive</a>.
+          </p>
+          <a href="/privacy">Privacy</a>
+        </body>
+      </html>
+    `;
+
+    const structured = broker._parseHTMLStructure(html);
+
+    assert.ok(structured.resources.some(resource => resource.type === 'paper'), 'Should expose citation PDF');
+    assert.ok(structured.resources.some(resource => resource.type === 'supplement'), 'Should expose supplementary material');
+    assert.ok(structured.resources.some(resource => resource.type === 'dataset'), 'Should expose dataset archive');
+    assert.ok(!structured.resources.some(resource => resource.url.includes('privacy')), 'Should skip navigation links');
   });
 });

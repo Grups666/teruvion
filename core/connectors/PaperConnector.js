@@ -117,12 +117,16 @@ class PaperConnector extends BaseConnector {
       sections: fullText?.sections || { abstract },
       figures: fullText?.figures || [],
       tables: fullText?.tables || [],
+      resources: fullText?.resources || [],
       contentLevel: fullText?.level || 'abstract_only',
       provenance: fullText?.provenance || {
         source: 'openalex_metadata',
         warning: 'Full text not fetched'
       },
-      metadata: paper
+      metadata: {
+        ...paper,
+        resources: fullText?.resources || []
+      }
     };
   }
 

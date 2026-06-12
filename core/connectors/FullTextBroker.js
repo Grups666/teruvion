@@ -1,8 +1,8 @@
 /**
- * FullTextBroker - 合规全文获取管道
+ * FullTextBroker - compliant full-text acquisition pipeline
  *
- * 负责获取文献全文，优先级：HTML > XML > PDF > Abstract
- * 通过Unpaywall/OpenAlex/PMC找OA入口，记录provenance
+ * Fetches scholarly source text with priority: HTML > XML > PDF > Abstract.
+ * Uses Unpaywall/OpenAlex/PMC access routes and records provenance.
  */
 
 const fetch = require('node-fetch');
@@ -15,16 +15,15 @@ class FullTextBroker {
   }
 
   /**
-   * 获取文献全文（合规）
-   * 返回：结构化sections + provenance
+   * Fetch full text when allowed and return structured sections + provenance.
    */
   async fetchFullText(doi, metadata = {}) {
     console.log('[FullTextBroker] Fetching full text for:', doi);
 
-    // Step 1: 找OA入口
+    // Step 1: locate open-access or publisher entry points.
     const accessPlan = await this._locateOA(doi, metadata);
 
-    // Step 2: 按优先级尝试获取
+    // Step 2: try sources in priority order.
     for (const source of accessPlan.sources) {
       try {
         console.log(`[FullTextBroker] Trying ${source.type}:`, source.url);
@@ -32,7 +31,7 @@ class FullTextBroker {
         const content = await this._fetchFromSource(source);
         const structured = await this._parseStructure(content, source.type);
 
-        // Step 3: 验证是否真的获取全文
+        // Step 3: validate that the content is useful full text.
         if (this._validateFullText(structured)) {
           console.log(`[FullTextBroker] Successfully fetched ${source.type}`);
 
@@ -41,6 +40,7 @@ class FullTextBroker {
             sections: structured.sections,
             figures: structured.figures || [],
             tables: structured.tables || [],
+            resources: structured.resources || [],
             references: structured.references || [],
             totalLength: structured.totalLength,
             provenance: {
@@ -69,6 +69,7 @@ class FullTextBroker {
       },
       figures: [],
       tables: [],
+      resources: this._extractMetadataResources(metadata),
       references: [],
       totalLength: (metadata.abstract || '').length,
       provenance: {
@@ -81,7 +82,8 @@ class FullTextBroker {
   }
 
   /**
-   * 找OA入口（Unpaywall + OpenAlex�?   */
+   * Locate open-access entry points with Unpaywall and OpenAlex.
+   */
   async _locateOA(doi, metadata) {
     const sources = [];
     let oaStatus = 'unknown';
@@ -183,7 +185,7 @@ class FullTextBroker {
   }
 
   /**
-   * 从source抓取内容
+   * Fetch content from a source entry.
    */
   async _fetchFromSource(source) {
     const response = await fetch(source.url, {
@@ -217,7 +219,7 @@ class FullTextBroker {
       };
     }
 
-    // PDF (需要额外解�?
+    // PDF requires a separate parser.
     if (contentType.includes('pdf')) {
       // For MVP, we'll just note PDF availability but not parse
       // GROBID integration would be needed for proper PDF parsing
@@ -233,7 +235,8 @@ class FullTextBroker {
   }
 
   /**
-   * 解析结构（HTML/XML �?sections�?   */
+   * Parse content structure into sections/resources.
+   */
   async _parseStructure(content, sourceType) {
     if (content.type === 'html') {
       return this._parseHTMLStructure(content.text);
@@ -248,12 +251,14 @@ class FullTextBroker {
   }
 
   /**
-   * 解析HTML结构（section detection�?   */
+   * Parse HTML structure with section detection.
+   */
   _parseHTMLStructure(html) {
     const $ = cheerio.load(html);
     const sections = {};
     const figures = [];
     const tables = [];
+    const resources = [];
 
     // Common section patterns (not hardcoded keywords, just HTML structure hints)
     const sectionSelectors = [
@@ -316,6 +321,8 @@ class FullTextBroker {
       });
     });
 
+    resources.push(...this._extractHTMLResources($));
+
     // Calculate total length
     const totalLength = Object.values(sections).reduce((sum, s) => sum + s.length, 0);
 
@@ -323,6 +330,7 @@ class FullTextBroker {
       sections,
       figures,
       tables,
+      resources,
       references: [], // Would need reference parser
       totalLength
     };
@@ -340,12 +348,13 @@ class FullTextBroker {
   }
 
   /**
-   * 解析XML/JATS结构（学术论文标准格式）
+   * Parse XML/JATS scholarly article structure.
    */
   _parseXMLStructure(xml) {
     const $ = cheerio.load(xml, { xmlMode: true });
     const sections = {};
     const figures = [];
+    const resources = [];
 
     // JATS standard tags
     sections.abstract = $('abstract').text().trim();
@@ -364,19 +373,30 @@ class FullTextBroker {
       });
     });
 
+    $('ext-link, uri, self-uri').each((i, el) => {
+      const href = $(el).attr('xlink:href') || $(el).attr('href') || $(el).text();
+      this._pushResource(resources, {
+        url: href,
+        label: this._cleanText($(el).text()) || href,
+        source: 'xml'
+      });
+    });
+
     const totalLength = Object.values(sections).reduce((sum, s) => sum + (s || '').length, 0);
 
     return {
       sections,
       figures,
       tables: [],
+      resources,
       references: [],
       totalLength
     };
   }
 
   /**
-   * 纯文本结构解析（fallback�?   */
+   * Parse plain text structure as fallback.
+   */
   _parseTextStructure(text) {
     const sections = {};
 
@@ -387,13 +407,144 @@ class FullTextBroker {
       sections,
       figures: [],
       tables: [],
+      resources: this._extractTextResources(text),
       references: [],
       totalLength: text.length
     };
   }
 
+  _extractHTMLResources($) {
+    const resources = [];
+
+    const metaSelectors = [
+      'meta[name="citation_pdf_url"]',
+      'meta[name="citation_fulltext_html_url"]',
+      'meta[name="citation_public_url"]',
+      'meta[name="citation_abstract_html_url"]',
+      'meta[name="citation_supplementary_material"]',
+      'meta[name="dc.identifier"]',
+      'meta[property="og:url"]'
+    ];
+
+    for (const selector of metaSelectors) {
+      $(selector).each((i, el) => {
+        const value = $(el).attr('content');
+        this._pushResource(resources, {
+          url: value,
+          label: this._resourceLabelFromURL(value),
+          source: 'html_metadata'
+        });
+      });
+    }
+
+    $('a[href]').each((i, el) => {
+      const href = $(el).attr('href');
+      const label = this._cleanText($(el).text()) || this._resourceLabelFromURL(href);
+      const context = this._cleanText($(el).closest('p, li, section, div').text()).slice(0, 500);
+      this._pushResource(resources, {
+        url: href,
+        label,
+        context,
+        source: 'html_anchor'
+      });
+    });
+
+    return resources.slice(0, 40);
+  }
+
+  _extractMetadataResources(metadata = {}) {
+    const resources = [];
+    [
+      metadata.url,
+      metadata.htmlUrl,
+      metadata.pdfUrl,
+      metadata.doi,
+      metadata.repository,
+      metadata.repo,
+      metadata.dataUrl,
+      metadata.codeUrl
+    ].forEach(url => this._pushResource(resources, { url, source: 'metadata' }));
+    return resources;
+  }
+
+  _extractTextResources(text) {
+    const resources = [];
+    const matches = String(text || '').match(/https?:\/\/[^\s)>\]},"']+/gi) || [];
+    for (const url of matches) {
+      this._pushResource(resources, {
+        url: url.replace(/[.;,]+$/, ''),
+        label: this._resourceLabelFromURL(url),
+        source: 'text'
+      });
+    }
+    return resources;
+  }
+
+  _pushResource(resources, candidate = {}) {
+    const normalizedUrl = this._normalizeResourceURL(candidate.url);
+    if (!normalizedUrl) return;
+
+    const type = candidate.type || this._classifyResource(normalizedUrl, candidate.label, candidate.context);
+    if (type === 'navigation') return;
+
+    if (resources.some(resource => resource.url === normalizedUrl)) return;
+
+    resources.push({
+      label: candidate.label || this._resourceLabelFromURL(normalizedUrl),
+      url: normalizedUrl,
+      type,
+      role: this._resourceRole(type),
+      source: candidate.source || 'resource_discovery',
+      context: candidate.context || undefined
+    });
+  }
+
+  _normalizeResourceURL(url) {
+    if (!url || typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    if (!trimmed || trimmed.startsWith('#') || /^mailto:/i.test(trimmed) || /^javascript:/i.test(trimmed)) return null;
+    if (/^10\.\d{4,9}\//i.test(trimmed)) return `https://doi.org/${trimmed}`;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/[.;,]+$/, '');
+    return null;
+  }
+
+  _classifyResource(url, label = '', context = '') {
+    const value = `${url} ${label} ${context}`.toLowerCase();
+    if (value.includes('github.com') || value.includes('gitlab.com') || value.includes('bitbucket.org')) return 'repository';
+    if (value.includes('zenodo') || value.includes('figshare') || value.includes('dataverse') || value.includes('dryad') || value.includes('pangaea')) return 'dataset';
+    if (value.includes('supplement') || value.includes('supporting information') || value.includes('additional file')) return 'supplement';
+    if (value.includes('data availability') || value.includes('dataset') || value.includes('data repository')) return 'dataset';
+    if (value.includes('code availability') || value.includes('source code') || value.includes('software')) return 'code';
+    if (url.toLowerCase().endsWith('.pdf')) return 'paper';
+    if (url.toLowerCase().includes('doi.org')) return 'doi';
+    if (value.includes('privacy') || value.includes('cookie') || value.includes('terms') || value.includes('login') || value.includes('subscribe')) return 'navigation';
+    return 'external';
+  }
+
+  _resourceRole(type) {
+    const roles = {
+      repository: 'code repository',
+      dataset: 'data resource',
+      supplement: 'supplementary material',
+      code: 'code resource',
+      paper: 'paper file',
+      doi: 'persistent identifier',
+      external: 'referenced resource'
+    };
+    return roles[type] || 'referenced resource';
+  }
+
+  _resourceLabelFromURL(url) {
+    try {
+      const parsed = new URL(this._normalizeResourceURL(url) || url);
+      return parsed.hostname.replace(/^www\./, '');
+    } catch {
+      return 'External resource';
+    }
+  }
+
   /**
-   * 验证是否真的获取全文
+   * Validate whether parsed content is useful full text.
    */
   _validateFullText(structured) {
     // Must have substantial content
@@ -417,7 +568,7 @@ class FullTextBroker {
   }
 
   /**
-   * 判断是否PMC文章
+   * Check whether the paper may have a PMC route.
    */
   _isPMC(doi, metadata) {
     return metadata.venue?.toLowerCase().includes('pmc') ||
@@ -427,7 +578,7 @@ class FullTextBroker {
   }
 
   /**
-   * 解析PMC ID
+   * Resolve PMC ID from DOI when available.
    */
   async _resolvePMCId(doi) {
     try {
