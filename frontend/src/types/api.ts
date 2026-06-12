@@ -101,6 +101,11 @@ export interface Decomposition {
         label: string;
         value: string;
         detail?: string;
+        children?: Array<{
+          label: string;
+          value: string;
+          detail?: string;
+        }>;
       }>;
     }>;
     edges?: Array<{

@@ -1220,8 +1220,21 @@ function formatLimitationSource(source?: string) {
   return 'Review';
 }
 
-function buildFocusMicroGraph(item: { label: string; value: string; detail: string } | null) {
+function buildFocusMicroGraph(item: {
+  label: string;
+  value: string;
+  detail: string;
+  children?: Array<{ label: string; value: string; detail?: string }>;
+} | null) {
   if (!item) return [];
+  if (Array.isArray(item.children) && item.children.length > 0) {
+    return item.children.slice(0, 5).map(child => ({
+      label: child.label,
+      value: child.value,
+      detail: child.detail || 'Protocol-derived detail from the selected route node.'
+    }));
+  }
+
   return [
     {
       label: 'Meaning',

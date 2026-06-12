@@ -30,6 +30,11 @@ export type CockpitFocusItem = {
   label: string;
   value: string;
   detail: string;
+  children?: Array<{
+    label: string;
+    value: string;
+    detail?: string;
+  }>;
 };
 
 export type ProjectBriefItem = {
@@ -236,7 +241,8 @@ export function getCockpitFocusItems(input: {
       return children.slice(0, 6).map(child => ({
         label: child.label,
         value: child.value,
-        detail: child.detail || workflowNode.summary || 'This detail comes from the protocol-level workflow outline.'
+        detail: child.detail || workflowNode.summary || 'This detail comes from the protocol-level workflow outline.',
+        children: child.children || []
       }));
     }
 
