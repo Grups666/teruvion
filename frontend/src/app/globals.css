@@ -2313,6 +2313,54 @@ html, body {
   white-space: nowrap;
 }
 
+.detail-review-evidence {
+  display: grid;
+  gap: 8px;
+}
+
+.detail-review-evidence div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(250,250,250,0.82);
+}
+
+.detail-review-evidence span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.detail-review-evidence strong {
+  display: block;
+  min-width: 0;
+  margin-bottom: 5px;
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-review-evidence p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 1.38;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .detail-label {
   font-size: 10px;
   font-weight: 600;
@@ -2470,7 +2518,7 @@ html, body {
   color: #92400e;
 }
 
-/* ===== Research Graph Inspector ===== */
+/* ===== Drilldown Inspector ===== */
 .graph-view {
   display: flex;
   flex-direction: column;

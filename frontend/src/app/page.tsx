@@ -928,10 +928,9 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Research Graph */}
                 <div className="detail-section">
-                  <div className="detail-label">Research Graph</div>
-                  <EntityGraphView
+                  <div className="detail-label">Drilldown Path</div>
+                  <EntityDrilldownView
                     selectedEntity={selectedEntity}
                     explore={selectedExplore}
                     loading={exploreLoading}
@@ -939,33 +938,35 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Confidence */}
-                {selectedEntity.metadata?.confidence && (
+                {(selectedEntity.metadata?.confidence || selectedEntity.metadata?.source) && (
                   <div className="detail-section">
-                    <div className="detail-label">Confidence</div>
-                    <div className="confidence-meter">
-                      <div className="confidence-track">
-                        <div
-                          className="confidence-fill"
-                          style={{ width: `${selectedEntity.metadata.confidence * 100}%` }}
-                        />
-                      </div>
-                      <span className="confidence-value">
-                        {(selectedEntity.metadata.confidence * 100).toFixed(0)}%
-                      </span>
+                    <div className="detail-label">Review Evidence</div>
+                    <div className="detail-review-evidence">
+                      {selectedEntity.metadata?.confidence && (
+                        <div>
+                          <span>Extraction confidence</span>
+                          <strong>{(selectedEntity.metadata.confidence * 100).toFixed(0)}%</strong>
+                          <p>Use this as a review signal, not as proof that the source claim is correct.</p>
+                        </div>
+                      )}
+                      {selectedEntity.metadata?.source && (
+                        <div>
+                          <span>Source trace</span>
+                          <strong>{sourceHost(String(selectedEntity.metadata.source))}</strong>
+                          <p>{String(selectedEntity.metadata.source)}</p>
+                        </div>
+                      )}
+                      {!selectedEntity.metadata?.source && (
+                        <div>
+                          <span>Source trace</span>
+                          <strong>Not linked</strong>
+                          <p>No external source is attached to this detail yet.</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {/* Source */}
-                {selectedEntity.metadata?.source && (
-                  <div className="detail-section">
-                    <div className="detail-label">Source</div>
-                    <div className="detail-value detail-source">
-                      {selectedEntity.metadata.source}
-                    </div>
-                  </div>
-                )}
               </div>
             </>
           )}
@@ -975,7 +976,7 @@ export default function Home() {
   );
 }
 
-function EntityGraphView({
+function EntityDrilldownView({
   selectedEntity,
   explore,
   loading,
@@ -987,7 +988,7 @@ function EntityGraphView({
   onSelectEntity: (id: string) => void;
 }) {
   if (loading) {
-    return <div className="graph-empty">Loading graph...</div>;
+    return <div className="graph-empty">Loading drilldown...</div>;
   }
 
   const related = explore?.relatedEntities || [];
@@ -995,14 +996,14 @@ function EntityGraphView({
   const sources = explore?.sources || [];
 
   if (related.length === 0 && capabilities.length === 0 && sources.length === 0) {
-    return <div className="graph-empty">No graph connections found yet.</div>;
+    return <div className="graph-empty">No deeper path is available yet.</div>;
   }
 
   return (
     <div className="graph-view">
       {related.length > 0 && (
         <div className="graph-block">
-          <div className="graph-block-title">Connections</div>
+          <div className="graph-block-title">Related Details</div>
           <div className="relation-list">
             {related.slice(0, 12).map(item => (
               <RelationRow
@@ -1023,7 +1024,7 @@ function EntityGraphView({
 
       {capabilities.length > 0 && (
         <div className="graph-block">
-          <div className="graph-block-title">Suggested Checks</div>
+          <div className="graph-block-title">Next Checks</div>
           <div className="action-list">
             {capabilities.slice(0, 6).map(action => (
               <span className="action-chip" key={action}>{action}</span>
@@ -1034,7 +1035,7 @@ function EntityGraphView({
 
       {sources.length > 0 && (
         <div className="graph-block">
-          <div className="graph-block-title">Sources</div>
+          <div className="graph-block-title">Evidence Traces</div>
           <div className="source-list">
             {sources.slice(0, 4).map(source => (
               <div className="source-item" key={source}>{source}</div>
@@ -1177,6 +1178,12 @@ function resourceHost(url: string) {
   } catch {
     return url;
   }
+}
+
+function sourceHost(value: string) {
+  if (!value) return 'Not linked';
+  if (!/^https?:\/\//i.test(value)) return 'Recorded source';
+  return resourceHost(value);
 }
 
 function compactMetaList(value: unknown) {
