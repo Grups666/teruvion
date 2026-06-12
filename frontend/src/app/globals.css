@@ -3,6 +3,8 @@
 @tailwind utilities;
 
 /* ===== Design System ===== */
+@import '@xyflow/react/dist/style.css';
+
 :root {
   /* Colors - Minimalist Palette */
   --primary: #0a0a0a;
@@ -798,6 +800,129 @@ html, body {
     radial-gradient(circle at 50% 50%, transparent 0 28%, rgba(15, 23, 42, 0.035) 29%, transparent 30%),
     radial-gradient(circle at 50% 50%, transparent 0 47%, rgba(15, 23, 42, 0.025) 48%, transparent 49%),
     linear-gradient(180deg, rgba(255,255,255,0.74), rgba(248,250,252,0.64));
+}
+
+.research-flow-shell {
+  position: relative;
+  height: 370px;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(15, 118, 110, 0.075), transparent 8%),
+    radial-gradient(circle at 50% 50%, transparent 0 31%, rgba(15, 23, 42, 0.032) 32%, transparent 33%),
+    radial-gradient(circle at 50% 50%, transparent 0 53%, rgba(15, 23, 42, 0.024) 54%, transparent 55%),
+    linear-gradient(180deg, rgba(255,255,255,0.8), rgba(248,250,252,0.66));
+}
+
+.research-flow-shell .react-flow {
+  background: transparent;
+}
+
+.research-flow-shell .react-flow__node {
+  width: 178px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.research-flow-shell .react-flow__handle {
+  opacity: 0;
+}
+
+.research-flow-shell .react-flow__edge-path {
+  stroke: rgba(15, 118, 110, 0.32);
+  stroke-width: 1.1;
+  stroke-dasharray: 4 5;
+}
+
+.research-flow-shell .react-flow__edge.animated .react-flow__edge-path {
+  stroke: rgba(15, 118, 110, 0.6);
+}
+
+.research-flow-shell .react-flow__background {
+  opacity: 0.28;
+}
+
+.research-flow-node {
+  position: relative;
+  display: block;
+  width: 178px;
+  min-height: 82px;
+  padding: 13px 14px 13px 38px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.88);
+  color: var(--primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.research-flow-node::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: #0f766e;
+  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.28), 0 0 0 8px rgba(15, 118, 110, 0.06);
+}
+
+.research-flow-node.review::before,
+.research-flow-node.pending::before {
+  background: #9a6a13;
+}
+
+.research-flow-node.blocked::before {
+  background: #9f1239;
+}
+
+.research-flow-node:hover,
+.research-flow-node.active {
+  border-color: rgba(15, 118, 110, 0.58);
+  background: rgba(255,255,255,0.98);
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.075), 0 18px 44px rgba(15, 23, 42, 0.11);
+  transform: translateY(-1px);
+}
+
+.research-flow-node span {
+  display: block;
+  margin-bottom: 5px;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.research-flow-node strong {
+  display: -webkit-box;
+  margin-bottom: 4px;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 740;
+  line-height: 1.16;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.research-flow-node small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.28;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .route-graph-lines,

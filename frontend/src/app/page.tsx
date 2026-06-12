@@ -29,6 +29,7 @@ import {
   getLensSummaries,
   getProjectBrief
 } from '../lib/projectCockpit';
+import ResearchRouteGraph from '../components/ResearchRouteGraph';
 
 const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
 
@@ -438,7 +439,6 @@ export default function Home() {
     : [];
   const activeFocusItem = cockpitFocusItems[activeFocusIndex] || cockpitFocusItems[0] || null;
   const focusMicroGraph = buildFocusMicroGraph(activeFocusItem);
-  const routeGraphPoints = buildConstellationPoints(cockpitSignals.length, 'main');
   const detailGraphPoints = buildConstellationPoints(cockpitFocusItems.length, 'detail');
   const focusGraphPoints = buildConstellationPoints(focusMicroGraph.length, 'micro');
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
@@ -745,35 +745,15 @@ export default function Home() {
                     <span>Research Graph</span>
                     <span>Click a node to open its inner route</span>
                   </div>
-                  <div className="route-graph-canvas">
-                    <svg className="route-graph-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                      {buildConstellationEdges(routeGraphPoints).map(edge => (
-                        <line key={edge.id} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} />
-                      ))}
-                    </svg>
-                    <div className="route-graph-nodes">
-                      {cockpitSignals.map((signal, index) => {
-                        const point = routeGraphPoints[index] || { x: 50, y: 50 };
-                        return (
-                        <button
-                          type="button"
-                          key={signal.key}
-                          className={`route-node ${signal.status} ${activeCockpitSignal?.key === signal.key ? 'active' : ''}`}
-                          style={{ '--node-x': `${point.x}%`, '--node-y': `${point.y}%` } as React.CSSProperties}
-                          onClick={() => {
-                            setActiveCockpitKey(signal.key);
-                            setStatus(`${signal.label} graph node selected`);
-                          }}
-                        >
-                          <i aria-hidden="true" />
-                          <span>{signal.label}</span>
-                          <strong>{signal.value}</strong>
-                          <small>{signal.detail}</small>
-                        </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <ResearchRouteGraph
+                    signals={cockpitSignals}
+                    activeKey={activeCockpitSignal?.key}
+                    onSelect={key => {
+                      const signal = cockpitSignals.find(item => item.key === key);
+                      setActiveCockpitKey(key);
+                      setStatus(`${signal?.label || 'Research'} graph node selected`);
+                    }}
+                  />
                 </div>
               )}
 

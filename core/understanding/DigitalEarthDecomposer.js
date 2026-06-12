@@ -295,7 +295,7 @@ class DigitalEarthDecomposer {
       // Calculate overall confidence
       result.confidence = this._calculateConfidence(result);
       result.researchBrief = this._buildResearchBrief(result, content, normalizedAdmissionResult);
-      result.workflowOutline = this._buildWorkflowOutline(result);
+      result.workflowOutline = this._buildWorkflowOutline(result, content);
       result.externalResources = this._extractExternalResources(result, content);
       result.inferredLimitations = this._buildInferredLimitations(result);
       result.inferredLimitations = await this._buildCriticalLimitations(result, content, result.inferredLimitations);
@@ -1134,7 +1134,12 @@ Return JSON with this structure:`;
     };
   }
 
-  _buildWorkflowOutline(result) {
+  _buildWorkflowOutline(result, content = {}) {
+    const contentRoute = this._buildContentWorkflowRoute(result, content);
+    if (contentRoute.nodes.length >= 2) {
+      return contentRoute;
+    }
+
     const nodes = [];
     const edges = [];
     const source = result.sourceObject || {};
@@ -1206,6 +1211,232 @@ Return JSON with this structure:`;
         relationCount: result.bridgeRelations?.length || 0
       }
     };
+  }
+
+  _buildContentWorkflowRoute(result, content = {}) {
+    const nodes = [];
+    const edges = [];
+    const sourceText = this._getSourceText(content);
+    const metadata = content.metadata || {};
+    const abstract = result.sourceObject?.attributes?.abstract || metadata.abstract || content.abstract || '';
+    const allText = [metadata.title, abstract, sourceText].filter(Boolean).join('\n');
+    const routeObjects = [
+      ...(result.capabilityObjects || []).map(object => ({ object, layer: 'capability' })),
+      ...(result.worldObjects || []).map(object => ({ object, layer: 'world' })),
+      ...(result.evidenceObjects || []).map(object => ({ object, layer: 'evidence' }))
+    ];
+    const objectsByStage = new Map();
+
+    for (const item of routeObjects) {
+      const stage = this._classifyWorkflowStage(item.object, item.layer);
+      if (!objectsByStage.has(stage.key)) objectsByStage.set(stage.key, []);
+      objectsByStage.get(stage.key).push(item.object);
+    }
+
+    const addStageNode = (stageKey, fallbackLabel, fallbackSummary, fallbackChildren = []) => {
+      const stage = WORKFLOW_STAGE_DEFINITIONS[stageKey];
+      const objects = objectsByStage.get(stageKey) || [];
+      const primary = objects.find(object => !this._isGenericRouteLabel(object.name || object.attributes?.name || object.type))
+        || objects[0];
+      const label = primary
+        ? this._contentRouteLabel(primary, stageKey, allText)
+        : fallbackLabel;
+      const stageSummary = fallbackSummary || stage.fallbackSummary;
+      const summary = primary
+        ? this._objectSummary(primary, stageSummary) || stageSummary
+        : stageSummary;
+      const children = primary
+        ? this._contentRouteChildren(primary, stageKey)
+        : fallbackChildren;
+
+      if (!label || this._isGenericRouteLabel(label)) return;
+
+      nodes.push({
+        id: `${stageKey}-${nodes.length + 1}`,
+        objectId: primary?.id || null,
+        label: this._summarizeText(label, 82),
+        type: stage.label,
+        stage: stage.key,
+        stageOrder: stage.order,
+        objectType: primary?.type || stage.label,
+        summary: this._summarizeText(summary, 240),
+        status: primary?.confidence >= 0.7 ? 'ready' : 'review',
+        children
+      });
+    };
+
+    const signals = this._extractRouteSignals(allText);
+    addStageNode(
+      'data',
+      signals.dataLabel,
+      signals.dataSummary,
+      signals.dataChildren
+    );
+    addStageNode(
+      'method',
+      signals.methodLabel,
+      signals.methodSummary,
+      signals.methodChildren
+    );
+    addStageNode(
+      'context',
+      signals.contextLabel,
+      signals.contextSummary,
+      signals.contextChildren
+    );
+    addStageNode(
+      'evidence',
+      signals.outputLabel,
+      signals.outputSummary,
+      signals.outputChildren
+    );
+
+    nodes.sort((a, b) => (a.stageOrder - b.stageOrder) || a.label.localeCompare(b.label));
+
+    for (let i = 1; i < nodes.length; i += 1) {
+      edges.push({
+        from: nodes[i - 1].id,
+        to: nodes[i].id,
+        label: this._workflowEdgeLabel(nodes[i - 1], nodes[i])
+      });
+    }
+
+    return {
+      title: 'Research route',
+      summary: nodes.length >= 2
+        ? 'Content-level route assembled from extracted data, method, context, and finding signals.'
+        : 'The source does not yet expose enough content-level route material.',
+      nodes,
+      edges,
+      provenance: {
+        method: 'content-route',
+        relationCount: result.bridgeRelations?.length || 0
+      }
+    };
+  }
+
+  _extractRouteSignals(text = '') {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+    const methodTerms = this._matchTerms(normalized, [
+      'LSTM', 'encoder-decoder', 'Transformer', 'CNN', 'random forest',
+      'neural network', 'deep learning', 'machine learning', 'hydrological model',
+      'forecasting model', 'streamflow forecasting model'
+    ]);
+    const dataTerms = this._matchTerms(normalized, [
+      'meteorological input data', 'precipitation', 'temperature',
+      'streamflow', 'runoff', 'reanalysis', 'reforecast', 'forecast horizons',
+      'watershed attributes', 'observations'
+    ]);
+    const contextTerms = this._matchTerms(normalized, [
+      'ungauged watersheds', 'watersheds', 'global', 'riverine events',
+      'extreme floods', 'floods', 'river basins', 'study region'
+    ]);
+    const outputTerms = this._matchTerms(normalized, [
+      'five-day lead time', 'forecast', 'prediction', 'reliability',
+      'extreme riverine events', 'results', 'performance'
+    ]);
+
+    return {
+      dataLabel: dataTerms.length ? dataTerms.slice(0, 3).join(' + ') : null,
+      dataSummary: dataTerms.length
+        ? `Input material includes ${dataTerms.slice(0, 5).join(', ')}.`
+        : '',
+      dataChildren: dataTerms.map(term => ({ label: 'Input', value: term, detail: 'Input variable or data source mentioned in available source material.' })),
+      methodLabel: methodTerms.length ? methodTerms.slice(0, 2).join(' + ') : null,
+      methodSummary: methodTerms.length
+        ? `Method route centers on ${methodTerms.slice(0, 4).join(', ')}.`
+        : '',
+      methodChildren: methodTerms.map(term => ({ label: 'Method component', value: term, detail: 'Model, algorithm, or method term mentioned in available source material.' })),
+      contextLabel: contextTerms.length ? contextTerms.slice(0, 2).join(' / ') : null,
+      contextSummary: contextTerms.length
+        ? `Study context includes ${contextTerms.slice(0, 4).join(', ')}.`
+        : '',
+      contextChildren: contextTerms.map(term => ({ label: 'Context', value: term, detail: 'Spatial, hazard, or Earth-system context from source material.' })),
+      outputLabel: outputTerms.length ? outputTerms.slice(0, 2).join(' / ') : null,
+      outputSummary: outputTerms.length
+        ? `Reported or targeted output includes ${outputTerms.slice(0, 4).join(', ')}.`
+        : '',
+      outputChildren: outputTerms.map(term => ({ label: 'Output', value: term, detail: 'Result, target, or finding signal from source material.' }))
+    };
+  }
+
+  _contentRouteLabel(object = {}, stageKey = '', text = '') {
+    const attributes = object.attributes || {};
+    const explicit = attributes.name
+      || attributes.title
+      || attributes.label
+      || attributes.statement
+      || object.name;
+    if (explicit && !this._isGenericRouteLabel(explicit)) {
+      return explicit;
+    }
+
+    const sourceText = [
+      attributes.description,
+      attributes.summary,
+      attributes.abstract,
+      object.provenance?.sourceText,
+      text
+    ].filter(Boolean).join(' ');
+    const signals = this._extractRouteSignals(sourceText);
+
+    if (stageKey === 'data') return signals.dataLabel;
+    if (stageKey === 'method') return signals.methodLabel;
+    if (stageKey === 'context') return signals.contextLabel;
+    if (stageKey === 'evidence') return signals.outputLabel;
+    return explicit || object.type;
+  }
+
+  _contentRouteChildren(object = {}, stageKey = '') {
+    const children = this._objectChildren(object)
+      .filter(child => !this._isInternalRouteChild(child.label, child.value))
+      .slice(0, 5);
+    if (children.length > 0) return children;
+
+    const attributes = object.attributes || {};
+    const sourceText = [
+      attributes.description,
+      attributes.summary,
+      attributes.abstract,
+      attributes.statement,
+      object.provenance?.sourceText
+    ].filter(Boolean).join(' ');
+    const signals = this._extractRouteSignals(sourceText);
+    const fallback = stageKey === 'data'
+      ? signals.dataChildren
+      : stageKey === 'method'
+        ? signals.methodChildren
+        : stageKey === 'context'
+          ? signals.contextChildren
+          : signals.outputChildren;
+    return fallback.slice(0, 5);
+  }
+
+  _isInternalRouteChild(label, value) {
+    const normalizedLabel = String(label || '').toLowerCase().trim();
+    const normalizedValue = String(value || '').toLowerCase().trim();
+    return ['object type', 'confidence', 'field', 'depth', 'extraction'].includes(normalizedLabel)
+      || ['paper', 'source', 'deep', 'hybrid extraction', 'metadata only'].includes(normalizedValue)
+      || /^\d+%$/.test(normalizedValue);
+  }
+
+  _isGenericRouteLabel(value) {
+    const normalized = String(value || '').toLowerCase().trim();
+    return !normalized
+      || ['paper', 'source', 'repository', 'connected', 'global view', 'workflow readable', 'evidence available', 'method', 'dataset', 'workflow', 'claim'].includes(normalized)
+      || normalized.endsWith(' workflow');
+  }
+
+  _matchTerms(text = '', terms = []) {
+    const normalized = String(text || '').toLowerCase();
+    const matches = [];
+    for (const term of terms) {
+      const termText = String(term);
+      if (normalized.includes(termText.toLowerCase()) && !matches.some(item => item.toLowerCase() === termText.toLowerCase())) {
+        matches.push(termText);
+      }
+    }
+    return matches;
   }
 
   _classifyWorkflowStage(object, layer) {
