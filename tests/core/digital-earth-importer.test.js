@@ -22,6 +22,29 @@ describe('DigitalEarthImporter', () => {
     assert.strictEqual(importer._identifyInputType('short title'), 'text');
   });
 
+  it('should return initial project protocol metadata from import response', async () => {
+    const projectRegistry = {
+      added: null,
+      addProject(project) {
+        this.added = project;
+        return project.id;
+      },
+      save() {
+        return Promise.resolve();
+      }
+    };
+    const importer = new DigitalEarthImporter(null, null, projectRegistry, null);
+    importer._runBackgroundPipeline = async () => {};
+
+    const result = await importer.import('https://example.com/source');
+
+    assert.ok(result.project, 'Import response should include project snapshot');
+    assert.strictEqual(result.project.id, result.projectId);
+    assert.strictEqual(result.project.metadata.importReadiness.status, 'processing');
+    assert.strictEqual(result.project.metadata.importActions[0].id, 'wait-for-import');
+    assert.strictEqual(projectRegistry.added.id, result.projectId);
+  });
+
   it('should preserve decomposed object metadata when creating store entities', () => {
     const importer = new DigitalEarthImporter(null, null, null, null);
     const entity = importer._createEntity({

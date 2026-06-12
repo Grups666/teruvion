@@ -312,7 +312,8 @@ router.post('/import', async (req, res) => {
     res.json({
       success: true,
       projectId: result.projectId,
-      status: result.status
+      status: result.status,
+      project: result.project
     });
   } catch (err) {
     console.error('[API] Import error:', err);

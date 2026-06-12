@@ -246,13 +246,14 @@ export default function Home() {
         setImportInput('');
       }
 
-      // Add temporary project
-      setProjects(prev => [...prev, {
+      const importingProject = result.project || {
         id: result.projectId,
         name: 'Importing...',
         entities: [],
         analysis: { status: 'importing' }
-      }]);
+      };
+
+      setProjects(prev => [...prev, importingProject]);
 
       // Setup SSE for progress updates
       setupSSE(result.projectId);

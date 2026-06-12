@@ -89,7 +89,8 @@ class DigitalEarthImporter {
     return {
       success: true,
       projectId: project.id,
-      status: 'importing'
+      status: 'importing',
+      project: project.toJSON()
     };
   }
 

@@ -125,6 +125,7 @@ export interface ImportResponse {
   success: boolean;
   projectId: string;
   status: string;
+  project?: Project;
 }
 
 export interface RelatedEntity {
