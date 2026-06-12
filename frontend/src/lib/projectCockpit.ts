@@ -130,10 +130,12 @@ export function getCockpitSignals(input: {
   const firstEntityId = input.entities[0]?.id || null;
   const sourceId = input.entities.find(entity => getDisplayLayer(entity) === 'source')?.id || firstEntityId;
   const spatialLens = lensByName.get('map');
+  const evidenceLens = lensByName.get('evidence');
   const workflowLens = lensByName.get('workflow');
   const comparisonLens = lensByName.get('comparison');
   const sourceDiagnosis = diagnosisByKey.get('source') || diagnosisByKey.get('pipeline');
   const spatialDiagnosis = diagnosisByKey.get('spatial');
+  const evidenceDiagnosis = diagnosisByKey.get('evidence');
   const graphDiagnosis = diagnosisByKey.get('graph');
   const capabilityDiagnosis = diagnosisByKey.get('capability');
   const isProcessing = input.project.analysis?.status === 'importing' || input.project.analysis?.status === 'analyzing';
@@ -168,6 +170,16 @@ export function getCockpitSignals(input: {
       targetId: spatialLens?.targetId || input.entities.find(entity => getDisplayLayer(entity) === 'world')?.id || null
     },
     {
+      key: 'evidence',
+      label: 'Evidence',
+      value: evidenceLens?.value || evidenceDiagnosis?.value || 'Sparse',
+      detail: evidenceLens?.detail || evidenceDiagnosis?.detail || 'Evidence chains show whether extracted objects are backed by inspectable claims.',
+      status: evidenceLens?.status === 'ready'
+        ? 'ready'
+        : mapCockpitStatus(evidenceDiagnosis?.status, input.readiness?.status, isProcessing),
+      targetId: evidenceLens?.targetId || input.entities.find(entity => entity.category === 'evidence')?.id || null
+    },
+    {
       key: 'reuse',
       label: 'Reuse',
       value: workflowLens?.value || comparisonLens?.value || capabilityDiagnosis?.value || 'Not ready',
@@ -196,9 +208,11 @@ export function getCockpitFocusItems(input: {
   const lensByName = new Map(input.lenses.map(lens => [lens.name.toLowerCase(), lens]));
   const sourceDiagnosis = diagnosisByKey.get('source') || diagnosisByKey.get('pipeline');
   const spatialDiagnosis = diagnosisByKey.get('spatial');
+  const evidenceDiagnosis = diagnosisByKey.get('evidence');
   const capabilityDiagnosis = diagnosisByKey.get('capability');
   const graphDiagnosis = diagnosisByKey.get('graph');
   const mapLens = lensByName.get('map');
+  const evidenceLens = lensByName.get('evidence');
   const workflowLens = lensByName.get('workflow');
   const comparisonLens = lensByName.get('comparison');
 
@@ -270,6 +284,26 @@ export function getCockpitFocusItems(input: {
         detail: input.stats.world > 0
           ? 'The map can focus on extracted spatial objects.'
           : 'The map remains global because no verified spatial anchor exists.'
+      }
+    ];
+  }
+
+  if (input.signal.key === 'evidence') {
+    return [
+      {
+        label: 'Claims',
+        value: evidenceLens?.value || evidenceDiagnosis?.value || 'Sparse',
+        detail: evidenceDiagnosis?.detail || 'Claim-level evidence is extracted only when source coverage supports it.'
+      },
+      {
+        label: 'Chains',
+        value: evidenceLens?.detail || 'No evidence chain',
+        detail: 'Evidence chains connect source statements to objects, relations, and reviewable conclusions.'
+      },
+      {
+        label: 'Review State',
+        value: evidenceDiagnosis?.status ? formatSignalText(evidenceDiagnosis.status) : 'Review',
+        detail: 'Evidence is a review signal; sparse evidence means conclusions should remain provisional.'
       }
     ];
   }
