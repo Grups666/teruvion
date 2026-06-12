@@ -667,7 +667,8 @@ html, body {
 }
 
 .route-graph-lines,
-.route-detail-lines {
+.route-detail-lines,
+.route-micro-lines {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -676,7 +677,8 @@ html, body {
 }
 
 .route-graph-lines path,
-.route-detail-lines path {
+.route-detail-lines path,
+.route-micro-lines path {
   fill: none;
   stroke: rgba(20, 184, 166, 0.52);
   stroke-width: 1.3;
@@ -1367,6 +1369,63 @@ html, body {
   color: var(--secondary);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.route-micro-graph {
+  position: relative;
+  min-height: 122px;
+  margin-top: 13px;
+  padding-top: 12px;
+}
+
+.route-micro-nodes {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--micro-count, 3), minmax(0, 1fr));
+  gap: 10px;
+}
+
+.route-micro-node {
+  min-width: 0;
+  min-height: 92px;
+  padding: 11px;
+  border: 1px solid rgba(20, 184, 166, 0.18);
+  border-radius: 9px;
+  background: rgba(255,255,255,0.82);
+}
+
+.route-micro-node span {
+  display: block;
+  margin-bottom: 7px;
+  color: #0f766e;
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.route-micro-node strong {
+  display: -webkit-box;
+  min-width: 0;
+  margin-bottom: 6px;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.route-micro-node small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 10px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .project-brief {
@@ -2913,8 +2972,13 @@ html, body {
     grid-template-columns: 1fr;
   }
 
+  .route-micro-nodes {
+    grid-template-columns: 1fr;
+  }
+
   .route-graph-lines,
-  .route-detail-lines {
+  .route-detail-lines,
+  .route-micro-lines {
     display: none;
   }
 

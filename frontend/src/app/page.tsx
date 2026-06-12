@@ -407,8 +407,10 @@ export default function Home() {
       })
     : [];
   const activeFocusItem = cockpitFocusItems[activeFocusIndex] || cockpitFocusItems[0] || null;
+  const focusMicroGraph = buildFocusMicroGraph(activeFocusItem);
   const routeGraphPath = buildGraphPath(cockpitSignals.length, 'main');
   const detailGraphPath = buildGraphPath(cockpitFocusItems.length, 'detail');
+  const focusGraphPath = buildGraphPath(focusMicroGraph.length, 'detail');
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
   const selectedEntityTakeaways = selectedEntity ? getEntityTakeaways(selectedEntity, selectedExplore, selectedEntitySignals) : [];
@@ -745,6 +747,22 @@ export default function Home() {
                       <span>Focused Layer</span>
                       <strong>{activeFocusItem.value}</strong>
                       <p>{activeFocusItem.detail}</p>
+                      {focusMicroGraph.length > 0 && (
+                        <div className="route-micro-graph" style={{ '--micro-count': focusMicroGraph.length } as React.CSSProperties}>
+                          <svg className="route-micro-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                            <path d={focusGraphPath} />
+                          </svg>
+                          <div className="route-micro-nodes">
+                            {focusMicroGraph.map(node => (
+                              <div className="route-micro-node" key={node.label}>
+                                <span>{node.label}</span>
+                                <strong>{node.value}</strong>
+                                <small>{node.detail}</small>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1200,6 +1218,33 @@ function formatLimitationSource(source?: string) {
   if (source === 'llm-review') return 'LLM Review';
   if (source === 'protocol') return 'Protocol';
   return 'Review';
+}
+
+function buildFocusMicroGraph(item: { label: string; value: string; detail: string } | null) {
+  if (!item) return [];
+  return [
+    {
+      label: 'Meaning',
+      value: item.label,
+      detail: item.value || 'This node summarizes the selected route layer.'
+    },
+    {
+      label: 'Evidence',
+      value: summarizeInline(item.detail, 64),
+      detail: 'Use this as a review cue, not a hidden system object.'
+    },
+    {
+      label: 'Next Check',
+      value: 'Inspect confidence',
+      detail: 'Follow the source, evidence, or linked resource before relying on this node.'
+    }
+  ];
+}
+
+function summarizeInline(value: string, limit: number) {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, Math.max(0, limit - 3)).trim()}...`;
 }
 
 function buildGraphPath(count: number, variant: 'main' | 'detail') {
