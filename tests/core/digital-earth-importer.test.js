@@ -61,6 +61,27 @@ describe('DigitalEarthImporter', () => {
     assert.strictEqual(entity.id, 'dataset-era5');
   });
 
+  it('should write import protocol metadata for processing and failed projects', () => {
+    const importer = new DigitalEarthImporter(null, null, null, null);
+    const project = new Project('Importing...', 'Protocol test', {
+      id: 'project-protocol'
+    });
+
+    importer._updateProjectImportProtocol(project, { status: 'analyzing' });
+
+    assert.strictEqual(project.metadata.importReadiness.status, 'processing');
+    assert.strictEqual(project.metadata.importActions[0].id, 'wait-for-import');
+
+    importer._updateProjectImportProtocol(project, {
+      status: 'failed',
+      error: 'Source rejected'
+    });
+
+    assert.strictEqual(project.metadata.importDiagnosis[0].value, 'Failed');
+    assert.strictEqual(project.metadata.importReadiness.status, 'blocked');
+    assert.strictEqual(project.metadata.importActions[0].id, 'fix-import-failure');
+  });
+
   it('should resolve bridge relations from decomposer ids', async () => {
     const store = new TripleStore(':memory:');
     const importer = new DigitalEarthImporter(store, null, null, null);

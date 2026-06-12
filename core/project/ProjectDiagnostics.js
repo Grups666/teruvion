@@ -14,6 +14,18 @@ function buildProjectImportDiagnosis({
   decomposition = null,
   stored = null
 } = {}) {
+  if (status === 'cancelled') {
+    return [
+      {
+        key: 'pipeline',
+        label: 'Pipeline',
+        status: 'missing',
+        value: 'Cancelled',
+        detail: error || 'Import was cancelled before a stable object graph was created.'
+      }
+    ];
+  }
+
   if (status === 'failed') {
     return [
       {
@@ -176,11 +188,14 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
   }
 
   if (readiness?.status === 'blocked' || byKey.get('pipeline')?.status === 'missing') {
+    const pipeline = byKey.get('pipeline');
+    const wasCancelled = pipeline?.value === 'Cancelled';
+
     return [
       {
-        id: 'fix-import-failure',
-        label: 'Fix failed import',
-        reason: byKey.get('pipeline')?.detail || 'The pipeline failed before a stable graph was created.',
+        id: wasCancelled ? 'restart-import' : 'fix-import-failure',
+        label: wasCancelled ? 'Restart import' : 'Fix failed import',
+        reason: pipeline?.detail || 'The pipeline failed before a stable graph was created.',
         targetLayer: 'source',
         fallbackLayer: null,
         priority: 'high'

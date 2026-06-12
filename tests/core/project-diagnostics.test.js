@@ -81,6 +81,12 @@ describe('ProjectDiagnostics', () => {
     assert.strictEqual(failed.length, 1);
     assert.strictEqual(failed[0].status, 'missing');
     assert.strictEqual(failed[0].detail, 'Source rejected');
+
+    const cancelled = buildProjectImportDiagnosis({
+      status: 'cancelled'
+    });
+    assert.strictEqual(cancelled[0].value, 'Cancelled');
+    assert.strictEqual(cancelled[0].status, 'missing');
   });
 
   it('should summarize readiness from diagnostic hard signals', () => {
@@ -139,5 +145,15 @@ describe('ProjectDiagnostics', () => {
     assert.strictEqual(actions[0].id, 'wait-for-import');
     assert.strictEqual(actions[0].targetLayer, null);
     assert.strictEqual(actions[1].targetLayer, 'source');
+  });
+
+  it('should build action plans for cancelled imports', () => {
+    const diagnosis = buildProjectImportDiagnosis({ status: 'cancelled' });
+    const readiness = buildProjectReadinessSummary(diagnosis);
+    const actions = buildProjectActionPlan(diagnosis, readiness);
+
+    assert.strictEqual(readiness.status, 'blocked');
+    assert.strictEqual(actions[0].id, 'restart-import');
+    assert.strictEqual(actions[0].priority, 'high');
   });
 });

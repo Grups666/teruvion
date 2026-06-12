@@ -66,6 +66,7 @@ class DigitalEarthImporter {
     );
 
     project.startAnalysis(['admission', 'fetching', 'decomposition', 'storing']);
+    this._updateProjectImportProtocol(project, { status: 'analyzing' });
     this.projectRegistry.addProject(project);
     await this.projectRegistry.save();
 
@@ -178,16 +179,12 @@ class DigitalEarthImporter {
       project.metadata.decomposition = decomposition;
       project.metadata.admission = admissionResult;
       project.metadata.sourceCoverage = sourceCoverage;
-      const importDiagnosis = buildProjectImportDiagnosis({
+      this._updateProjectImportProtocol(project, {
         status: project.analysis.status,
         sourceCoverage,
         decomposition,
         stored
       });
-      project.metadata.importDiagnosis = importDiagnosis;
-      const importReadiness = buildProjectReadinessSummary(importDiagnosis);
-      project.metadata.importReadiness = importReadiness;
-      project.metadata.importActions = buildProjectActionPlan(importDiagnosis, importReadiness);
 
       await this.projectRegistry.save();
       await this.store.save();
@@ -207,6 +204,10 @@ class DigitalEarthImporter {
       } else {
         project.failAnalysis(err.message);
       }
+      this._updateProjectImportProtocol(project, {
+        status: project.analysis.status,
+        error: err.message
+      });
       await this.projectRegistry.save();
 
       this._notifyProgress(projectId, 'error', {
@@ -337,6 +338,14 @@ class DigitalEarthImporter {
         : (obj.confidence || 0.8),
       provenance: obj.provenance || objectMetadata.provenance
     });
+  }
+
+  _updateProjectImportProtocol(project, payload = {}) {
+    const importDiagnosis = buildProjectImportDiagnosis(payload);
+    const importReadiness = buildProjectReadinessSummary(importDiagnosis);
+    project.metadata.importDiagnosis = importDiagnosis;
+    project.metadata.importReadiness = importReadiness;
+    project.metadata.importActions = buildProjectActionPlan(importDiagnosis, importReadiness);
   }
 
   _registerEntityKeys(entityMap, obj, entityId) {
