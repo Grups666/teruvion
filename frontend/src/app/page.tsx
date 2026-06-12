@@ -35,6 +35,15 @@ type LensSummary = {
   targetId: string | null;
 };
 
+type CockpitSignal = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  status: 'ready' | 'review' | 'blocked' | 'pending';
+  targetId?: string | null;
+};
+
 const DISPLAY_LAYER_ORDER: DisplayLayer[] = ['source', 'capability', 'world', 'foundation'];
 
 const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
@@ -438,6 +447,17 @@ export default function Home() {
   const projectReadiness = selectedProject ? getProjectReadiness(selectedProject, projectDiagnosis) : null;
   const recommendedActions = getRecommendedNextActions(selectedProject || null, projectQuality, projectStats, projectEntities.length);
   const lensSummaries = getLensSummaries(projectLenses);
+  const cockpitSignals = selectedProject
+    ? getCockpitSignals({
+        project: selectedProject,
+        entities: projectEntities,
+        stats: projectStats,
+        readiness: projectReadiness,
+        diagnosis: projectDiagnosis,
+        lenses: lensSummaries,
+        sourceCapsule
+      })
+    : [];
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
 
@@ -695,6 +715,35 @@ export default function Home() {
                   </div>
                 ))}
               </div>
+
+              {cockpitSignals.length > 0 && (
+                <div className="research-cockpit">
+                  <div className="cockpit-head">
+                    <span>Research Cockpit</span>
+                    <span>{projectReadiness?.label || 'Import state'}</span>
+                  </div>
+                  <div className="cockpit-grid">
+                    {cockpitSignals.map(signal => (
+                      <button
+                        type="button"
+                        key={signal.key}
+                        className={`cockpit-card ${signal.status}`}
+                        disabled={!signal.targetId}
+                        onClick={() => {
+                          if (signal.targetId) {
+                            setSelectedEntityId(signal.targetId);
+                            setStatus(`${signal.label} focus selected`);
+                          }
+                        }}
+                      >
+                        <span className="cockpit-label">{signal.label}</span>
+                        <strong>{signal.value}</strong>
+                        <small>{signal.detail}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="project-panel-metrics">
                 <div className="metric">
@@ -1164,7 +1213,7 @@ function groupEntitiesByLayer(entities: Entity[]) {
   return groups;
 }
 
-function getLensSummaries(lenses: Record<string, any> | null) {
+function getLensSummaries(lenses: Record<string, any> | null): LensSummary[] {
   if (!lenses) return [];
 
   return Object.keys(LENS_SUMMARY_ADAPTERS)
@@ -1176,13 +1225,90 @@ function getLensSummaries(lenses: Record<string, any> | null) {
           name,
           value: 'Unavailable',
           detail: lens.error,
-          status: 'empty',
+          status: 'empty' as const,
           targetId: null
         };
       }
 
       return LENS_SUMMARY_ADAPTERS[name](lens);
     });
+}
+
+function getCockpitSignals(input: {
+  project: Project;
+  entities: Entity[];
+  stats: ReturnType<typeof getProjectStats>;
+  readiness: ReturnType<typeof getProjectReadiness> | null;
+  diagnosis: ReturnType<typeof getProjectDiagnosis>;
+  lenses: LensSummary[];
+  sourceCapsule: ReturnType<typeof getSourceCapsule> | null;
+}): CockpitSignal[] {
+  const diagnosisByKey = new Map(input.diagnosis.map(item => [item.key, item]));
+  const lensByName = new Map(input.lenses.map(lens => [lens.name.toLowerCase(), lens]));
+  const firstEntityId = input.entities[0]?.id || null;
+  const sourceId = input.entities.find(entity => getDisplayLayer(entity) === 'source')?.id || firstEntityId;
+  const spatialLens = lensByName.get('map');
+  const workflowLens = lensByName.get('workflow');
+  const comparisonLens = lensByName.get('comparison');
+  const sourceDiagnosis = diagnosisByKey.get('source') || diagnosisByKey.get('pipeline');
+  const spatialDiagnosis = diagnosisByKey.get('spatial');
+  const graphDiagnosis = diagnosisByKey.get('graph');
+  const capabilityDiagnosis = diagnosisByKey.get('capability');
+  const isProcessing = input.project.analysis?.status === 'importing' || input.project.analysis?.status === 'analyzing';
+
+  return [
+    {
+      key: 'source',
+      label: 'Source',
+      value: input.sourceCapsule?.type || sourceDiagnosis?.value || 'Pending',
+      detail: input.sourceCapsule?.title || sourceDiagnosis?.detail || 'Resolving source identity.',
+      status: mapCockpitStatus(sourceDiagnosis?.status, input.readiness?.status, isProcessing),
+      targetId: sourceId
+    },
+    {
+      key: 'object-graph',
+      label: 'Object Graph',
+      value: `${input.entities.length} object${input.entities.length !== 1 ? 's' : ''}`,
+      detail: graphDiagnosis?.detail || `${input.stats.capability} capability, ${input.stats.world} world signal${input.stats.world !== 1 ? 's' : ''}.`,
+      status: input.entities.length > 1
+        ? mapCockpitStatus(graphDiagnosis?.status, input.readiness?.status, isProcessing)
+        : isProcessing ? 'pending' : 'review',
+      targetId: firstEntityId
+    },
+    {
+      key: 'spatial',
+      label: 'Spatial',
+      value: spatialLens?.value || spatialDiagnosis?.value || 'No feature',
+      detail: spatialLens?.detail || spatialDiagnosis?.detail || 'Map remains global until spatial evidence is extracted.',
+      status: spatialLens?.status === 'ready'
+        ? 'ready'
+        : mapCockpitStatus(spatialDiagnosis?.status, input.readiness?.status, isProcessing),
+      targetId: spatialLens?.targetId || input.entities.find(entity => getDisplayLayer(entity) === 'world')?.id || null
+    },
+    {
+      key: 'reuse',
+      label: 'Reuse',
+      value: workflowLens?.value || comparisonLens?.value || capabilityDiagnosis?.value || 'Not ready',
+      detail: comparisonLens?.status === 'ready'
+        ? comparisonLens.detail
+        : workflowLens?.detail || capabilityDiagnosis?.detail || 'Needs workflow, evidence, or comparable objects before reuse.',
+      status: comparisonLens?.status === 'ready' || workflowLens?.status === 'ready'
+        ? 'ready'
+        : mapCockpitStatus(capabilityDiagnosis?.status, input.readiness?.status, isProcessing),
+      targetId: workflowLens?.targetId || comparisonLens?.targetId || input.entities.find(entity => getDisplayLayer(entity) === 'capability')?.id || null
+    }
+  ];
+}
+
+function mapCockpitStatus(
+  diagnosisStatus?: string,
+  readinessStatus?: string,
+  isProcessing = false
+): CockpitSignal['status'] {
+  if (isProcessing || diagnosisStatus === 'pending' || readinessStatus === 'processing') return 'pending';
+  if (diagnosisStatus === 'ready' || readinessStatus === 'ready') return 'ready';
+  if (diagnosisStatus === 'missing' || readinessStatus === 'blocked') return 'blocked';
+  return 'review';
 }
 
 /** Format entity attributes for display */
