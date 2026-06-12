@@ -6,6 +6,16 @@ Current focus: import papers, paper titles, DOI references, and GitHub repositor
 
 Teruvion is not trying to replace Google Earth, Cesium, ArcGIS, QGIS, Zotero, or literature summarizers. Its core difference is objectization: sources become traceable research objects, evidence chains, workflows, spatial entities, and comparisons that can be inspected and recomposed.
 
+## Documentation Map
+
+The public documentation is intentionally small:
+
+- `docs/vision-and-strategy.md`: product thesis, moat, market logic, and roadmap stages.
+- `docs/architecture.md`: current runtime architecture, API shape, extraction modes, and extension principles.
+- `docs/object-model.md`: object graph concepts and implemented entity families.
+- `docs/paper-to-teruvion.md`: current source import pipeline and supported API contract.
+- `docs/verification.md`: automated and manual verification checklist.
+
 ## Current Architecture
 
 ```text
@@ -52,7 +62,7 @@ These are product directions or previous MVP notes, not current API contracts:
 - automatic execution of remote GitHub code
 - standalone `/api/paper/lookup`, `/api/github/inspect`, `/api/object/extract`, or `/api/object/compare` endpoints
 
-Use `docs/paper-to-teruvion.md` for the current Paper-to-Teruvion pipeline contract.
+Use `docs/architecture.md` and `docs/paper-to-teruvion.md` for the current runtime contract.
 
 ## Configuration
 

@@ -30,7 +30,7 @@ Input
   -> LensRegistry
 ```
 
-The actual API contract is documented in `README.md` and `docs/paper-to-teruvion.md`.
+The actual API contract is documented in `README.md`, `docs/architecture.md`, and `docs/paper-to-teruvion.md`.
 
 ## Do Not Assume These Exist
 
@@ -42,6 +42,18 @@ The current server does not expose these older MVP endpoints:
 - `POST /api/object/compare`
 
 Do not build new code or docs around those endpoints unless the task explicitly reintroduces them.
+
+## Documentation Structure
+
+Keep public docs concentrated in:
+
+- `docs/vision-and-strategy.md`
+- `docs/architecture.md`
+- `docs/object-model.md`
+- `docs/paper-to-teruvion.md`
+- `docs/verification.md`
+
+Avoid reintroducing multiple overlapping roadmap or positioning documents. If strategy changes, update `vision-and-strategy.md`; if implementation changes, update `architecture.md` or `paper-to-teruvion.md`.
 
 ## Foundation Principles
 

@@ -1,205 +1,199 @@
 # Teruvion Object Model
 
-## Overview
+## Purpose
 
-Teruvion organizes knowledge as typed, inspectable, comparable objects rather than anonymous data blobs. Each object has clear identity, provenance, spatial/temporal context, and connections to other objects.
+Teruvion organizes research and Earth intelligence as typed, inspectable graph objects.
 
-## Core Object Types
+The implementation is not a fixed set of standalone `PaperObject` or `RegionObject` JSON classes. The current runtime stores ontology-grounded entities and relations in `TripleStore`, grouped by project and recomposed through lenses.
 
-### RegionObject
+## Entity Layers
 
-Represents a spatial area of interest - a study region, administrative boundary, watershed, or custom-defined area.
+The ontology is organized into five layers:
 
-**Key Properties:**
-- `id`: Unique identifier
-- `type`: "RegionObject"
-- `name`: Human-readable name
-- `geometry`: GeoJSON geometry (Point, Polygon, MultiPolygon)
-- `bbox`: Bounding box [minLon, minLat, maxLon, maxLat]
-- `properties`: Domain-specific metadata
-- `source`: Where this region came from
-- `provenance`: Creation/modification history
+- **Foundation**: generic concepts such as Entity, Source, Claim, Evidence, Method, Model, Metric, Process, Agent.
+- **Source**: Paper, Repository, DatasetPage, Report, PolicyDocument, News, and related source-bearing entities.
+- **Capability**: Dataset, Variable, Model, Algorithm, Workflow, Software, API, Assessment, Indicator, Intervention, and related capability objects.
+- **World**: Region, Basin, EarthVariable, Hazard, Risk, Event, Infrastructure, Scenario, ModelOutput, and related Earth objects.
+- **Domain**: hydrology, climate, urban, energy, ecology, agriculture, and future domain extensions.
 
-**Use Cases:**
-- Study area boundaries from papers
-- Administrative regions
-- Watershed/basin delineations
-- Custom research regions
+The core should use generic layer and entity protocols. Domain-specific entities are valid extracted objects, but foundation code should not become hardcoded to one domain.
 
-### PaperObject
+## Entity Shape
 
-Represents a scientific paper with extracted metadata, spatial context, datasets, methods, and reproducibility status.
+Stored entities follow the `TripleStore` entity shape:
 
-**Key Properties:**
-- `id`: Unique identifier (DOI preferred)
-- `type`: "PaperObject"
-- `title`: Paper title
-- `authors`: List of author objects
-- `year`: Publication year
-- `venue`: Journal/conference
-- `doi`: Digital Object Identifier
-- `url`: Primary URL
-- `abstract`: Paper abstract
-- `studyRegions`: Array of RegionObjects
-- `datasets`: Array of DataObject references
-- `methods`: Methodology descriptions
-- `code`: GitHub repository information
-- `reproducibility`: ReproducibilityStatus object
-- `keywords`: Extracted keywords
-- `provenance`: How this object was created
+```json
+{
+  "id": "Dataset_abcd1234",
+  "type": "Dataset",
+  "attributes": {
+    "name": "ERA5-Land",
+    "description": "..."
+  },
+  "metadata": {
+    "source": "https://example.org/source",
+    "projectId": "project_...",
+    "confidence": 0.8,
+    "extractedBy": "DigitalEarthDecomposer",
+    "sourceDerived": true,
+    "provenance": {
+      "section": "data availability",
+      "sourceText": "..."
+    }
+  },
+  "verificationState": "extracted",
+  "createdAt": "..."
+}
+```
 
-**Use Cases:**
-- Paper catalog and search
-- Spatial distribution of research
-- Reproducibility assessment
-- Method/dataset discovery
+Important fields:
 
-### DataObject
+- `type`: ontology entity type.
+- `attributes`: user-facing and domain-facing object fields.
+- `metadata.source`: input or source link.
+- `metadata.projectId`: project grouping.
+- `metadata.confidence`: extraction confidence.
+- `metadata.provenance`: source section, source span, notes, and fallback status.
+- `verificationState`: extracted, reviewed, verified, uncertain, or rejected.
 
-Represents a dataset, data source, or data artifact referenced or produced by research.
+## Relation Shape
 
-**Key Properties:**
-- `id`: Unique identifier
-- `type`: "DataObject"
-- `name`: Dataset name
-- `description`: Dataset description
-- `format`: Data format (GeoTIFF, NetCDF, CSV, etc.)
-- `spatialCoverage`: Spatial extent (bbox or geometry)
-- `temporalCoverage`: Time range
-- `resolution`: Spatial/temporal resolution
-- `source`: Original source/provider
-- `accessUrl`: Where to access the data
-- `license`: Data license
-- `citation`: How to cite the data
-- `usedBy`: Papers/workflows using this data
-- `provenance`: Creation/extraction history
+Relations are triples:
 
-**Use Cases:**
-- Dataset discovery
-- Data provenance tracking
-- Understanding data dependencies
-- Dataset comparison
+```json
+{
+  "subject": "Paper_...",
+  "predicate": "produces",
+  "object": "Dataset_...",
+  "metadata": {
+    "confidence": 0.8,
+    "provenance": {}
+  }
+}
+```
 
-### WorkflowObject
+Relations should represent inspectable claims about object structure:
 
-Represents a computational workflow, analysis pipeline, or methodological procedure.
+- source produces capability
+- source studies world object
+- dataset covers region
+- model predicts variable or hazard
+- evidence supports claim
+- workflow uses dataset or model
 
-**Key Properties:**
-- `id`: Unique identifier
-- `type`: "WorkflowObject"
-- `name`: Workflow name
-- `description`: Workflow description
-- `steps`: Array of workflow step objects
-- `inputs`: Required input data/parameters
-- `outputs`: Generated outputs
-- `code`: Code repository information
-- `environment`: Runtime environment (Docker, conda, etc.)
-- `reproducibility`: ReproducibilityStatus object
-- `usedBy`: Papers using this workflow
-- `provenance`: Creation history
+Where source evidence is weak or missing, relation confidence must remain conservative.
 
-**Workflow Steps:**
-Each step includes:
-- `name`: Step name
-- `description`: What this step does
-- `tool`: Software/library used
-- `parameters`: Configuration parameters
-- `inputs`: Input data/files
-- `outputs`: Output data/files
+## Source Objects
 
-**Use Cases:**
-- Workflow reuse and adaptation
-- Understanding analysis procedures
-- Reproducibility assessment
-- Method comparison
+Source objects represent imported materials:
 
-### ReproducibilityStatus
+- Paper
+- Repository
+- DatasetPage
+- Report
+- PolicyDocument
+- News
+- generic Source where no richer type is known
 
-Assesses how reproducible a paper or workflow is based on available artifacts.
+Source objects are entry points into the graph. They should preserve title, identifier, URL, DOI, authors, venue, repository metadata, source coverage, and admission metadata when available.
 
-**Grade Levels:**
-- **A**: Likely runnable - all key components present
-- **B**: Partially runnable - some components missing
-- **C**: Code/data incomplete - significant gaps
-- **D**: Description only - no executable artifacts
-- **E**: Insufficient information - cannot assess
+## Capability Objects
 
-**Key Properties:**
-- `grade`: Reproducibility grade (A-E)
-- `confidence`: Confidence level (high/medium/low)
-- `reasons`: List of supporting reasons
-- `warnings`: List of potential issues
-- `checklist`: Detailed component checklist
-- `assessedAt`: When assessment was performed
-- `assessmentMethod`: How it was assessed (static/dynamic)
+Capability objects represent what a source provides or describes:
 
-**Checklist Components:**
-- `hasReadme`: README file present
-- `hasLicense`: License file present
-- `hasDependencies`: Requirements/environment file present
-- `hasData`: Data files or data instructions present
-- `hasCode`: Runnable scripts or notebooks present
-- `hasDockerfile`: Docker configuration present
-- `hasTests`: Test suite present
-- `hasDocumentation`: Usage documentation present
-- `hasExamples`: Example outputs or demo notebooks
+- Dataset
+- Variable
+- Model
+- Algorithm
+- Workflow
+- Software
+- API
+- Assessment
+- Indicator
+- Intervention
 
-**Use Cases:**
-- Assess paper reproducibility
-- Identify reproducibility gaps
-- Guide improvement efforts
-- Compare reproducibility across papers
+They answer:
 
-## Object Registry
+- What method, data, model, workflow, or tool exists?
+- What is it for?
+- What source supports its existence?
+- What world object can it observe, model, predict, assess, or affect?
 
-The system maintains a central registry of all loaded objects with:
-- Unique ID → Object mapping
-- Type-based indexing
-- Spatial indexing for geometry-bearing objects
-- Cross-references between objects
+## World Objects
 
-## Object Provenance
+World objects represent Earth-side targets and contexts:
 
-Every object tracks its provenance:
-- **Source**: Where it came from (API, file, user input, extraction)
-- **Creator**: What created it (manual, LLM, API integration)
-- **CreatedAt**: When it was created
-- **Modified**: Modification history
-- **Confidence**: Confidence level for inferred data
-- **Verification**: Verification status
+- Region or Basin
+- EarthVariable
+- Hazard
+- Risk
+- Event
+- Infrastructure
+- Scenario
+- ModelOutput
 
-## Uncertainty and Confidence
+They answer:
 
-Objects distinguish between:
-- **Verified facts**: Directly from authoritative sources
-- **Extracted information**: Parsed from text/metadata
-- **Inferred information**: Derived through reasoning
-- **Uncertain information**: Low-confidence extractions
+- What Earth system, region, process, variable, risk, or event is involved?
+- Is there spatial or temporal metadata?
+- Which sources, capabilities, claims, or workflows connect to it?
 
-Each field can have an associated confidence score and source attribution.
+## Evidence Objects
 
-## Object Relationships
+Evidence objects represent reviewable support:
 
-Objects reference each other to form knowledge graphs:
-- PaperObject → RegionObject (study regions)
-- PaperObject → DataObject (datasets used)
-- PaperObject → WorkflowObject (methods used)
-- WorkflowObject → DataObject (data dependencies)
-- DataObject → PaperObject (papers using this data)
+- Claim
+- Evidence
+- EvidenceChain
+- Assessment
+- Indicator
 
-## Extension Points
+They should distinguish:
 
-The object model is designed for extension:
-- New object types can be added
-- Existing object types can be extended with domain-specific fields
-- Custom validators and extractors can be registered
-- Object schemas are versioned for migration
+- direct source statements
+- extracted facts
+- inferred information
+- fallback extraction
+- unsupported or uncertain claims
 
-## Implementation
+Every evidence object should preserve provenance where possible.
 
-Objects are represented as JSON with:
-- Required type discrimination
-- Optional fields with clear semantics
-- Extensible metadata dictionaries
-- Schema validation
-- Serialization/deserialization utilities
+## Extraction Modes And Trust
+
+Objects may be created by:
+
+- connector metadata
+- source text fallback
+- LLM-assisted extraction
+- future user edits
+- future monitoring tasks
+
+The extraction mode must remain visible. A `source-text-fallback` object is useful because it is inspectable, but it is not the same as a verified expert object.
+
+## Lenses
+
+Lenses recompose stored objects into views:
+
+- Map: spatial entities and features.
+- Evidence: claims, evidence, and support chains.
+- Workflow: method, data, model, software, and output flow.
+- Timeline: temporal objects and events.
+- Comparison: comparable object sets.
+
+Lenses do not replace the graph. They are views over graph state.
+
+## Future Extension Rules
+
+New object types should be added through ontology extension patterns, not ad hoc route logic.
+
+Before adding a type or relation, define:
+
+- layer
+- category
+- required and optional attributes
+- allowed relations
+- provenance expectations
+- UI review behavior
+- verification path
+
+The object model should grow by protocol, not by scattered special cases.

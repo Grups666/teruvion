@@ -101,6 +101,14 @@ This performs the lightweight source relevance and processing-depth decision use
 
 `PaperConnector` handles DOI, paper URLs, and title-like text. It uses OpenAlex metadata and `FullTextBroker` when full text is available. If only abstract-level content is available, the output should remain marked as limited by source coverage.
 
+Current decomposition behavior:
+
+- When full text is available, the decomposer can use source sections such as abstract, methods, data availability, and code availability.
+- When LLM extraction succeeds, the project is marked as hybrid extraction.
+- When LLM extraction is unavailable or empty, the system may create low-confidence `source-text-fallback` objects from explicit source sections.
+- Source-text fallback objects are reviewable objects, not verified conclusions.
+- Metadata, confidence, source-derived flags, and provenance notes are preserved into stored entities.
+
 Configuration:
 
 - `OPENALEX_API_KEY` is optional.
@@ -133,6 +141,8 @@ Configuration:
 - `OPENALEX_EMAIL`
 
 If the LLM is unavailable, callers must surface the failure or fall back explicitly. The system should not silently label speculative extraction as verified.
+
+The frontend should display this distinction. A source-text fallback project means the system found usable source text, but deep semantic extraction was not available enough to produce a richer graph.
 
 ## Reproducibility Status
 

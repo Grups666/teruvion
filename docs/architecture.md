@@ -1,0 +1,112 @@
+# Teruvion Architecture
+
+## Current System
+
+Teruvion currently implements a source-to-object-graph foundation.
+
+```text
+Input
+  -> SourceAdmission
+  -> ConnectorRegistry
+     -> PaperConnector
+     -> GitHubConnector
+     -> URLConnector
+  -> DigitalEarthDecomposer
+  -> TripleStore
+  -> ProjectRegistry
+  -> LensRegistry
+  -> REST API
+  -> Next.js frontend
+```
+
+The current runtime accepts DOI, paper title, paper URL, generic URL, and GitHub repository inputs. It stores entities and relations rather than returning only prose summaries.
+
+## Runtime Components
+
+- `src/server/api.js`: REST API and server route wiring.
+- `src/server/digital-earth-importer.js`: background import pipeline.
+- `core/admission`: source relevance, role, and depth evaluation.
+- `core/connectors`: source-specific fetching and static inspection.
+- `core/understanding/DigitalEarthDecomposer.js`: metadata, source-text, and LLM-assisted decomposition.
+- `core/registry/TripleStore.js`: entity and relation storage.
+- `core/project/Project.js`: import project state.
+- `core/events/EventLog.js`: import event history.
+- `core/lenses`: recomposed graph views such as map, evidence, workflow, timeline, and comparison.
+- `core/presentation`: API-facing serialization helpers.
+- `frontend`: interactive project, map, object, and alpha admin UI.
+
+## Implemented API Shape
+
+The implemented contract is unified import plus graph inspection:
+
+```text
+POST /api/import
+GET  /api/projects
+GET  /api/projects/:projectId
+GET  /api/projects/:projectId/events
+GET  /api/projects/:projectId/decomposition
+POST /api/projects/:projectId/cancel
+
+GET  /api/entities
+GET  /api/entities/:id
+GET  /api/entities/:id/relations
+GET  /api/entities/:id/explore
+
+GET  /api/triples
+GET  /api/triples/:entityId
+
+POST /api/admission/evaluate
+GET  /api/lenses
+GET  /api/projects/:projectId/lens/:lensName
+```
+
+The current server does not expose legacy standalone endpoints such as `/api/paper/lookup`, `/api/github/inspect`, `/api/object/extract`, or `/api/object/compare`.
+
+## Extraction Modes
+
+The decomposer can produce objects through several modes:
+
+- `hybrid`: LLM extraction plus metadata/fallback support.
+- `source-text-fallback`: explicit source sections produced reviewable objects when LLM extraction is unavailable or empty.
+- `metadata`: connector metadata only.
+- `none`: rejected source or no extraction.
+
+Fallback modes must stay visible in project and object UI. The system should not present fallback output as verified intelligence.
+
+## Design Principles
+
+- **Object-centric**: sources become typed objects and relations.
+- **Evidence-first**: preserve source, provenance, confidence, coverage, and verification state.
+- **Small core**: keep the foundation generic; push domain-specific behavior into ontology extensions, connectors, lenses, or future modules.
+- **No silent fallback**: unavailable LLMs, abstract-only content, missing keys, and partial source coverage must be visible.
+- **Static by default**: inspect remote repositories; do not execute untrusted code.
+- **Model-agnostic**: treat LLMs as soft intelligence providers, not the durable product asset.
+- **Code as hard link, LLM as soft link**: code defines protocols, storage, UI states, and verification boundaries; LLMs assist extraction and synthesis inside those boundaries.
+
+## Extension Direction
+
+The current codebase no longer has the old Tereon map-module manifest runtime. Future extension work should build on the current object graph architecture instead of reviving stale map-layer assumptions.
+
+Likely extension points:
+
+- connector interface for new source types
+- ontology entity and relation registration
+- decomposer extraction protocols
+- lens registration
+- review action builders
+- future watchlist and monitoring task definitions
+
+Extensions should declare what objects, relations, provenance, and lenses they add.
+
+## Safety Boundary
+
+Teruvion may inspect:
+
+- repository metadata
+- README and documentation
+- dependency files
+- notebooks and scripts as text
+- dataset availability notes
+- source text and metadata
+
+Teruvion must not automatically run untrusted remote code without a separate sandbox architecture and explicit approval.
