@@ -228,6 +228,14 @@ export default function Home() {
     }
   }
 
+  function upsertProject(project: Project) {
+    setProjects(prev => {
+      const exists = prev.some(item => item.id === project.id);
+      if (!exists) return [...prev, project];
+      return prev.map(item => item.id === project.id ? { ...item, ...project } : item);
+    });
+  }
+
   async function handleImport() {
     const input = importInput.trim();
     if (!input) return;
@@ -253,7 +261,8 @@ export default function Home() {
         analysis: { status: 'importing' }
       };
 
-      setProjects(prev => [...prev, importingProject]);
+      upsertProject(importingProject);
+      setSelectedProjectId(result.projectId);
 
       // Setup SSE for progress updates
       setupSSE(result.projectId);
@@ -358,16 +367,7 @@ export default function Home() {
         const projectStatus = project.analysis?.status;
         const currentPhase = project.analysis?.currentPhase || project.analysis?.progress?.inProgress;
 
-        setProjects(prev => prev.map(p => (
-          p.id === projectId
-            ? {
-                ...p,
-                ...project,
-                name: project.name || p.name,
-                analysis: project.analysis || p.analysis,
-              }
-            : p
-        )));
+        upsertProject(project);
 
         if (project.metadata?.decomposition || projectStatus === 'completed') {
           clearProjectPoll();
