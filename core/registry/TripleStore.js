@@ -264,6 +264,19 @@ class TripleStore {
    * Query inverse: Given predicate and object, find subjects
    */
   queryInverse(predicate, object = null) {
+    if (predicate === null && object !== null) {
+      if (!this.indexes.ops.has(object)) {
+        return [];
+      }
+
+      const result = [];
+      const predicates = this.indexes.ops.get(object);
+      for (const [pred, subjects] of predicates.entries()) {
+        subjects.forEach(subj => result.push({ subject: subj, predicate: pred, object }));
+      }
+      return result;
+    }
+
     if (!this.indexes.pos.has(predicate)) {
       return [];
     }
@@ -357,26 +370,41 @@ class TripleStore {
    * Get all relations for an entity
    */
   getRelations(entityId) {
-    const outgoing = this.query(entityId);
+    const outgoing = [];
     const incoming = [];
 
-    // Find incoming relations
     for (const triple of this.triples) {
+      const relation = {
+        tripleId: triple.id,
+        subject: triple.subject,
+        predicate: triple.predicate,
+        object: triple.object,
+        confidence: triple.metadata?.confidence,
+        provenance: triple.metadata?.provenance,
+        metadata: triple.metadata,
+        verificationState: triple.verificationState,
+        reviewedBy: triple.reviewedBy,
+        reviewedAt: triple.reviewedAt,
+        notes: triple.notes || [],
+      };
+
+      if (triple.subject === entityId) {
+        outgoing.push({
+          ...relation,
+          direction: 'outgoing'
+        });
+      }
+
       if (triple.object === entityId) {
         incoming.push({
-          subject: triple.subject,
-          predicate: triple.predicate,
+          ...relation,
           direction: 'incoming'
         });
       }
     }
 
     return {
-      outgoing: outgoing.map(r => ({
-        predicate: r.predicate,
-        object: r.object,
-        direction: 'outgoing'
-      })),
+      outgoing,
       incoming
     };
   }

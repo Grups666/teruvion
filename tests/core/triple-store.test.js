@@ -5,6 +5,7 @@
 
 const { assert, describe, it, testUtils } = require('../setup');
 const { MockTripleStore, MockEntity, MockTriple, VERIFICATION_STATES, TYPE_PREFIXES } = require('../helpers/mock-store');
+const { TripleStore, Entity } = require('../../core/registry/TripleStore');
 
 describe('TripleStore Entity Tests', () => {
   it('should create entities with valid IDs', () => {
@@ -155,6 +156,22 @@ describe('TripleStore Index Tests', () => {
     assert.strictEqual(results.length, 2, 'Should have 2 incoming relations');
   });
 
+  it('should query all incoming relation types for an object', () => {
+    const store = new TripleStore(':memory:');
+    const paperId = store.addEntity(new Entity('Paper', { title: 'Paper' }, { id: 'paper-test' }));
+    const datasetId = store.addEntity(new Entity('Dataset', { name: 'Dataset' }, { id: 'dataset-test' }));
+    const methodId = store.addEntity(new Entity('Method', { name: 'Method' }, { id: 'method-test' }));
+
+    store.addTriple(paperId, 'uses', datasetId);
+    store.addTriple(methodId, 'produces', datasetId);
+
+    const results = store.queryInverse(null, datasetId);
+
+    assert.strictEqual(results.length, 2, 'Should return incoming relations across predicates');
+    assert.ok(results.some(r => r.subject === paperId && r.predicate === 'uses'));
+    assert.ok(results.some(r => r.subject === methodId && r.predicate === 'produces'));
+  });
+
   it('should get both outgoing and incoming relations', () => {
     const store = new MockTripleStore();
 
@@ -171,6 +188,30 @@ describe('TripleStore Index Tests', () => {
     const relations = store.getRelations(paperId);
     assert.strictEqual(relations.outgoing.length, 1, 'Should have 1 outgoing');
     assert.strictEqual(relations.incoming.length, 1, 'Should have 1 incoming');
+  });
+
+  it('should preserve triple metadata in relation views', () => {
+    const store = new TripleStore(':memory:');
+    const paperId = store.addEntity(new Entity('Paper', { title: 'Paper' }, { id: 'paper-test' }));
+    const datasetId = store.addEntity(new Entity('Dataset', { name: 'Dataset' }, { id: 'dataset-test' }));
+
+    store.addTriple(paperId, 'uses', datasetId, {
+      confidence: 0,
+      isFallback: true,
+      provenance: {
+        section: 'data availability',
+        sourceText: 'The dataset is described in the data availability section.'
+      }
+    });
+
+    const outgoing = store.getRelations(paperId).outgoing[0];
+    const incoming = store.getRelations(datasetId).incoming[0];
+
+    assert.strictEqual(outgoing.confidence, 0, 'Should preserve zero confidence');
+    assert.strictEqual(outgoing.metadata.isFallback, true, 'Should preserve fallback marker');
+    assert.strictEqual(outgoing.provenance.section, 'data availability', 'Should expose provenance shortcut');
+    assert.strictEqual(incoming.confidence, 0, 'Incoming relation should preserve metadata');
+    assert.strictEqual(incoming.provenance.sourceText.includes('dataset'), true, 'Incoming relation should expose provenance');
   });
 });
 

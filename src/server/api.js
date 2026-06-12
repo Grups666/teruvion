@@ -128,17 +128,19 @@ router.get('/entities/:id/relations', async (req, res) => {
           type: r.predicate,
           from: entityId,
           to: r.object,
-          confidence: r.confidence || 0.7,
+          confidence: r.confidence ?? 0.7,
           isFallback: r.metadata?.isFallback || false,
-          provenance: r.provenance
+          provenance: r.provenance || r.metadata?.provenance,
+          verificationState: r.verificationState
         })),
         ...relations.incoming.map(r => ({
           type: r.predicate,
           from: r.subject,
           to: entityId,
-          confidence: r.confidence || 0.7,
+          confidence: r.confidence ?? 0.7,
           isFallback: r.metadata?.isFallback || false,
-          provenance: r.provenance
+          provenance: r.provenance || r.metadata?.provenance,
+          verificationState: r.verificationState
         }))
       ]
     });
@@ -202,13 +204,19 @@ router.get('/entities/:id/explore', async (req, res) => {
           type: r.predicate,
           from: entityId,
           to: r.object,
-          confidence: r.confidence || 0.7
+          confidence: r.confidence ?? 0.7,
+          isFallback: r.metadata?.isFallback || false,
+          provenance: r.provenance || r.metadata?.provenance,
+          verificationState: r.verificationState
         })),
         ...relations.incoming.map(r => ({
           type: r.predicate,
           from: r.subject,
           to: entityId,
-          confidence: r.confidence || 0.7
+          confidence: r.confidence ?? 0.7,
+          isFallback: r.metadata?.isFallback || false,
+          provenance: r.provenance || r.metadata?.provenance,
+          verificationState: r.verificationState
         }))
       ]
     });

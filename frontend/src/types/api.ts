@@ -117,6 +117,9 @@ export interface EntityExploreResponse {
     from: string;
     to: string;
     confidence: number;
+    isFallback?: boolean;
+    provenance?: Record<string, any>;
+    verificationState?: string;
   }>;
 }
 
