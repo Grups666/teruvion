@@ -67,6 +67,16 @@ export interface ProjectNextAction {
   fallbackLayer?: DisplayLayer | null;
 }
 
+export type ProjectDiagnosisStatus = 'ready' | 'missing' | 'limited' | 'pending';
+
+export interface ProjectDiagnosisItem {
+  key: string;
+  label: string;
+  status: ProjectDiagnosisStatus;
+  value: string;
+  detail: string;
+}
+
 type DecompositionView = Decomposition & {
   confidence?: number;
   provenance?: { extractionMethod?: string };
@@ -297,19 +307,19 @@ export function getRecommendedNextActions(
   const actions: ProjectNextAction[] = [];
 
   if (quality.coverage?.warning) {
-    actions.push({ label: 'Check source coverage', targetLayer: 'source' });
+    actions.push({ label: 'Inspect source coverage', targetLayer: 'source' });
   }
   if (stats.world === 0) {
-    actions.push({ label: 'Review spatial scope', targetLayer: 'world', fallbackLayer: 'source' });
+    actions.push({ label: 'Add or verify spatial scope', targetLayer: 'world', fallbackLayer: 'source' });
   }
   if (stats.capability === 0) {
-    actions.push({ label: 'Inspect methods and data manually', targetLayer: 'capability', fallbackLayer: 'source' });
+    actions.push({ label: 'Attach methods, data, or code', targetLayer: 'capability', fallbackLayer: 'source' });
   }
   if (quality.relations === 0 && objectCount > 1) {
-    actions.push({ label: 'Review missing graph relations', targetLayer: 'source', fallbackLayer: 'capability' });
+    actions.push({ label: 'Review missing object links', targetLayer: 'source', fallbackLayer: 'capability' });
   }
   if (quality.notes.some(note => note.text.includes('fallback') || note.text.includes('metadata-only'))) {
-    actions.push({ label: 'Verify fallback objects before use', targetLayer: 'source', fallbackLayer: 'capability' });
+    actions.push({ label: 'Verify extraction before using it', targetLayer: 'source', fallbackLayer: 'capability' });
   }
 
   actions.push({ label: 'Open an object to inspect evidence', targetLayer: 'foundation', fallbackLayer: 'source' });
@@ -320,6 +330,86 @@ export function getRecommendedNextActions(
     seen.add(action.label);
     return true;
   }).slice(0, 4);
+}
+
+export function getProjectDiagnosis(
+  project: Project,
+  quality: ProjectQuality | null,
+  stats: ProjectStats,
+  objectCount: number
+): ProjectDiagnosisItem[] {
+  if (!quality || quality.level === 'pending') {
+    return [
+      {
+        key: 'pipeline',
+        label: 'Pipeline',
+        status: project.analysis?.status === 'failed' ? 'missing' : 'pending',
+        value: project.analysis?.status === 'failed' ? 'Failed' : 'Processing',
+        detail: project.analysis?.error || 'Source resolution and object extraction are still running.'
+      }
+    ];
+  }
+
+  const decomposition = project.metadata?.decomposition as DecompositionView | undefined;
+  const evidenceCount = decomposition?.evidenceObjects?.length || 0;
+  const isMetadataOnly = quality.notes.some(note => note.text.includes('metadata-only'));
+  const usedFallback = quality.notes.some(note => note.text.includes('fallback'));
+  const sourceStatus: ProjectDiagnosisStatus = isMetadataOnly || usedFallback ? 'limited' : 'ready';
+  const extractionValue = isMetadataOnly
+    ? 'Metadata only'
+    : usedFallback
+      ? 'Fallback'
+      : quality.method;
+
+  return [
+    {
+      key: 'source',
+      label: 'Source',
+      status: sourceStatus,
+      value: extractionValue,
+      detail: isMetadataOnly
+        ? 'Only citation metadata was available, so Teruvion cannot infer regions, methods, or evidence with high confidence.'
+        : usedFallback
+          ? 'The system used source text fallback; extracted objects should be reviewed before product use.'
+          : quality.coverage?.detail || 'Source coverage is sufficient for object extraction.'
+    },
+    {
+      key: 'spatial',
+      label: 'Spatial Anchor',
+      status: stats.world > 0 ? 'ready' : 'missing',
+      value: stats.world > 0 ? `${stats.world} world object${stats.world === 1 ? '' : 's'}` : 'Missing',
+      detail: stats.world > 0
+        ? 'Map and world lenses can focus on extracted regions, events, or Earth objects.'
+        : 'No region, bbox, event location, or Earth object was extracted yet; the map stays global until a spatial anchor exists.'
+    },
+    {
+      key: 'capability',
+      label: 'Methods & Data',
+      status: stats.capability > 0 ? 'ready' : 'missing',
+      value: stats.capability > 0 ? `${stats.capability} capability object${stats.capability === 1 ? '' : 's'}` : 'Missing',
+      detail: stats.capability > 0
+        ? 'Methods, datasets, workflows, or computing resources are available for inspection.'
+        : 'No method, dataset, workflow, model, or repository capability was extracted from this source.'
+    },
+    {
+      key: 'evidence',
+      label: 'Evidence',
+      status: evidenceCount > 0 ? 'ready' : 'limited',
+      value: evidenceCount > 0 ? `${evidenceCount} evidence object${evidenceCount === 1 ? '' : 's'}` : 'Sparse',
+      detail: evidenceCount > 0
+        ? 'Claims or evidence chains are available for review.'
+        : 'The current object graph has little claim-level evidence; treat conclusions as provisional.'
+    },
+    {
+      key: 'graph',
+      label: 'Object Links',
+      status: quality.relations > 0 ? 'ready' : objectCount > 1 ? 'limited' : 'missing',
+      value: quality.relations > 0 ? `${quality.relations} relation${quality.relations === 1 ? '' : 's'}` : 'Sparse',
+      detail: quality.relations > 0
+        ? 'Objects are linked enough to support graph inspection and comparison.'
+        : 'Objects are not connected enough yet; relation extraction or manual review is needed.'
+    }
+  ];
 }
 
 export function buildProjectSummaryText(project: Project, quality: ProjectQuality, stats: ProjectStats, objectCount: number) {

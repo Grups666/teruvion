@@ -15,6 +15,7 @@ import {
   buildProjectSummaryText,
   getDisplayLayer,
   getObjectConstellation,
+  getProjectDiagnosis,
   getProjectProgressSteps,
   getProjectQuality,
   getProjectStats,
@@ -425,6 +426,7 @@ export default function Home() {
   const projectProgressSteps = selectedProject ? getProjectProgressSteps(selectedProject) : [];
   const sourceCapsule = selectedProject ? getSourceCapsule(selectedProject, projectQuality) : null;
   const constellationNodes = getObjectConstellation(projectEntities);
+  const projectDiagnosis = selectedProject ? getProjectDiagnosis(selectedProject, projectQuality, projectStats, projectEntities.length) : [];
   const recommendedActions = getRecommendedNextActions(projectQuality, projectStats, projectEntities.length);
   const lensSummaries = getLensSummaries(projectLenses);
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
@@ -719,6 +721,26 @@ export default function Home() {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+
+              {projectDiagnosis.length > 0 && (
+                <div className="import-diagnosis">
+                  <div className="diagnosis-head">
+                    <span>Import Diagnosis</span>
+                    <span>{projectDiagnosis.filter(item => item.status === 'ready').length}/{projectDiagnosis.length} ready</span>
+                  </div>
+                  <div className="diagnosis-grid">
+                    {projectDiagnosis.map(item => (
+                      <div className={`diagnosis-card ${item.status}`} key={item.key}>
+                        <div className="diagnosis-card-head">
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                        </div>
+                        <p>{item.detail}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
