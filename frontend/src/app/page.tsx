@@ -403,7 +403,7 @@ export default function Home() {
   const projectStats = getProjectStats(projectEntities);
   const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
   const sourceCapsule = selectedProject ? getSourceCapsule(selectedProject, projectQuality) : null;
-  const projectDiagnosis = selectedProject ? getProjectDiagnosis(selectedProject, projectQuality, projectStats, projectEntities.length) : [];
+  const projectDiagnosis = selectedProject ? getProjectDiagnosis(selectedProject, projectQuality, projectStats) : [];
   const projectReadiness = selectedProject ? getProjectReadiness(selectedProject, projectDiagnosis) : null;
   const lensSummaries = getLensSummaries(projectLenses);
   const projectBrief = selectedProject
@@ -471,7 +471,7 @@ export default function Home() {
   const projectLimitations = rankProjectLimitations(projectDecomposition?.inferredLimitations || []).slice(0, 4);
   const recommendedActions = mergeRecommendedActions(
     buildResourceNextActions(projectResources),
-    getRecommendedNextActions(selectedProject || null, projectQuality, projectStats, projectEntities.length)
+    getRecommendedNextActions(selectedProject || null, projectQuality, projectStats)
   );
   const projectAuthorLine = compactMetaList(
     projectDecomposition?.researchBrief?.authors
@@ -1020,7 +1020,7 @@ export default function Home() {
                 )}
 
                 <div className="detail-section">
-                  <div className="detail-label">Drilldown Path</div>
+                  <div className="detail-label">Evidence Path</div>
                   <EntityDrilldownView
                     selectedEntity={selectedEntity}
                     explore={selectedExplore}
@@ -1031,11 +1031,11 @@ export default function Home() {
 
                 {(selectedEntity.metadata?.confidence || selectedEntity.metadata?.source) && (
                   <div className="detail-section">
-                    <div className="detail-label">Review Evidence</div>
+                    <div className="detail-label">Source Check</div>
                     <div className="detail-review-evidence">
                       {selectedEntity.metadata?.confidence && (
                         <div>
-                          <span>Extraction confidence</span>
+                          <span>Review confidence</span>
                           <strong>{(selectedEntity.metadata.confidence * 100).toFixed(0)}%</strong>
                           <p>Use this as a review signal, not as proof that the source claim is correct.</p>
                         </div>
@@ -1083,7 +1083,7 @@ function EntityDrilldownView({
   onSelectEntity: (id: string) => void;
 }) {
   if (loading) {
-    return <div className="graph-empty">Loading drilldown...</div>;
+    return <div className="graph-empty">Loading deeper evidence...</div>;
   }
 
   const related = explore?.relatedEntities || [];
@@ -1091,14 +1091,14 @@ function EntityDrilldownView({
   const sources = explore?.sources || [];
 
   if (related.length === 0 && capabilities.length === 0 && sources.length === 0) {
-    return <div className="graph-empty">No deeper path is available yet.</div>;
+    return <div className="graph-empty">No deeper evidence path is available yet.</div>;
   }
 
   return (
     <div className="graph-view">
       {related.length > 0 && (
         <div className="graph-block">
-          <div className="graph-block-title">Related Details</div>
+          <div className="graph-block-title">Linked Reasoning</div>
           <div className="relation-list">
             {related.slice(0, 12).map(item => (
               <RelationRow
@@ -1111,7 +1111,7 @@ function EntityDrilldownView({
           </div>
           {related.length > 12 && (
             <div className="graph-more">
-              Additional linked details are available in the graph.
+              Additional links are available for deeper review.
             </div>
           )}
         </div>
@@ -1119,7 +1119,7 @@ function EntityDrilldownView({
 
       {capabilities.length > 0 && (
         <div className="graph-block">
-          <div className="graph-block-title">Next Checks</div>
+          <div className="graph-block-title">Review Checks</div>
           <div className="action-list">
             {capabilities.slice(0, 6).map(action => (
               <span className="action-chip" key={action}>{action}</span>
@@ -1130,7 +1130,7 @@ function EntityDrilldownView({
 
       {sources.length > 0 && (
         <div className="graph-block">
-          <div className="graph-block-title">Evidence Traces</div>
+          <div className="graph-block-title">Source Traces</div>
           <div className="source-list">
             {sources.slice(0, 4).map(source => (
               <div className="source-item" key={source}>{source}</div>
@@ -1167,13 +1167,12 @@ function RelationRow({
           <span className="relation-predicate">{item.relation}</span>
           <span className="relation-node">{right}</span>
         </span>
-        <span className="relation-type">{item.type}</span>
         {(confidence || verification || provenanceLabel || item.isFallback) && (
           <span className="relation-evidence">
-            {confidence && <span>{confidence}</span>}
-            {verification && <span>{verification}</span>}
+            {confidence && <span>{confidence} confidence</span>}
+            {verification && <span>{verification} review</span>}
             {provenanceLabel && <span>{provenanceLabel}</span>}
-            {item.isFallback && <span className="warning">Fallback</span>}
+            {item.isFallback && <span className="warning">Inferred link</span>}
           </span>
         )}
       </span>

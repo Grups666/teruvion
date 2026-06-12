@@ -66,6 +66,18 @@ export interface Decomposition {
   worldObjects?: any[];
   evidenceObjects?: any[];
   bridgeRelations?: any[];
+  extractionMetadata?: {
+    researchRoute?: {
+      source?: string;
+      nodeCount?: number;
+      edgeCount?: number;
+      quality?: 'content' | 'partial' | 'limited' | string;
+      contentNodeCount?: number;
+      stageCount?: number;
+      reasons?: string[];
+    };
+    [key: string]: any;
+  };
   researchBrief?: {
     title?: string;
     sourceType?: string;

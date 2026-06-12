@@ -88,6 +88,12 @@ type DecompositionView = Decomposition & {
       evidenceCount?: number;
       relationCount?: number;
     };
+    researchRoute?: {
+      quality?: string;
+      contentNodeCount?: number;
+      stageCount?: number;
+      reasons?: string[];
+    };
   };
 };
 
@@ -190,18 +196,23 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
     notes.push({ text: 'no evidence chain', level: 'info' });
   }
 
+  const routeQuality = getRouteQualityLevel(decomposition);
+  if (routeQuality === 'limited') {
+    notes.push({ text: 'limited content route', level: 'warning' });
+  }
+
   const breadthScore =
     (stats.source > 0 ? 1 : 0)
     + (stats.capability > 0 ? 1 : 0)
     + (stats.world > 0 ? 1 : 0)
     + ((decomposition.evidenceObjects?.length || 0) > 0 ? 1 : 0);
 
-  const level = getProjectQualityLevel(confidence, breadthScore, stats, entities.length);
+  const level = getProjectQualityLevel(confidence, breadthScore, stats, routeQuality, relations > 0);
   const labels: Record<ProjectQualityLevel, string> = {
-    excellent: 'Strong Graph',
-    useful: 'Useful Graph',
-    partial: 'Partial Graph',
-    limited: 'Limited Graph',
+    excellent: 'Strong Route',
+    useful: 'Useful Route',
+    partial: 'Partial Route',
+    limited: 'Limited Route',
     pending: 'Pending'
   };
 
@@ -329,8 +340,7 @@ export function getObjectConstellation(entities: Entity[]): ObjectConstellationN
 export function getRecommendedNextActions(
   project: Project | null,
   quality: ProjectQuality | null,
-  stats: ProjectStats,
-  objectCount: number
+  stats: ProjectStats
 ): ProjectNextAction[] {
   if (Array.isArray(project?.metadata?.importActions) && project.metadata.importActions.length > 0) {
     return project.metadata.importActions.map(normalizeProjectAction).slice(0, 4);
@@ -354,7 +364,8 @@ export function getRecommendedNextActions(
   if (stats.capability === 0) {
     actions.push({ label: 'Attach methods, data, or code', targetLayer: 'capability', fallbackLayer: 'source' });
   }
-  if (quality.relations === 0 && objectCount > 1) {
+  const routeQuality = getRouteQualityLevel(project?.metadata?.decomposition as DecompositionView | undefined);
+  if (quality.relations === 0 && routeQuality !== 'limited' && (stats.capability > 0 || stats.world > 0)) {
     actions.push({ label: 'Review missing research links', targetLayer: 'source', fallbackLayer: 'capability' });
   }
   if (quality.notes.some(note => note.text.includes('fallback') || note.text.includes('metadata-only'))) {
@@ -391,8 +402,7 @@ function normalizeDisplayLayer(layer?: string | null): DisplayLayer | null {
 export function getProjectDiagnosis(
   project: Project,
   quality: ProjectQuality | null,
-  stats: ProjectStats,
-  objectCount: number
+  stats: ProjectStats
 ): ProjectDiagnosisItem[] {
   if (Array.isArray(project.metadata?.importDiagnosis) && project.metadata.importDiagnosis.length > 0) {
     return project.metadata.importDiagnosis;
@@ -414,6 +424,7 @@ export function getProjectDiagnosis(
   const evidenceCount = decomposition?.evidenceObjects?.length || 0;
   const isMetadataOnly = quality.notes.some(note => note.text.includes('metadata-only'));
   const usedFallback = quality.notes.some(note => note.text.includes('fallback'));
+  const routeQuality = getRouteQualityLevel(decomposition);
   const sourceStatus: ProjectDiagnosisStatus = isMetadataOnly || usedFallback ? 'limited' : 'ready';
   const extractionValue = isMetadataOnly
     ? 'Metadata only'
@@ -463,7 +474,7 @@ export function getProjectDiagnosis(
     {
       key: 'graph',
       label: 'Research Links',
-      status: quality.relations > 0 ? 'ready' : objectCount > 1 ? 'limited' : 'missing',
+      status: quality.relations > 0 ? 'ready' : routeQuality === 'limited' ? 'missing' : 'limited',
       value: quality.relations > 0 ? 'Linked' : 'Sparse',
       detail: quality.relations > 0
         ? 'The research structure is linked enough to support graph inspection and comparison.'
@@ -624,12 +635,19 @@ function getProjectQualityLevel(
   confidence: number | null,
   breadthScore: number,
   stats: ProjectStats,
-  objectCount: number
+  routeQuality: string | null,
+  hasLinks: boolean
 ): ProjectQualityLevel {
-  if ((confidence ?? 0) >= 0.75 && breadthScore >= 3) return 'excellent';
-  if ((confidence ?? 0) >= 0.55 && stats.capability > 0 && objectCount >= 3) return 'useful';
-  if (objectCount > 1) return 'partial';
+  if (routeQuality === 'content' && (confidence ?? 0) >= 0.75 && breadthScore >= 3) return 'excellent';
+  if ((routeQuality === 'content' || routeQuality === 'partial') && (confidence ?? 0) >= 0.55 && stats.capability > 0) return 'useful';
+  if (routeQuality === 'partial' || hasLinks || breadthScore >= 2) return 'partial';
   return 'limited';
+}
+
+function getRouteQualityLevel(decomposition?: DecompositionView) {
+  const provenanceQuality = decomposition?.workflowOutline?.provenance?.routeQuality;
+  const extractionQuality = decomposition?.extractionMetadata?.researchRoute;
+  return provenanceQuality?.level || extractionQuality?.quality || null;
 }
 
 function formatExtractionMethod(method: string) {
