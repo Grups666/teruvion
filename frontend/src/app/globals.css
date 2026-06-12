@@ -742,8 +742,14 @@ html, body {
   transform: translateY(-1px);
 }
 
-.cockpit-card:disabled {
-  cursor: default;
+.cockpit-card.active {
+  border-color: rgba(17, 24, 39, 0.52);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px rgba(17, 24, 39, 0.08);
+}
+
+.cockpit-card[data-has-target='false'] {
+  cursor: pointer;
 }
 
 .cockpit-label {
@@ -777,6 +783,110 @@ html, body {
   color: var(--secondary);
   font-size: 11px;
   font-weight: 450;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.cockpit-focus {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.9);
+}
+
+.cockpit-focus.ready {
+  background: rgba(240, 253, 244, 0.3);
+}
+
+.cockpit-focus.review,
+.cockpit-focus.pending {
+  background: rgba(255, 251, 235, 0.36);
+}
+
+.cockpit-focus.blocked {
+  background: rgba(254, 242, 242, 0.32);
+}
+
+.cockpit-focus-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.cockpit-focus-head span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cockpit-focus-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-focus p {
+  margin: 0 0 10px;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cockpit-focus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cockpit-focus-item {
+  min-width: 0;
+  min-height: 82px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.72);
+}
+
+.cockpit-focus-item span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.cockpit-focus-item strong {
+  display: block;
+  min-width: 0;
+  margin-bottom: 5px;
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-focus-item small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 10px;
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;

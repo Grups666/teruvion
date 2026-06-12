@@ -44,6 +44,12 @@ type CockpitSignal = {
   targetId?: string | null;
 };
 
+type CockpitFocusItem = {
+  label: string;
+  value: string;
+  detail: string;
+};
+
 const DISPLAY_LAYER_ORDER: DisplayLayer[] = ['source', 'capability', 'world', 'foundation'];
 
 const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
@@ -137,6 +143,7 @@ export default function Home() {
   const [exploreLoading, setExploreLoading] = useState(false);
   const [projectLenses, setProjectLenses] = useState<Record<string, any> | null>(null);
   const [lensesLoading, setLensesLoading] = useState(false);
+  const [activeCockpitKey, setActiveCockpitKey] = useState<string>('source');
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -220,6 +227,12 @@ export default function Home() {
       cancelled = true;
     };
   }, [selectedProjectId, projects]);
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      setActiveCockpitKey('source');
+    }
+  }, [selectedProjectId]);
 
   async function loadData() {
     try {
@@ -452,6 +465,19 @@ export default function Home() {
         project: selectedProject,
         entities: projectEntities,
         stats: projectStats,
+        readiness: projectReadiness,
+        diagnosis: projectDiagnosis,
+        lenses: lensSummaries,
+        sourceCapsule
+      })
+    : [];
+  const activeCockpitSignal = cockpitSignals.find(signal => signal.key === activeCockpitKey) || cockpitSignals[0] || null;
+  const cockpitFocusItems = activeCockpitSignal && selectedProject
+    ? getCockpitFocusItems({
+        signal: activeCockpitSignal,
+        project: selectedProject,
+        stats: projectStats,
+        quality: projectQuality,
         readiness: projectReadiness,
         diagnosis: projectDiagnosis,
         lenses: lensSummaries,
@@ -727,9 +753,10 @@ export default function Home() {
                       <button
                         type="button"
                         key={signal.key}
-                        className={`cockpit-card ${signal.status}`}
-                        disabled={!signal.targetId}
+                        className={`cockpit-card ${signal.status} ${activeCockpitSignal?.key === signal.key ? 'active' : ''}`}
+                        data-has-target={signal.targetId ? 'true' : 'false'}
                         onClick={() => {
+                          setActiveCockpitKey(signal.key);
                           if (signal.targetId) {
                             setSelectedEntityId(signal.targetId);
                             setStatus(`${signal.label} focus selected`);
@@ -742,6 +769,27 @@ export default function Home() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {activeCockpitSignal && (
+                <div className={`cockpit-focus ${activeCockpitSignal.status}`}>
+                  <div className="cockpit-focus-head">
+                    <span>{activeCockpitSignal.label} View</span>
+                    <strong>{activeCockpitSignal.value}</strong>
+                  </div>
+                  <p>{activeCockpitSignal.detail}</p>
+                  {cockpitFocusItems.length > 0 && (
+                    <div className="cockpit-focus-grid">
+                      {cockpitFocusItems.map(item => (
+                        <div className="cockpit-focus-item" key={`${activeCockpitSignal.key}-${item.label}`}>
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                          <small>{item.detail}</small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1309,6 +1357,117 @@ function mapCockpitStatus(
   if (diagnosisStatus === 'ready' || readinessStatus === 'ready') return 'ready';
   if (diagnosisStatus === 'missing' || readinessStatus === 'blocked') return 'blocked';
   return 'review';
+}
+
+function getCockpitFocusItems(input: {
+  signal: CockpitSignal;
+  project: Project;
+  stats: ReturnType<typeof getProjectStats>;
+  quality: ReturnType<typeof getProjectQuality> | null;
+  readiness: ReturnType<typeof getProjectReadiness> | null;
+  diagnosis: ReturnType<typeof getProjectDiagnosis>;
+  lenses: LensSummary[];
+  sourceCapsule: ReturnType<typeof getSourceCapsule> | null;
+}): CockpitFocusItem[] {
+  const diagnosisByKey = new Map(input.diagnosis.map(item => [item.key, item]));
+  const lensByName = new Map(input.lenses.map(lens => [lens.name.toLowerCase(), lens]));
+  const sourceDiagnosis = diagnosisByKey.get('source') || diagnosisByKey.get('pipeline');
+  const spatialDiagnosis = diagnosisByKey.get('spatial');
+  const capabilityDiagnosis = diagnosisByKey.get('capability');
+  const graphDiagnosis = diagnosisByKey.get('graph');
+  const mapLens = lensByName.get('map');
+  const workflowLens = lensByName.get('workflow');
+  const comparisonLens = lensByName.get('comparison');
+
+  if (input.signal.key === 'source') {
+    return [
+      {
+        label: 'Identity',
+        value: input.sourceCapsule?.type || input.project.metadata?.sourceType || 'Source',
+        detail: sourceDiagnosis?.detail || 'Source identity is derived from connector and metadata protocols.'
+      },
+      {
+        label: 'Depth',
+        value: input.sourceCapsule?.depth || formatSignalText(input.project.metadata?.admission?.depth || 'Pending'),
+        detail: 'Admission depth controls how far Teruvion should try to decompose the source.'
+      },
+      {
+        label: 'Extraction',
+        value: input.sourceCapsule?.extraction || input.quality?.method || 'Pending',
+        detail: input.quality?.coverage?.detail || 'Extraction reports the available source evidence, not a fabricated capability.'
+      },
+      {
+        label: 'Confidence',
+        value: input.sourceCapsule?.confidence || 'Unknown',
+        detail: 'Confidence is a review signal for this import, not a guarantee of correctness.'
+      }
+    ];
+  }
+
+  if (input.signal.key === 'object-graph') {
+    return [
+      {
+        label: 'Sources',
+        value: String(input.stats.source),
+        detail: 'Source objects preserve where the graph came from.'
+      },
+      {
+        label: 'Capabilities',
+        value: String(input.stats.capability),
+        detail: capabilityDiagnosis?.detail || 'Capabilities represent methods, datasets, workflows, code, or reusable resources.'
+      },
+      {
+        label: 'World',
+        value: String(input.stats.world),
+        detail: spatialDiagnosis?.detail || 'World objects anchor the graph to regions, events, hazards, or Earth system entities.'
+      },
+      {
+        label: 'Relations',
+        value: String(input.quality?.relations || 0),
+        detail: graphDiagnosis?.detail || 'Relations determine whether objects can support reasoning and comparison.'
+      }
+    ];
+  }
+
+  if (input.signal.key === 'spatial') {
+    return [
+      {
+        label: 'Map Features',
+        value: mapLens?.value || '0 features',
+        detail: mapLens?.detail || 'No spatial features are available for the map lens yet.'
+      },
+      {
+        label: 'World Objects',
+        value: String(input.stats.world),
+        detail: spatialDiagnosis?.detail || 'Spatial views need explicit world or region objects.'
+      },
+      {
+        label: 'Map State',
+        value: input.stats.world > 0 ? 'Anchored' : 'Global',
+        detail: input.stats.world > 0
+          ? 'The map can focus on extracted spatial objects.'
+          : 'The map remains global because no verified spatial anchor exists.'
+      }
+    ];
+  }
+
+  return [
+    {
+      label: 'Workflow',
+      value: workflowLens?.value || 'No workflow',
+      detail: workflowLens?.detail || 'Workflow views need procedural objects or data-flow structure.'
+    },
+    {
+      label: 'Comparison',
+      value: comparisonLens?.value || 'Unavailable',
+      detail: comparisonLens?.detail || 'Comparison needs at least two comparable objects.'
+    },
+    {
+      label: 'Readiness',
+      value: input.readiness?.label || 'Unknown',
+      detail: input.readiness?.nextStep || 'Readiness summarizes whether the project is useful, reviewable, or blocked.'
+    }
+  ];
 }
 
 /** Format entity attributes for display */
