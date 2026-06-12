@@ -74,92 +74,103 @@ html, body {
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(circle at 50% 35%, rgba(20, 184, 166, 0.14), transparent 24%),
-    linear-gradient(180deg, #f8fafc, #eef5f4);
+    radial-gradient(circle at 50% 42%, rgba(15, 23, 42, 0.035), transparent 28%),
+    linear-gradient(180deg, #f8faf9, #f1f5f4);
 }
 
 .access-panel {
-  width: min(420px, 100%);
-  padding: 28px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.86);
-  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.12);
+  width: min(396px, 100%);
+  padding: 30px;
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.78);
+  box-shadow: 0 18px 54px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
 }
 
 .access-brand {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .access-brand span {
   color: #0f172a;
-  font-size: 21px;
-  font-weight: 760;
+  font-size: 20px;
+  font-weight: 740;
 }
 
 .access-brand small {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 720;
+  color: #94a3b8;
+  font-size: 9px;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .access-panel h1 {
-  margin: 0 0 8px;
+  margin: 0 0 7px;
   color: #0f172a;
-  font-size: 24px;
-  line-height: 1.15;
+  font-size: 21px;
+  font-weight: 560;
+  line-height: 1.2;
 }
 
 .access-panel p {
-  margin: 0 0 18px;
-  color: var(--secondary);
-  font-size: 13px;
-  line-height: 1.5;
+  margin: 0 0 20px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .access-form {
   display: flex;
-  gap: 8px;
+  gap: 7px;
 }
 
 .access-form input {
   min-width: 0;
   flex: 1;
-  height: 42px;
-  padding: 0 13px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #fff;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.74);
   color: #0f172a;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .access-form input:focus {
-  border-color: rgba(20, 184, 166, 0.7);
+  border-color: rgba(15, 118, 110, 0.36);
+  background: rgba(255,255,255,0.96);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.055);
 }
 
 .access-form button {
-  height: 42px;
-  padding: 0 15px;
+  height: 40px;
+  padding: 0 14px;
   border: none;
-  border-radius: 7px;
-  background: #0f172a;
+  border-radius: 6px;
+  background: #111827;
   color: #fff;
   font: inherit;
-  font-size: 12px;
-  font-weight: 760;
+  font-size: 11px;
+  font-weight: 720;
   cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.access-form button:not(:disabled):hover {
+  background: #020617;
+  transform: translateY(-1px);
 }
 
 .access-form button:disabled {
-  background: var(--muted);
+  background: #a3a3a3;
   cursor: not-allowed;
 }
 
@@ -171,10 +182,10 @@ html, body {
 
 .access-apply {
   display: inline-block;
-  margin-top: 16px;
+  margin-top: 18px;
   color: #0f766e;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 680;
   text-decoration: none;
 }
 
