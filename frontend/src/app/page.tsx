@@ -28,12 +28,19 @@ import {
 import {
   getCockpitFocusItems,
   getCockpitSignals,
-  getLensSummaries
+  getLensSummaries,
+  getProjectBrief
 } from '../lib/projectCockpit';
 
 const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
 
 const DISPLAY_LAYER_ORDER: DisplayLayer[] = ['source', 'capability', 'world', 'foundation'];
+const DISPLAY_LAYER_LABELS: Record<DisplayLayer, string> = {
+  source: 'Sources',
+  capability: 'Methods & Resources',
+  world: 'Places & Events',
+  foundation: 'Review Notes'
+};
 
 const EXAMPLE_SOURCES = [
   {
@@ -380,6 +387,16 @@ export default function Home() {
   const projectReadiness = selectedProject ? getProjectReadiness(selectedProject, projectDiagnosis) : null;
   const recommendedActions = getRecommendedNextActions(selectedProject || null, projectQuality, projectStats, projectEntities.length);
   const lensSummaries = getLensSummaries(projectLenses);
+  const projectBrief = selectedProject
+    ? getProjectBrief({
+        project: selectedProject,
+        quality: projectQuality,
+        readiness: projectReadiness,
+        diagnosis: projectDiagnosis,
+        lenses: lensSummaries,
+        sourceCapsule
+      })
+    : [];
   const cockpitSignals = selectedProject
     ? getCockpitSignals({
         project: selectedProject,
@@ -614,8 +631,8 @@ export default function Home() {
                 <div>
                   <div className="project-panel-title">{selectedProject.name}</div>
                   <div className="project-panel-subtitle">
-                    {projectEntities.length} object{projectEntities.length !== 1 ? 's' : ''}
-                    {selectedProject.metadata?.admission?.depth ? ` - ${selectedProject.metadata.admission.depth}` : ''}
+                    {projectReadiness?.label || formatSignalText(selectedProject.analysis?.status || 'Project')}
+                    {selectedProject.metadata?.admission?.depth ? ` - ${formatSignalText(selectedProject.metadata.admission.depth)}` : ''}
                   </div>
                 </div>
                 <button className="project-panel-close" aria-label="Close project panel" onClick={() => setSelectedProjectId(null)}>
@@ -714,24 +731,23 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="project-panel-metrics">
-                <div className="metric">
-                  <span className="metric-value">{projectStats.source}</span>
-                  <span className="metric-label">Source</span>
+              {projectBrief.length > 0 && (
+                <div className="project-brief">
+                  <div className="project-brief-head">
+                    <span>Project Brief</span>
+                    <span>{projectReadiness?.nextStep || 'Review extracted source'}</span>
+                  </div>
+                  <div className="project-brief-grid">
+                    {projectBrief.map(item => (
+                      <div className={`brief-card ${item.status}`} key={item.key}>
+                        <span>{item.label}</span>
+                        <strong>{item.value}</strong>
+                        <small>{item.detail}</small>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="metric">
-                  <span className="metric-value">{projectStats.capability}</span>
-                  <span className="metric-label">Capability</span>
-                </div>
-                <div className="metric">
-                  <span className="metric-value">{projectStats.world}</span>
-                  <span className="metric-label">World</span>
-                </div>
-                <div className="metric">
-                  <span className="metric-value">{projectStats.foundation}</span>
-                  <span className="metric-label">Other</span>
-                </div>
-              </div>
+              )}
 
               {projectQuality && (
                 <div className="project-quality">
@@ -817,13 +833,13 @@ export default function Home() {
 
               <div className="object-constellation">
                 <div className="constellation-head">
-                  <span>Object Constellation</span>
-                  <span>{projectEntities.length} total</span>
+                  <span>Research Structure</span>
+                  <span>Graph view</span>
                 </div>
                 {constellationNodes.length > 0 ? (
                   <div className="constellation-stage">
                     <div className="constellation-core">
-                      <span>{projectStats.source || 1}</span>
+                      <span>Core</span>
                       Source
                     </div>
                     {constellationNodes.map((node, index) => (
@@ -840,8 +856,8 @@ export default function Home() {
                           }
                         }}
                       >
-                        <span>{node.count}</span>
-                        {node.label}
+                        <span>{DISPLAY_LAYER_LABELS[node.layer]}</span>
+                        {node.type === 'world' ? 'Spatial context' : node.type === 'capability' ? 'Reusable knowledge' : node.label}
                       </button>
                     ))}
                   </div>
@@ -921,8 +937,8 @@ export default function Home() {
                     return (
                       <div className="object-group" key={layer}>
                         <div className="object-group-header">
-                          <span>{layer}</span>
-                          <span>{items.length}</span>
+                          <span>{DISPLAY_LAYER_LABELS[layer]}</span>
+                          <span>Inspect</span>
                         </div>
                         <div className="object-list">
                           {items.map(entity => (

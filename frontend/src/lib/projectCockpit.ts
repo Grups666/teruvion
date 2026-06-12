@@ -32,6 +32,14 @@ export type CockpitFocusItem = {
   detail: string;
 };
 
+export type ProjectBriefItem = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  status: 'ready' | 'review' | 'blocked' | 'pending';
+};
+
 const LENS_SUMMARY_ADAPTERS: Record<string, (lens: any) => LensSummary> = {
   map: lens => {
     const featureCount = lens.features?.length || 0;
@@ -325,6 +333,68 @@ export function getCockpitFocusItems(input: {
       detail: input.readiness?.nextStep || 'Readiness summarizes whether the project is useful, reviewable, or blocked.'
     }
   ];
+}
+
+export function getProjectBrief(input: {
+  project: Project;
+  quality: ReturnType<typeof getProjectQuality> | null;
+  readiness: ReturnType<typeof getProjectReadiness> | null;
+  diagnosis: ReturnType<typeof getProjectDiagnosis>;
+  lenses: LensSummary[];
+  sourceCapsule: ReturnType<typeof getSourceCapsule> | null;
+}): ProjectBriefItem[] {
+  const isProcessing = input.project.analysis?.status === 'importing' || input.project.analysis?.status === 'analyzing';
+  const primaryGap = input.diagnosis.find(item => item.status === 'missing')
+    || input.diagnosis.find(item => item.status === 'limited')
+    || input.diagnosis.find(item => item.status === 'pending');
+  const nextLens = input.lenses.find(lens => lens.status === 'ready' && lens.name === 'Evidence')
+    || input.lenses.find(lens => lens.status === 'ready' && lens.name === 'Workflow')
+    || input.lenses.find(lens => lens.status === 'ready' && lens.name === 'Map')
+    || input.lenses.find(lens => lens.status === 'ready')
+    || input.lenses[0];
+  const confidenceValue = input.sourceCapsule?.confidence || 'Unknown';
+  const sourceTitle = input.sourceCapsule?.title || input.project.name || 'Source is being resolved';
+
+  return [
+    {
+      key: 'understanding',
+      label: 'Understanding',
+      value: input.readiness?.label || input.quality?.label || (isProcessing ? 'Processing' : 'Review'),
+      detail: sourceTitle,
+      status: isProcessing ? 'pending' : mapBriefStatus(input.readiness?.status, primaryGap?.status)
+    },
+    {
+      key: 'gap',
+      label: 'Main Gap',
+      value: primaryGap?.label || 'No major gap',
+      detail: primaryGap?.detail || 'The current extraction has enough structure for inspection.',
+      status: primaryGap ? mapBriefStatus(input.readiness?.status, primaryGap.status) : 'ready'
+    },
+    {
+      key: 'next',
+      label: 'Explore Next',
+      value: nextLens?.name || 'Inspect source',
+      detail: nextLens?.detail || input.readiness?.nextStep || 'Open the source and review extracted evidence.',
+      status: nextLens?.status === 'ready' ? 'ready' : isProcessing ? 'pending' : 'review'
+    },
+    {
+      key: 'confidence',
+      label: 'Confidence',
+      value: confidenceValue,
+      detail: input.quality?.method || 'Confidence appears after extraction.',
+      status: confidenceValue === 'Unknown' ? 'review' : mapBriefStatus(input.readiness?.status, primaryGap?.status)
+    }
+  ];
+}
+
+function mapBriefStatus(
+  readinessStatus?: string,
+  diagnosisStatus?: string
+): ProjectBriefItem['status'] {
+  if (readinessStatus === 'processing' || diagnosisStatus === 'pending') return 'pending';
+  if (readinessStatus === 'blocked' || diagnosisStatus === 'missing') return 'blocked';
+  if (readinessStatus === 'ready' || diagnosisStatus === 'ready') return 'ready';
+  return 'review';
 }
 
 function mapCockpitStatus(
