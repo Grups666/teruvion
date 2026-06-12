@@ -47,6 +47,47 @@ describe('Digital Earth Decomposer', () => {
     assert.strictEqual(result.sourceObject.type, 'Paper');
   });
 
+  it('should expose paper figures as visual evidence for inspection', async () => {
+    const decomposer = new DigitalEarthDecomposer(null, { useLLM: false });
+    const admissionResult = {
+      sourceType: 'Paper',
+      depth: 'structured',
+      activatedCategories: ['evidence', 'modeling'],
+      activatedOntologyLayers: ['source', 'capability'],
+      sourceRoles: { earth_content: 0.8 },
+      primaryRole: 'earth_content',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('10.1038/example', {
+      metadata: {
+        title: 'Example AI flood forecasting paper',
+        doi: '10.1038/example',
+        url: 'https://publisher.example/articles/example'
+      },
+      sections: {
+        methods: 'The model evaluates flood forecast reliability with precision and recall metrics. '.repeat(8)
+      },
+      figures: [{
+        number: 'Figure 1',
+        caption: 'Figure 1: Precision and recall distributions for flood forecast reliability across evaluation gauges.',
+        imageUrl: 'https://publisher.example/articles/example/figures/1.png'
+      }],
+      provenance: {
+        source: 'publisher_html',
+        url: 'https://publisher.example/articles/example',
+        retrievedAt: '2026-06-13T00:00:00.000Z'
+      }
+    }, admissionResult);
+
+    assert.ok(Array.isArray(result.visualEvidence), 'Should expose visual evidence array');
+    assert.strictEqual(result.visualEvidence.length, 1, 'Should preserve source figure evidence');
+    assert.strictEqual(result.visualEvidence[0].label, 'Figure 1');
+    assert.strictEqual(result.visualEvidence[0].routeRole, 'Evaluation evidence');
+    assert.strictEqual(result.visualEvidence[0].imageUrl, 'https://publisher.example/articles/example/figures/1.png');
+    assert.ok(result.visualEvidence[0].readHint.includes('metrics'), 'Should explain how to read the visual evidence');
+  });
+
   it('should use connector content field as LLM source text', async () => {
     const sourceText = [
       '## Methods',

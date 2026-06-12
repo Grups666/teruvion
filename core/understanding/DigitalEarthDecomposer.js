@@ -318,6 +318,7 @@ class DigitalEarthDecomposer {
         reasons: routeQuality.reasons
       };
       result.externalResources = this._extractExternalResources(result, content);
+      result.visualEvidence = this._extractVisualEvidence(content, result);
       result.researchBrief = this._buildResearchBrief(result, content, normalizedAdmissionResult);
       result.inferredLimitations = this._buildInferredLimitations(result);
       result.inferredLimitations = await this._buildCriticalLimitations(result, content, result.inferredLimitations);
@@ -1879,6 +1880,95 @@ Return JSON with this structure:
     }
 
     return resources.slice(0, 12);
+  }
+
+  _extractVisualEvidence(content = {}, result = {}) {
+    const visuals = [];
+    const metadata = content.metadata || {};
+    const provenance = content.provenance || {};
+    const sourceUrl = provenance.url
+      || metadata.url
+      || metadata.htmlUrl
+      || metadata.doi
+      || result.sourceObject?.attributes?.url
+      || result.input;
+
+    const addVisual = (candidate = {}, kind = 'figure', index = 0) => {
+      const caption = this._summarizeText(
+        candidate.caption || candidate.description || candidate.text || candidate.title || '',
+        520
+      );
+      if (!caption) return;
+
+      const label = candidate.number || candidate.label || candidate.name || `${kind === 'table' ? 'Table' : 'Figure'} ${index + 1}`;
+      const role = this._visualEvidenceRole(caption, kind);
+      const id = `${kind}-${this._slugifyRouteId(label)}-${index + 1}`;
+
+      visuals.push({
+        id,
+        kind,
+        label,
+        title: this._summarizeText(label, 90),
+        caption,
+        imageUrl: candidate.imageUrl || candidate.url || candidate.href || null,
+        sourceUrl,
+        source: candidate.source || provenance.source || 'source-structure',
+        routeRole: role,
+        supports: this._visualEvidenceSupport(caption, role),
+        readHint: this._visualEvidenceReadHint(role, kind),
+        provenance: {
+          doi: provenance.doi || metadata.doi || null,
+          retrievedAt: provenance.retrievedAt || null,
+          extraction: 'publisher-structure'
+        }
+      });
+    };
+
+    (Array.isArray(content.figures) ? content.figures : [])
+      .slice(0, 12)
+      .forEach((figure, index) => addVisual(figure, 'figure', index));
+
+    (Array.isArray(content.tables) ? content.tables : [])
+      .slice(0, 8)
+      .forEach((table, index) => addVisual(table, 'table', index));
+
+    return visuals;
+  }
+
+  _visualEvidenceRole(caption = '', kind = 'figure') {
+    const value = String(caption || '').toLowerCase();
+    if (value.includes('method') || value.includes('architecture') || value.includes('workflow') || value.includes('pipeline')) {
+      return 'Method structure';
+    }
+    if (value.includes('data') || value.includes('dataset') || value.includes('variable') || value.includes('sample')) {
+      return 'Input evidence';
+    }
+    if (value.includes('performance') || value.includes('score') || value.includes('precision') || value.includes('recall') || value.includes('accuracy') || value.includes('reliability')) {
+      return 'Evaluation evidence';
+    }
+    if (value.includes('result') || value.includes('distribution') || value.includes('comparison') || value.includes('difference')) {
+      return 'Result evidence';
+    }
+    return kind === 'table' ? 'Tabular evidence' : 'Visual evidence';
+  }
+
+  _visualEvidenceSupport(caption = '', role = 'Visual evidence') {
+    const first = this._firstSentence(caption) || caption;
+    return `${role}: ${this._summarizeText(first, 180)}`;
+  }
+
+  _visualEvidenceReadHint(role = 'Visual evidence', kind = 'figure') {
+    const objectName = kind === 'table' ? 'table' : 'figure';
+    if (role === 'Evaluation evidence') {
+      return `Use this ${objectName} to inspect metrics, baselines, uncertainty, and whether the reported comparison supports the paper's claim.`;
+    }
+    if (role === 'Method structure') {
+      return `Use this ${objectName} to reconstruct the method path before trusting the workflow graph.`;
+    }
+    if (role === 'Input evidence') {
+      return `Use this ${objectName} to verify input variables, data coverage, or source material behind the route.`;
+    }
+    return `Use this ${objectName} as direct source evidence; verify axes, caption, context, and the claim it supports.`;
   }
 
   _buildInferredLimitations(result) {

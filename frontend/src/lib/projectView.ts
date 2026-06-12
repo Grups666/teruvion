@@ -81,7 +81,7 @@ type DecompositionView = Decomposition & {
   confidence?: number;
   provenance?: { extractionMethod?: string };
   extractionMetadata?: {
-    llmExtraction?: { success?: boolean };
+    llmExtraction?: { success?: boolean; error?: string };
     textFallbackExtraction?: {
       capabilityCount?: number;
       worldCount?: number;
@@ -164,7 +164,13 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
   const coverage = buildProjectCoverageSummary(sourceCoverage);
 
   if (decomposition.extractionMetadata?.llmExtraction?.success === false) {
-    notes.push({ text: 'LLM extraction unavailable', level: 'warning' });
+    const llmError = decomposition.extractionMetadata?.llmExtraction?.error;
+    notes.push({
+      text: llmError
+        ? `LLM extraction unavailable: ${summarizeSourceCapsuleText(llmError, 90)}`
+        : 'LLM extraction unavailable',
+      level: 'warning'
+    });
   }
 
   if (rawMethod === 'source-text-fallback') {

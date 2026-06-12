@@ -49,12 +49,13 @@ describe('FullTextBroker', () => {
           </p>
         </section>
         <figure>
+          <img src="/articles/example/figures/1.png" />
           <figcaption>Model forecast reliability across regions.</figcaption>
         </figure>
       </article>
     `;
 
-    const structured = broker._parseHTMLStructure(html);
+    const structured = broker._parseHTMLStructure(html, 'https://publisher.example/articles/example');
 
     assert.ok(structured.sections.abstract, 'Should extract abstract');
     assert.ok(structured.sections.main.length > 100, 'Should extract main content');
@@ -62,6 +63,11 @@ describe('FullTextBroker', () => {
     assert.ok(structured.totalLength > 10000, 'Should retain enough text for full-text validation');
     assert.ok(broker._validateFullText(structured), 'Should validate as full text');
     assert.strictEqual(structured.figures.length, 1, 'Should extract figure captions');
+    assert.strictEqual(
+      structured.figures[0].imageUrl,
+      'https://publisher.example/articles/example/figures/1.png',
+      'Should resolve figure image URLs against the source page'
+    );
     assert.ok(structured.resources.some(resource => resource.type === 'dataset'), 'Should classify data repository links');
     assert.ok(structured.resources.some(resource => resource.type === 'repository'), 'Should classify code repository links');
   });

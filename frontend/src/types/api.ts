@@ -141,6 +141,20 @@ export interface Decomposition {
     enrichment?: Record<string, any>;
     reviewHint?: string;
   }>;
+  visualEvidence?: Array<{
+    id?: string;
+    kind?: 'figure' | 'table' | string;
+    label?: string;
+    title?: string;
+    caption?: string;
+    imageUrl?: string | null;
+    sourceUrl?: string | null;
+    source?: string;
+    routeRole?: string;
+    supports?: string;
+    readHint?: string;
+    provenance?: Record<string, any>;
+  }>;
   inferredLimitations?: Array<{
     id?: string;
     label: string;

@@ -207,7 +207,8 @@ class FullTextBroker {
     if (contentType.includes('text/html')) {
       return {
         type: 'html',
-        text: await response.text()
+        text: await response.text(),
+        url: response.url || source.url
       };
     }
 
@@ -215,7 +216,8 @@ class FullTextBroker {
     if (contentType.includes('xml')) {
       return {
         type: 'xml',
-        text: await response.text()
+        text: await response.text(),
+        url: response.url || source.url
       };
     }
 
@@ -230,7 +232,8 @@ class FullTextBroker {
     // Default to text
     return {
       type: 'text',
-      text: await response.text()
+      text: await response.text(),
+      url: response.url || source.url
     };
   }
 
@@ -239,11 +242,11 @@ class FullTextBroker {
    */
   async _parseStructure(content, sourceType) {
     if (content.type === 'html') {
-      return this._parseHTMLStructure(content.text);
+      return this._parseHTMLStructure(content.text, content.url);
     }
 
     if (content.type === 'xml') {
-      return this._parseXMLStructure(content.text);
+      return this._parseXMLStructure(content.text, content.url);
     }
 
     // Fallback: try to detect sections in plain text
@@ -253,7 +256,7 @@ class FullTextBroker {
   /**
    * Parse HTML structure with section detection.
    */
-  _parseHTMLStructure(html) {
+  _parseHTMLStructure(html, baseUrl = '') {
     const $ = cheerio.load(html);
     const sections = {};
     const figures = [];
@@ -307,7 +310,8 @@ class FullTextBroker {
       if (caption) {
         figures.push({
           number: label || `Figure ${i + 1}`,
-          caption: caption
+          caption: caption,
+          imageUrl: this._extractFigureImageUrl($, el, baseUrl)
         });
       }
     });
@@ -347,10 +351,43 @@ class FullTextBroker {
     return (text || '').replace(/\s+/g, ' ').trim();
   }
 
+  _extractFigureImageUrl($, el, baseUrl = '') {
+    const image = $(el).find('img, source').first();
+    if (!image.length) return undefined;
+
+    const raw = image.attr('src')
+      || image.attr('data-src')
+      || image.attr('data-original')
+      || image.attr('data-full')
+      || image.attr('srcset')
+      || image.attr('data-srcset');
+
+    if (!raw) return undefined;
+
+    const firstCandidate = String(raw).split(',')[0].trim().split(/\s+/)[0];
+    const resolved = this._resolveResourceURL(firstCandidate, baseUrl);
+    return this._normalizeResourceURL(resolved) || undefined;
+  }
+
+  _resolveResourceURL(url, baseUrl = '') {
+    if (!url || typeof url !== 'string') return null;
+    const trimmed = url.trim();
+    if (!trimmed || trimmed.startsWith('data:')) return null;
+    if (/^\/\//.test(trimmed)) return `https:${trimmed}`;
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    if (!baseUrl) return trimmed;
+
+    try {
+      return new URL(trimmed, baseUrl).toString();
+    } catch {
+      return trimmed;
+    }
+  }
+
   /**
    * Parse XML/JATS scholarly article structure.
    */
-  _parseXMLStructure(xml) {
+  _parseXMLStructure(xml, baseUrl = '') {
     const $ = cheerio.load(xml, { xmlMode: true });
     const sections = {};
     const figures = [];
@@ -367,9 +404,12 @@ class FullTextBroker {
 
     // Extract figures
     $('fig').each((i, el) => {
+      const graphicHref = $(el).find('graphic, inline-graphic').first().attr('xlink:href')
+        || $(el).find('graphic, inline-graphic').first().attr('href');
       figures.push({
         number: $(el).attr('id') || `Figure ${i + 1}`,
-        caption: $(el).find('caption').text().trim()
+        caption: $(el).find('caption').text().trim(),
+        imageUrl: this._normalizeResourceURL(this._resolveResourceURL(graphicHref, baseUrl)) || undefined
       });
     });
 

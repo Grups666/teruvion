@@ -468,6 +468,7 @@ export default function Home() {
   const projectDecomposition = selectedProject?.metadata?.decomposition;
   const projectSourceAttributes = ((projectDecomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
   const projectResources = rankProjectResources(projectDecomposition?.externalResources || []).slice(0, 6);
+  const projectVisualEvidence = rankProjectVisualEvidence(projectDecomposition?.visualEvidence || []).slice(0, 8);
   const projectLimitations = rankProjectLimitations(projectDecomposition?.inferredLimitations || []).slice(0, 4);
   const recommendedActions = mergeRecommendedActions(
     buildResourceNextActions(projectResources),
@@ -831,6 +832,58 @@ export default function Home() {
                         <small>{item.detail}</small>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {projectVisualEvidence.length > 0 && (
+                <div className="visual-evidence">
+                  <div className="visual-evidence-head">
+                    <div>
+                      <span>Visual Evidence</span>
+                      <strong>{visualEvidenceSummary(projectVisualEvidence)}</strong>
+                    </div>
+                    <small>Figures and tables extracted from the source</small>
+                  </div>
+                  <div className="visual-evidence-grid">
+                    {projectVisualEvidence.map(item => {
+                      const href = item.sourceUrl || item.imageUrl || null;
+                      const content = (
+                        <>
+                          {item.imageUrl && (
+                            <div className="visual-thumb">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={item.imageUrl} alt={item.label || item.title || 'Source figure'} loading="lazy" />
+                            </div>
+                          )}
+                          <div className="visual-card-body">
+                            <div className="visual-card-topline">
+                              <span>{formatVisualKind(item.kind)}</span>
+                              <em>{item.routeRole || 'Source evidence'}</em>
+                            </div>
+                            <strong>{item.label || item.title || 'Source visual'}</strong>
+                            <p>{item.caption || item.supports || 'Caption unavailable.'}</p>
+                            <small>{item.readHint || item.supports || 'Verify this visual against the original source.'}</small>
+                          </div>
+                        </>
+                      );
+
+                      return href ? (
+                        <a
+                          className="visual-card"
+                          href={normalizeExternalHref(href)}
+                          target="_blank"
+                          rel="noreferrer"
+                          key={item.id || `${item.kind}-${item.label}`}
+                        >
+                          {content}
+                        </a>
+                      ) : (
+                        <div className="visual-card" key={item.id || `${item.kind}-${item.label}`}>
+                          {content}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1211,6 +1264,20 @@ type ProjectResource = {
   reviewHint?: string;
 };
 
+type ProjectVisualEvidence = {
+  id?: string;
+  kind?: string;
+  label?: string;
+  title?: string;
+  caption?: string;
+  imageUrl?: string | null;
+  sourceUrl?: string | null;
+  source?: string;
+  routeRole?: string;
+  supports?: string;
+  readHint?: string;
+};
+
 type ProjectAction = {
   label: string;
   reason?: string;
@@ -1220,6 +1287,45 @@ type ProjectAction = {
   fallbackLayer?: DisplayLayer | null;
   href?: string;
 };
+
+function rankProjectVisualEvidence(items: ProjectVisualEvidence[]) {
+  const seen = new Set<string>();
+  const rolePriority: Record<string, number> = {
+    'Evaluation evidence': 90,
+    'Method structure': 84,
+    'Input evidence': 78,
+    'Result evidence': 74,
+    'Tabular evidence': 64,
+    'Visual evidence': 60
+  };
+
+  return items
+    .filter(item => {
+      const key = `${item.kind || 'visual'}:${item.label || item.title || item.caption}`;
+      if (!item?.caption || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => {
+      const byRole = (rolePriority[b.routeRole || ''] || 0) - (rolePriority[a.routeRole || ''] || 0);
+      if (byRole !== 0) return byRole;
+      return String(a.label || '').localeCompare(String(b.label || ''));
+    });
+}
+
+function visualEvidenceSummary(items: ProjectVisualEvidence[]) {
+  const figureCount = items.filter(item => String(item.kind || '').toLowerCase() !== 'table').length;
+  const tableCount = items.length - figureCount;
+  const parts = [];
+  if (figureCount) parts.push(`${figureCount} figures`);
+  if (tableCount) parts.push(`${tableCount} tables`);
+  return parts.length > 0 ? parts.join(' / ') : `${items.length} visual evidence items`;
+}
+
+function formatVisualKind(kind?: string) {
+  const value = String(kind || 'figure').toLowerCase();
+  return value === 'table' ? 'Table' : 'Figure';
+}
 
 function rankProjectResources(resources: ProjectResource[]) {
   const seen = new Set<string>();
