@@ -622,7 +622,22 @@ describe('Digital Earth Decomposer', () => {
         ],
         models: [{ name: 'flood-forecasting', type: 'repository_model' }],
         dependencies: [{ name: 'torch' }, { name: 'numpy' }],
-        workflows: [{ name: 'Script workflow', purpose: 'repository scripts' }]
+        workflows: [{ name: 'Script workflow', purpose: 'repository scripts' }],
+        repositoryReview: {
+          grade: 'B',
+          summary: 'Static review found partial reproducibility material.',
+          checks: {
+            readme: true,
+            license: false,
+            dependencyManifest: true,
+            notebookOrScript: true,
+            dataInstructions: false,
+            dockerfile: false,
+            runInstructions: true
+          },
+          warnings: ['License is missing.'],
+          reasons: ['README is available.']
+        }
       }
     }, admissionResult);
 
@@ -632,6 +647,10 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(types.includes('Software'), 'Should extract dependencies');
     assert.ok(types.includes('Workflow'), 'Should extract workflows');
     assert.strictEqual(result.sourceObject.name, 'flood-forecasting');
+    assert.strictEqual(result.sourceObject.attributes.reproducibilityStatus, 'B');
+    const repositoryResource = result.externalResources.find(resource => resource.type === 'repository');
+    assert.ok(repositoryResource.reviewHint.includes('Static reproducibility grade B'));
+    assert.ok(repositoryResource.verificationFocus.includes('License'));
   });
 
   it('should extract dataset capabilities', async () => {

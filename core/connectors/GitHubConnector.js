@@ -165,6 +165,15 @@ class GitHubConnector extends BaseConnector {
     const workflows = this._extractWorkflows(tree, readme);
     const datasets = this._extractNamedItemsFromSections(readme, ['dataset', 'data']);
     const models = this._extractRepositoryModels(repoData, readme);
+    const repositoryReview = this._buildRepositoryReview({
+      repoData,
+      readme,
+      tree,
+      keyFiles,
+      dependencies,
+      workflows,
+      datasets
+    });
 
     return {
       type: 'Repository',
@@ -186,12 +195,104 @@ class GitHubConnector extends BaseConnector {
       workflows,
       datasets,
       models,
+      repositoryReview,
+      reproducibilityStatus: repositoryReview.grade,
       created: repoData.created_at,
       updated: repoData.updated_at,
       size: repoData.size,
       forks: repoData.forks_count,
       openIssues: repoData.open_issues_count
     };
+  }
+
+  _buildRepositoryReview({ repoData, readme, tree, keyFiles, dependencies, workflows, datasets }) {
+    const classifications = (tree || [])
+      .map(path => this.fileClassifier.classify(path))
+      .filter(Boolean);
+    const roles = new Set(classifications.map(file => file.role));
+    const names = new Set((tree || []).map(path => String(path).toLowerCase().split('/').pop()));
+    const hasReadme = Boolean(readme) || roles.has('readme');
+    const hasLicense = Boolean(repoData.license?.spdx_id) || names.has('license') || names.has('license.md') || names.has('license.txt');
+    const hasDependencyManifest = roles.has('dependency_manifest')
+      || roles.has('package_manifest')
+      || roles.has('environment_manifest')
+      || (dependencies || []).length > 0;
+    const hasNotebook = (tree || []).some(path => String(path).toLowerCase().endsWith('.ipynb'));
+    const hasScripts = classifications.some(file => ['entrypoint', 'example_entrypoint'].includes(file.role));
+    const hasDataInstructions = roles.has('data_descriptor') || (datasets || []).length > 0;
+    const hasDockerfile = roles.has('container_manifest');
+    const hasRunInstructions = (workflows || []).some(workflow => workflow.name === 'README run workflow');
+
+    const checks = {
+      readme: hasReadme,
+      license: hasLicense,
+      dependencyManifest: hasDependencyManifest,
+      notebookOrScript: hasNotebook || hasScripts,
+      dataInstructions: hasDataInstructions,
+      dockerfile: hasDockerfile,
+      runInstructions: hasRunInstructions
+    };
+    const passed = Object.values(checks).filter(Boolean).length;
+    const reasons = [];
+    const warnings = [];
+
+    if (checks.readme) reasons.push('README is available for usage and context review.');
+    else warnings.push('README is missing or inaccessible.');
+
+    if (checks.license) reasons.push('License metadata is available.');
+    else warnings.push('License is missing or not exposed by GitHub metadata.');
+
+    if (checks.dependencyManifest) reasons.push('Dependency or environment manifest is present.');
+    else warnings.push('No dependency or environment manifest was found.');
+
+    if (checks.notebookOrScript) reasons.push('Executable scripts or notebooks are present for static inspection.');
+    else warnings.push('No obvious script or notebook entry point was found.');
+
+    if (checks.dataInstructions) reasons.push('Data files or data instructions are visible.');
+    else warnings.push('No data instructions were detected; required inputs may be unclear.');
+
+    if (checks.dockerfile) reasons.push('Dockerfile is present for runtime reconstruction.');
+    else warnings.push('No Dockerfile was found.');
+
+    if (checks.runInstructions) reasons.push('README appears to include run or usage instructions.');
+    else warnings.push('No explicit run instructions were detected in README.');
+
+    return {
+      grade: this._repositoryReviewGrade(checks, passed),
+      checks,
+      reasons,
+      warnings,
+      summary: this._repositoryReviewSummary(checks, passed)
+    };
+  }
+
+  _repositoryReviewGrade(checks, passed) {
+    if (checks.readme && checks.license && checks.dependencyManifest && checks.notebookOrScript && checks.runInstructions && passed >= 6) {
+      return 'A';
+    }
+    if (checks.readme && checks.notebookOrScript && (checks.dependencyManifest || checks.runInstructions) && passed >= 4) {
+      return 'B';
+    }
+    if (checks.readme && (checks.notebookOrScript || checks.dependencyManifest) && passed >= 3) {
+      return 'C';
+    }
+    if (checks.readme || passed >= 1) {
+      return 'D';
+    }
+    return 'E';
+  }
+
+  _repositoryReviewSummary(checks, passed) {
+    if (checks.readme && checks.dependencyManifest && checks.notebookOrScript && checks.runInstructions) {
+      return 'Static review found documentation, dependencies, and executable material; inspect data and license before relying on reproducibility.';
+    }
+    if (checks.readme && (checks.dependencyManifest || checks.notebookOrScript)) {
+      return 'Static review found partial reproducibility material; missing items should be checked before reuse.';
+    }
+    if (passed > 0) {
+      return 'Static review found limited repository signals; treat reproducibility as provisional.';
+    }
+    return 'Static review could not find enough repository structure to assess reproducibility.';
   }
 
   _extractDependencies(keyFiles) {

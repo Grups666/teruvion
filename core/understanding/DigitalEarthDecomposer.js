@@ -1076,6 +1076,8 @@ Return JSON with this structure:
         sourceObject.attributes.stars = metadata.stars;
         sourceObject.attributes.license = metadata.license;
         sourceObject.attributes.description = metadata.description || metadata.readme?.substring(0, 500);
+        sourceObject.attributes.reproducibilityStatus = metadata.repositoryReview?.grade || metadata.reproducibilityStatus;
+        sourceObject.attributes.repositoryReview = metadata.repositoryReview;
         break;
 
       case 'DatasetPage':
@@ -1776,7 +1778,10 @@ Return JSON with this structure:
       url: sourceAttributes.url || sourceAttributes.identifier,
       type: result.sourceType === 'Repository' ? 'repository' : 'source',
       role: 'primary source',
-      source: 'sourceObject'
+      source: 'sourceObject',
+      reviewHint: this._sourceResourceReviewHint(result.sourceObject, result.sourceType),
+      routeRelevance: this._sourceResourceRouteRelevance(result.sourceObject, result.sourceType),
+      verificationFocus: this._sourceResourceVerificationFocus(result.sourceObject, result.sourceType)
     });
 
     const metadata = content.metadata || {};
@@ -2139,6 +2144,35 @@ Return JSON with this structure:
         : 'Open this source to verify extracted claims and citation context.';
     }
     return 'Review this link before using it as evidence, data, or implementation support.';
+  }
+
+  _sourceResourceReviewHint(sourceObject = {}, sourceType = '') {
+    const review = sourceObject?.attributes?.repositoryReview;
+    if (sourceType === 'Repository' && review?.grade) {
+      const warning = review.warnings?.[0];
+      return `Static reproducibility grade ${review.grade}. ${warning || review.summary || 'Inspect repository structure before reuse.'}`;
+    }
+    return null;
+  }
+
+  _sourceResourceRouteRelevance(sourceObject = {}, sourceType = '') {
+    const review = sourceObject?.attributes?.repositoryReview;
+    if (sourceType === 'Repository' && review?.summary) {
+      return review.summary;
+    }
+    return null;
+  }
+
+  _sourceResourceVerificationFocus(sourceObject = {}, sourceType = '') {
+    const review = sourceObject?.attributes?.repositoryReview;
+    if (sourceType !== 'Repository' || !review?.checks) return null;
+    const missing = Object.entries(review.checks)
+      .filter(([, passed]) => !passed)
+      .map(([key]) => this._humanizeSectionTitle(key, key))
+      .slice(0, 3);
+    return missing.length > 0
+      ? `missing ${missing.join(', ')}`
+      : 'README, license, dependencies, runnable examples, and data instructions';
   }
 
   _resourceInvestigationLabel(type = '') {
