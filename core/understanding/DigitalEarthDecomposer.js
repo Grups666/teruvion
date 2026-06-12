@@ -303,6 +303,20 @@ class DigitalEarthDecomposer {
       // Calculate overall confidence
       result.confidence = this._calculateConfidence(result);
       result.workflowOutline = merged.researchRoute || this._buildWorkflowOutline(result, content);
+      const routeQuality = this._assessResearchRouteQuality(result.workflowOutline);
+      if (result.workflowOutline?.provenance) {
+        result.workflowOutline.provenance.routeQuality = routeQuality;
+      }
+      result.extractionMetadata.researchRoute = {
+        ...(result.extractionMetadata.researchRoute || {}),
+        source: result.workflowOutline?.provenance?.method || result.extractionMetadata.researchRoute?.source || 'protocol-fallback',
+        nodeCount: result.workflowOutline?.nodes?.length || 0,
+        edgeCount: result.workflowOutline?.edges?.length || 0,
+        quality: routeQuality.level,
+        contentNodeCount: routeQuality.contentNodeCount,
+        stageCount: routeQuality.stageCount,
+        reasons: routeQuality.reasons
+      };
       result.externalResources = this._extractExternalResources(result, content);
       result.researchBrief = this._buildResearchBrief(result, content, normalizedAdmissionResult);
       result.inferredLimitations = this._buildInferredLimitations(result);
@@ -1130,6 +1144,49 @@ Return JSON with this structure:
 
   _hasResearchRoute(route) {
     return Boolean(route?.nodes?.length >= 2);
+  }
+
+  _assessResearchRouteQuality(route = {}) {
+    const nodes = Array.isArray(route.nodes) ? route.nodes : [];
+    const contentNodes = nodes.filter(node => {
+      const label = node.label || node.name || node.title || '';
+      return node.id !== 'source' && label && !this._isGenericRouteLabel(label);
+    });
+    const stages = new Set(contentNodes.map(node => node.stage).filter(Boolean));
+    const edges = Array.isArray(route.edges)
+      ? route.edges.filter(edge => edge?.from && edge?.to && edge.from !== edge.to)
+      : [];
+    const detailNodeCount = contentNodes.filter(node => Array.isArray(node.children) && node.children.length > 0).length;
+    const reasons = [];
+
+    if (contentNodes.length < 2) {
+      reasons.push('needs at least two content-level nodes');
+    }
+    if (stages.size < 2) {
+      reasons.push('needs multiple research stages');
+    }
+    if (edges.length === 0) {
+      reasons.push('needs explicit route edges');
+    }
+    if (detailNodeCount === 0) {
+      reasons.push('needs drilldown details');
+    }
+
+    let level = 'limited';
+    if (contentNodes.length >= 3 && stages.size >= 2 && edges.length > 0) {
+      level = detailNodeCount > 0 ? 'content' : 'partial';
+    } else if (contentNodes.length >= 2 && edges.length > 0) {
+      level = 'partial';
+    }
+
+    return {
+      level,
+      contentNodeCount: contentNodes.length,
+      stageCount: stages.size,
+      edgeCount: edges.length,
+      detailNodeCount,
+      reasons
+    };
   }
 
   _buildResearchBrief(result, content = {}, admissionResult = {}) {

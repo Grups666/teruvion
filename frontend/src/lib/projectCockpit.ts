@@ -433,6 +433,11 @@ function mapBriefStatus(
 
 function getWorkflowOutlineSignals(project: Project): CockpitSignal[] {
   const outline = project.metadata?.decomposition?.workflowOutline;
+  const decomposition = project.metadata?.decomposition as any;
+  const routeQuality = outline?.provenance?.routeQuality || decomposition?.extractionMetadata?.researchRoute;
+  if (routeQuality?.quality === 'limited' || routeQuality?.level === 'limited') {
+    return [];
+  }
   const nodes = outline?.nodes || [];
   const nodeIds = new Set(nodes.map(node => node.id));
   const edgesBySource = new Map<string, Array<{ to: string; label?: string }>>();

@@ -192,6 +192,32 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(result.workflowOutline.nodes[1].children.some(child => child.value === 'Constraint-based planning'));
     assert.ok(routeLabels.every(label => !['Paper', 'Source', 'Repository', 'Connected'].includes(label)));
     assert.strictEqual(result.extractionMetadata.researchRoute.source, 'llm-research-route');
+    assert.strictEqual(result.extractionMetadata.researchRoute.quality, 'content');
+    assert.strictEqual(result.workflowOutline.provenance.routeQuality.level, 'content');
+  });
+
+  it('should mark source-only route outlines as limited rather than content graphs', async () => {
+    const decomposer = new DigitalEarthDecomposer(null, { useLLM: false });
+    const admissionResult = {
+      sourceType: 'Paper',
+      depth: 'deep',
+      activatedCategories: [],
+      activatedOntologyLayers: ['source'],
+      sourceRoles: { earth_content: 0.7 },
+      primaryRole: 'earth_content',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('https://publisher.example/source-only', {
+      metadata: {
+        title: 'Source Only Research Item'
+      }
+    }, admissionResult);
+
+    assert.strictEqual(result.extractionMetadata.researchRoute.quality, 'limited');
+    assert.strictEqual(result.workflowOutline.provenance.routeQuality.level, 'limited');
+    assert.strictEqual(result.workflowOutline.provenance.routeQuality.contentNodeCount, 0);
+    assert.ok(result.extractionMetadata.researchRoute.reasons.includes('needs at least two content-level nodes'));
   });
 
   it('should create source-text fallback objects when LLM extraction fails', async () => {
@@ -249,6 +275,7 @@ describe('Digital Earth Decomposer', () => {
     assert.strictEqual(result.researchBrief.keyPoints[0].label, 'Core Route');
     assert.ok(result.researchBrief.keyPoints[0].value !== 'Paper', 'Brief should summarize content route, not source container');
     assert.ok(result.workflowOutline?.nodes?.length >= 2, 'Should build protocol-level workflow outline');
+    assert.notStrictEqual(result.extractionMetadata.researchRoute.quality, 'limited', 'Source-text fallback should expose a reviewable route when method/data/evidence are present');
     const datasetResource = result.externalResources.find(resource => resource.type === 'dataset');
     assert.ok(datasetResource, 'Should expose external dataset resources');
     assert.ok(datasetResource.reviewHint?.includes('data version'), 'Dataset resources should explain what a researcher needs to verify');
