@@ -74,7 +74,9 @@ export function getEntitySignals(entity: Entity, explore: EntityExploreResponse 
   const verification = entity.verificationState || 'unverified';
   const connectionCount = explore?.relatedEntities?.length || 0;
   const sourceCount = explore?.sources?.length || 0;
-  const hasSource = Boolean(entity.metadata?.source) || sourceCount > 0;
+  const provenance = getEntityProvenance(entity);
+  const hasProvenanceText = Boolean(provenance?.sourceText);
+  const hasSource = Boolean(entity.metadata?.source) || sourceCount > 0 || hasProvenanceText;
   const hasSpatial = hasSpatialMetadata(entity);
   const hasTemporal = hasTemporalMetadata(entity);
 
@@ -98,7 +100,13 @@ export function getEntitySignals(entity: Entity, explore: EntityExploreResponse 
 
   signals.push({
     label: 'Source',
-    value: hasSource ? entity.metadata?.source ? 'Recorded' : `${sourceCount} link${sourceCount === 1 ? '' : 's'}` : 'Missing',
+    value: hasSource
+      ? entity.metadata?.source
+        ? 'Recorded'
+        : hasProvenanceText
+          ? 'Source text'
+          : `${sourceCount} link${sourceCount === 1 ? '' : 's'}`
+      : 'Missing',
     level: hasSource ? 'strong' : 'weak'
   });
 
@@ -130,6 +138,21 @@ export function getEntityReviewNotes(
   const spatialSignal = signalByLabel.get('Spatial');
   const temporalSignal = signalByLabel.get('Temporal');
   const layer = getEntityLayer(entity);
+  const provenance = getEntityProvenance(entity);
+
+  if (entity.metadata?.sourceDerived) {
+    notes.push({
+      text: 'Created from explicit source text fallback; review before using it as a verified research object.',
+      level: 'info'
+    });
+  }
+
+  if (provenance?.note) {
+    notes.push({
+      text: provenance.note,
+      level: provenance.evidenceStrength === 'weak' ? 'warning' : 'info'
+    });
+  }
 
   if (confidenceSignal?.level === 'weak') {
     notes.push({
@@ -193,4 +216,8 @@ function hasMeaningfulValue(value: unknown) {
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === 'string') return value.trim().length > 0;
   return true;
+}
+
+function getEntityProvenance(entity: Entity) {
+  return entity.metadata?.provenance || (entity as any).provenance || null;
 }

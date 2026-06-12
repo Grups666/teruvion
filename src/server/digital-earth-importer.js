@@ -294,6 +294,8 @@ class DigitalEarthImporter {
    * Create a TripleStore Entity from decomposition object
    */
   _createEntity(obj, source, projectId) {
+    const objectMetadata = obj.metadata || {};
+
     // Merge attributes, ensuring name is preserved
     const attrs = {
       ...obj.attributes,
@@ -309,11 +311,14 @@ class DigitalEarthImporter {
     delete attrs.metadata;
 
     return new Entity(obj.type, attrs, {
+      ...objectMetadata,
       source,
       projectId,
       extractedBy: 'DigitalEarthDecomposer',
-      confidence: obj.confidence || 0.8,
-      provenance: obj.provenance
+      confidence: typeof objectMetadata.confidence === 'number'
+        ? objectMetadata.confidence
+        : (obj.confidence || 0.8),
+      provenance: obj.provenance || objectMetadata.provenance
     });
   }
 

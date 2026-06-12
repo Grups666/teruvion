@@ -39,7 +39,15 @@ export interface ProjectQuality {
 type DecompositionView = Decomposition & {
   confidence?: number;
   provenance?: { extractionMethod?: string };
-  extractionMetadata?: { llmExtraction?: { success?: boolean } };
+  extractionMetadata?: {
+    llmExtraction?: { success?: boolean };
+    textFallbackExtraction?: {
+      capabilityCount?: number;
+      worldCount?: number;
+      evidenceCount?: number;
+      relationCount?: number;
+    };
+  };
 };
 
 type SourceCoverageView = {
@@ -83,7 +91,8 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
   const confidence = typeof decomposition?.confidence === 'number'
     ? decomposition.confidence
     : null;
-  const method = decomposition?.provenance?.extractionMethod || 'pending';
+  const rawMethod = decomposition?.provenance?.extractionMethod || 'pending';
+  const method = formatExtractionMethod(rawMethod);
   const relations = (decomposition?.bridgeRelations?.length || 0)
     + Math.max(0, stats.capability + stats.world + stats.foundation - 1);
 
@@ -101,7 +110,7 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
     };
   }
 
-  if (method === 'metadata') {
+  if (rawMethod === 'metadata') {
     notes.push({ text: 'metadata-only extraction', level: 'warning' });
   }
 
@@ -109,6 +118,19 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
 
   if (decomposition.extractionMetadata?.llmExtraction?.success === false) {
     notes.push({ text: 'LLM extraction unavailable', level: 'warning' });
+  }
+
+  if (rawMethod === 'source-text-fallback') {
+    const fallback = decomposition.extractionMetadata?.textFallbackExtraction;
+    const fallbackCount = (fallback?.capabilityCount || 0)
+      + (fallback?.worldCount || 0)
+      + (fallback?.evidenceCount || 0);
+    notes.push({
+      text: fallbackCount > 0
+        ? `source-text fallback produced ${fallbackCount} reviewable objects`
+        : 'source-text fallback extraction',
+      level: 'info'
+    });
   }
 
   if (admission?.depth === 'light') {
@@ -234,6 +256,18 @@ function getProjectQualityLevel(
   if ((confidence ?? 0) >= 0.55 && stats.capability > 0 && objectCount >= 3) return 'useful';
   if (objectCount > 1) return 'partial';
   return 'limited';
+}
+
+function formatExtractionMethod(method: string) {
+  const labels: Record<string, string> = {
+    hybrid: 'Hybrid extraction',
+    metadata: 'Metadata only',
+    'source-text-fallback': 'Source text fallback',
+    none: 'No extraction',
+    pending: 'Pending'
+  };
+
+  return labels[method] || formatSignalText(method);
 }
 
 function formatCompactNumber(value: number) {
