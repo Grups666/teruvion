@@ -408,7 +408,7 @@ export default function Home() {
     : null;
   const projectDecomposition = selectedProject?.metadata?.decomposition;
   const projectSourceAttributes = ((projectDecomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
-  const projectResources = (projectDecomposition?.externalResources || []).filter(resource => resource.url).slice(0, 4);
+  const projectResources = rankProjectResources(projectDecomposition?.externalResources || []).slice(0, 6);
   const projectLimitations = (projectDecomposition?.inferredLimitations || []).slice(0, 4);
   const projectAuthorLine = compactMetaList(
     projectDecomposition?.researchBrief?.authors
@@ -749,23 +749,33 @@ export default function Home() {
                 <div className="project-resources">
                   <div className="project-resources-column">
                     <div className="project-resources-head">
-                      <span>Resources</span>
-                      <small>{projectResources.length > 0 ? `${projectResources.length} links` : 'No link extracted'}</small>
+                      <span>Resource Investigation</span>
+                      <small>{resourceSummary(projectResources)}</small>
                     </div>
                     <div className="project-resource-list">
-                      {projectResources.length > 0 ? projectResources.map(resource => (
-                        <a
-                          href={normalizeExternalHref(resource.url)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="project-resource"
-                          key={`${resource.type || 'resource'}-${resource.url}`}
-                        >
-                          <span>{resource.type || 'external'}</span>
-                          <strong>{resource.label}</strong>
-                          <small>{resource.role || resource.source || resource.url}</small>
-                        </a>
-                      )) : (
+                      {projectResources.length > 0 ? projectResources.map(resource => {
+                        const signal = resourceSignal(resource);
+                        return (
+                          <a
+                            href={normalizeExternalHref(resource.url)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`project-resource ${signal.level}`}
+                            key={`${resource.type || 'resource'}-${resource.url}`}
+                          >
+                            <div className="resource-topline">
+                              <span>{formatResourceType(resource.type)}</span>
+                              <em>{signal.label}</em>
+                            </div>
+                            <strong>{resource.label || resourceHost(resource.url)}</strong>
+                            <small>{resource.context || resource.role || resource.source || resourceHost(resource.url)}</small>
+                            <div className="resource-foot">
+                              <b>{resourceHost(resource.url)}</b>
+                              {resource.source && <i>{formatResourceSource(resource.source)}</i>}
+                            </div>
+                          </a>
+                        );
+                      }) : (
                         <div className="project-resource empty">
                           <strong>No external resource detected</strong>
                           <small>Try a DOI, repository, data link, or richer source page.</small>
@@ -1090,6 +1100,83 @@ function normalizeExternalHref(value: string) {
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (/^10\.\d{4,9}\//i.test(trimmed)) return `https://doi.org/${trimmed}`;
   return trimmed;
+}
+
+type ProjectResource = {
+  label: string;
+  url: string;
+  type?: string;
+  role?: string;
+  source?: string;
+  context?: string;
+};
+
+function rankProjectResources(resources: ProjectResource[]) {
+  const seen = new Set<string>();
+  return resources
+    .filter(resource => {
+      if (!resource?.url || seen.has(resource.url)) return false;
+      seen.add(resource.url);
+      return true;
+    })
+    .sort((a, b) => resourcePriority(b) - resourcePriority(a));
+}
+
+function resourcePriority(resource: ProjectResource) {
+  const type = String(resource.type || '').toLowerCase();
+  const priority: Record<string, number> = {
+    repository: 90,
+    code: 82,
+    dataset: 80,
+    supplement: 72,
+    paper: 58,
+    doi: 50,
+    source: 45,
+    external: 20
+  };
+  return priority[type] ?? 20;
+}
+
+function resourceSignal(resource: ProjectResource) {
+  const priority = resourcePriority(resource);
+  if (priority >= 80) return { label: 'High value', level: 'strong' };
+  if (priority >= 58) return { label: 'Useful', level: 'normal' };
+  return { label: 'Context', level: 'weak' };
+}
+
+function resourceSummary(resources: ProjectResource[]) {
+  if (resources.length === 0) return 'No resource found';
+  const hasData = resources.some(resource => ['dataset', 'repository', 'code'].includes(String(resource.type || '').toLowerCase()));
+  if (hasData) return 'Data/code candidates found';
+  return `${resources.length} references found`;
+}
+
+function formatResourceType(type?: string) {
+  const labels: Record<string, string> = {
+    repository: 'Code',
+    code: 'Code',
+    dataset: 'Data',
+    supplement: 'Supplement',
+    paper: 'Paper',
+    doi: 'DOI',
+    source: 'Source',
+    external: 'External'
+  };
+  return labels[String(type || '').toLowerCase()] || 'External';
+}
+
+function formatResourceSource(source?: string) {
+  return String(source || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function resourceHost(url: string) {
+  try {
+    return new URL(normalizeExternalHref(url)).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
 }
 
 function compactMetaList(value: unknown) {

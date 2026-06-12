@@ -113,6 +113,7 @@ export interface Decomposition {
     type?: string;
     role?: string;
     source?: string;
+    context?: string;
   }>;
   inferredLimitations?: Array<{
     id?: string;
