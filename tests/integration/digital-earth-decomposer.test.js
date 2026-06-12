@@ -154,6 +154,61 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(Array.isArray(result.inferredLimitations), 'Should report inferred limitations for the UI');
   });
 
+  it('should add optional LLM critical review limitations without replacing protocol fallback', async () => {
+    const llm = {
+      async chat(params) {
+        const userText = params.messages?.map(message => message.content).join('\n') || '';
+        if (userText.includes('"task": "Critical Review"')) {
+          return {
+            content: JSON.stringify({
+              limitations: [{
+                id: 'external-validity',
+                label: 'External validity needs review',
+                severity: 'warning',
+                detail: 'The excerpt does not show whether the method was evaluated beyond the described study material.'
+              }]
+            })
+          };
+        }
+
+        return {
+          content: JSON.stringify({
+            capabilityObjects: [],
+            worldObjects: [],
+            evidenceObjects: [],
+            bridgeRelations: []
+          })
+        };
+      }
+    };
+    const decomposer = new DigitalEarthDecomposer(llm);
+    const admissionResult = {
+      sourceType: 'Paper',
+      depth: 'deep',
+      activatedCategories: ['modeling'],
+      activatedOntologyLayers: ['source', 'capability'],
+      sourceRoles: { modeling_capability: 0.8 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('10.5555/critical-review', {
+      metadata: { title: 'Reviewable modeling paper' },
+      content: [
+        'Abstract',
+        'This study presents a predictive model for a research workflow and reports promising results.',
+        'Methods',
+        'The model is trained and evaluated on the available study material with limited external information.',
+        'Discussion',
+        'The authors discuss potential use but do not provide enough detail for broad deployment.'
+      ].join('\n')
+    }, admissionResult);
+
+    assert.strictEqual(result.extractionMetadata.criticalReview.success, true);
+    assert.ok(result.inferredLimitations.some(item => item.source === 'llm-review'), 'Should include LLM review limitation');
+    assert.ok(result.inferredLimitations.some(item => item.source === 'protocol'), 'Should preserve protocol limitations');
+  });
+
   it('should extract capability objects based on activated categories', async () => {
     const decomposer = new DigitalEarthDecomposer();
     const admissionResult = {

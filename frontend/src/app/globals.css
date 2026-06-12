@@ -1147,6 +1147,16 @@ html, body {
   text-transform: uppercase;
 }
 
+.project-limit span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .resource-topline em {
   padding: 3px 6px;
   border: 1px solid var(--border);

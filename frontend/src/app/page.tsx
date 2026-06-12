@@ -791,6 +791,7 @@ export default function Home() {
                     <div className="project-limit-list">
                       {projectLimitations.length > 0 ? projectLimitations.map(limit => (
                         <div className={`project-limit ${limit.severity || 'info'}`} key={limit.id || limit.label}>
+                          <span>{formatLimitationSource(limit.source)}</span>
                           <strong>{limit.label}</strong>
                           <small>{limit.detail}</small>
                         </div>
@@ -1170,6 +1171,12 @@ function formatResourceSource(source?: string) {
   return String(source || '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function formatLimitationSource(source?: string) {
+  if (source === 'llm-review') return 'LLM Review';
+  if (source === 'protocol') return 'Protocol';
+  return 'Review';
 }
 
 function resourceHost(url: string) {

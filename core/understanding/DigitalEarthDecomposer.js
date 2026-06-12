@@ -298,6 +298,7 @@ class DigitalEarthDecomposer {
       result.workflowOutline = this._buildWorkflowOutline(result);
       result.externalResources = this._extractExternalResources(result, content);
       result.inferredLimitations = this._buildInferredLimitations(result);
+      result.inferredLimitations = await this._buildCriticalLimitations(result, content, result.inferredLimitations);
 
     } catch (error) {
       result.error = error.message;
@@ -1348,6 +1349,125 @@ Return JSON with this structure:`;
       });
     }
     return limitations;
+  }
+
+  async _buildCriticalLimitations(result, content = {}, fallbackLimitations = []) {
+    const sourceText = this._getSourceText(content);
+    if (!this.options.useLLM || !this.llm || sourceText.length < 100) {
+      return fallbackLimitations;
+    }
+
+    try {
+      const response = await this.llm.chat({
+        messages: [
+          {
+            role: 'system',
+            content: [
+              'You are a skeptical research reviewer for a Digital Earth research workspace.',
+              'Identify limitations only from the supplied metadata, extracted objects, and source text.',
+              'Do not fabricate missing experiments, datasets, repositories, or claims.',
+              'Return valid JSON only.'
+            ].join(' ')
+          },
+          {
+            role: 'user',
+            content: this._buildCriticalReviewPrompt(result, content, fallbackLimitations)
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 1200,
+        timeout: Math.min(this.options.llmTimeout || 45000, 45000)
+      });
+
+      const responseText = response.choices?.[0]?.message?.content || response.content || '';
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return fallbackLimitations;
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      const llmLimitations = this._normalizeCriticalLimitations(parsed.limitations || parsed.inferredLimitations || []);
+      if (llmLimitations.length === 0) return fallbackLimitations;
+
+      result.extractionMetadata.criticalReview = {
+        success: true,
+        limitationCount: llmLimitations.length
+      };
+      return this._mergeLimitations(fallbackLimitations, llmLimitations);
+    } catch (error) {
+      result.extractionMetadata.criticalReview = {
+        success: false,
+        error: error.message
+      };
+      return fallbackLimitations;
+    }
+  }
+
+  _buildCriticalReviewPrompt(result, content = {}, fallbackLimitations = []) {
+    const source = result.sourceObject || {};
+    const attributes = source.attributes || {};
+    const sourceText = this._getSourceText(content);
+    const compactObjects = [
+      ...(result.capabilityObjects || []),
+      ...(result.worldObjects || []),
+      ...(result.evidenceObjects || [])
+    ].slice(0, 18).map(object => ({
+      type: object.type,
+      name: object.name || object.attributes?.name || object.attributes?.title,
+      category: object.metadata?.category,
+      confidence: object.confidence || object.metadata?.confidence
+    }));
+
+    return JSON.stringify({
+      task: 'Critical Review',
+      instruction: 'Return JSON: {"limitations":[{"id":"short-kebab-id","label":"short title","severity":"info|warning","detail":"one concrete limitation","source":"llm-review"}]}. Focus on limitations useful to a researcher after reading the paper.',
+      source: {
+        type: source.type || result.sourceType,
+        title: attributes.title || source.name,
+        venue: attributes.venue,
+        year: attributes.year
+      },
+      extractedObjects: compactObjects,
+      existingProtocolLimitations: fallbackLimitations,
+      sourceExcerpt: sourceText.slice(0, 6000)
+    }, null, 2);
+  }
+
+  _normalizeCriticalLimitations(limitations) {
+    if (!Array.isArray(limitations)) return [];
+    return limitations
+      .map((item, index) => {
+        if (!item || typeof item !== 'object') return null;
+        const label = this._summarizeText(item.label || item.title || '', 80);
+        const detail = this._summarizeText(item.detail || item.reason || item.description || '', 260);
+        if (!label || !detail) return null;
+        return {
+          id: this._slugifyLimitationId(item.id || label || `llm-limitation-${index + 1}`),
+          label,
+          severity: item.severity === 'warning' || item.severity === 'error' ? item.severity : 'info',
+          detail,
+          source: 'llm-review'
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 4);
+  }
+
+  _mergeLimitations(fallbackLimitations, llmLimitations) {
+    const byId = new Map();
+    for (const limitation of [...llmLimitations, ...fallbackLimitations]) {
+      if (!limitation?.id) continue;
+      if (!byId.has(limitation.id)) {
+        byId.set(limitation.id, limitation);
+      }
+    }
+    return Array.from(byId.values()).slice(0, 6);
+  }
+
+  _slugifyLimitationId(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'llm-limitation';
   }
 
   _sourceChildren(source) {
