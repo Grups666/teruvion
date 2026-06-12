@@ -14,11 +14,8 @@ import {
   getEntityTakeaways
 } from '../lib/entityView';
 import {
-  buildProjectSummaryText,
   getDisplayLayer,
-  getObjectConstellation,
   getProjectDiagnosis,
-  getProjectProgressSteps,
   getProjectQuality,
   getProjectReadiness,
   getProjectStats,
@@ -34,14 +31,6 @@ import {
 } from '../lib/projectCockpit';
 
 const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
-
-const DISPLAY_LAYER_ORDER: DisplayLayer[] = ['source', 'capability', 'world', 'foundation'];
-const DISPLAY_LAYER_LABELS: Record<DisplayLayer, string> = {
-  source: 'Sources',
-  capability: 'Methods & Resources',
-  world: 'Places & Events',
-  foundation: 'Review Notes'
-};
 
 const EXAMPLE_SOURCES = [
   {
@@ -70,7 +59,6 @@ export default function Home() {
   const [selectedExplore, setSelectedExplore] = useState<EntityExploreResponse | null>(null);
   const [exploreLoading, setExploreLoading] = useState(false);
   const [projectLenses, setProjectLenses] = useState<Record<string, any> | null>(null);
-  const [lensesLoading, setLensesLoading] = useState(false);
   const [activeCockpitKey, setActiveCockpitKey] = useState<string>('source');
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,7 +112,6 @@ export default function Home() {
     let cancelled = false;
 
     async function loadProjectLenses(projectId: string) {
-      setLensesLoading(true);
       setProjectLenses(null);
 
       try {
@@ -137,10 +124,6 @@ export default function Home() {
         if (!cancelled) {
           setProjectLenses(null);
         }
-      } finally {
-        if (!cancelled) {
-          setLensesLoading(false);
-        }
       }
     }
 
@@ -148,7 +131,6 @@ export default function Home() {
       loadProjectLenses(selectedProjectId);
     } else {
       setProjectLenses(null);
-      setLensesLoading(false);
     }
 
     return () => {
@@ -377,12 +359,9 @@ export default function Home() {
     : [];
   const mapEntities = projectEntities.length > 0 ? projectEntities : entities;
   const selectedEntity = entities.find(e => e.id === selectedEntityId);
-  const groupedProjectEntities = groupEntitiesByLayer(projectEntities);
   const projectStats = getProjectStats(projectEntities);
   const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
-  const projectProgressSteps = selectedProject ? getProjectProgressSteps(selectedProject) : [];
   const sourceCapsule = selectedProject ? getSourceCapsule(selectedProject, projectQuality) : null;
-  const constellationNodes = getObjectConstellation(projectEntities);
   const projectDiagnosis = selectedProject ? getProjectDiagnosis(selectedProject, projectQuality, projectStats, projectEntities.length) : [];
   const projectReadiness = selectedProject ? getProjectReadiness(selectedProject, projectDiagnosis) : null;
   const recommendedActions = getRecommendedNextActions(selectedProject || null, projectQuality, projectStats, projectEntities.length);
@@ -441,25 +420,6 @@ export default function Home() {
       || projectSourceAttributes.publisher
       || projectSourceAttributes.journal
   );
-
-  async function copyProjectSummary() {
-    if (!selectedProject || !projectQuality) return;
-
-    const summaryText = buildProjectSummaryText(
-      selectedProject,
-      projectQuality,
-      projectStats,
-      projectEntities.length
-    );
-
-    try {
-      await navigator.clipboard.writeText(summaryText);
-      setStatus('Project summary copied');
-    } catch (err) {
-      console.error('Failed to copy project summary:', err);
-      setStatus('Copy failed');
-    }
-  }
 
   async function runProjectAction(action: { label: string; operation?: string; targetLayer: DisplayLayer | null; fallbackLayer?: DisplayLayer | null }) {
     if (action.operation === 'cancel') {
@@ -724,48 +684,6 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="decomposition-progress">
-                {projectProgressSteps.map(step => (
-                  <div className={`progress-step ${step.status}`} key={step.key}>
-                    <span className="progress-marker" />
-                    <span className="progress-copy">
-                      <span>{step.label}</span>
-                      <small>{step.detail}</small>
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {cockpitSignals.length > 0 && (
-                <div className="research-cockpit">
-                  <div className="cockpit-head">
-                    <span>Research Cockpit</span>
-                    <span>{projectReadiness?.label || 'Import state'}</span>
-                  </div>
-                  <div className="cockpit-grid">
-                    {cockpitSignals.map(signal => (
-                      <button
-                        type="button"
-                        key={signal.key}
-                        className={`cockpit-card ${signal.status} ${activeCockpitSignal?.key === signal.key ? 'active' : ''}`}
-                        data-has-target={signal.targetId ? 'true' : 'false'}
-                        onClick={() => {
-                          setActiveCockpitKey(signal.key);
-                          if (signal.targetId) {
-                            setSelectedEntityId(signal.targetId);
-                            setStatus(`${signal.label} focus selected`);
-                          }
-                        }}
-                      >
-                        <span className="cockpit-label">{signal.label}</span>
-                        <strong>{signal.value}</strong>
-                        <small>{signal.detail}</small>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {activeCockpitSignal && (
                 <div className={`cockpit-focus ${activeCockpitSignal.status}`}>
                   <div className="cockpit-focus-head">
@@ -805,155 +723,6 @@ export default function Home() {
                 </div>
               )}
 
-              {projectQuality && (
-                <div className="project-quality">
-                  {projectReadiness && (
-                    <div className={`readiness-strip ${projectReadiness.status}`}>
-                      <div className="readiness-main">
-                        <span>{projectReadiness.label}</span>
-                        <strong>{projectReadiness.score}%</strong>
-                      </div>
-                      <div className="readiness-bar">
-                        <span style={{ width: `${projectReadiness.score}%` }} />
-                      </div>
-                      <div className="readiness-next">{projectReadiness.nextStep}</div>
-                    </div>
-                  )}
-                  <div className="quality-head">
-                    <span className={`quality-pill ${projectQuality.level}`}>
-                      {projectQuality.label}
-                    </span>
-                    <span className="quality-meta">
-                      {projectQuality.method}
-                    </span>
-                  </div>
-                  <div className="quality-summary">{projectQuality.summary}</div>
-                  {projectQuality.coverage && (
-                    <div className={`coverage-strip ${projectQuality.coverage.warning ? 'warning' : ''}`}>
-                      <div className="coverage-main">
-                        <span className="coverage-label">{projectQuality.coverage.label}</span>
-                        <span className="coverage-detail">{projectQuality.coverage.detail}</span>
-                      </div>
-                      {projectQuality.coverage.metrics.length > 0 && (
-                        <div className="coverage-metrics">
-                          {projectQuality.coverage.metrics.map(metric => (
-                            <span key={metric.label}>
-                              <strong>{metric.value}</strong>
-                              {metric.label}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {projectQuality.coverage.warning && (
-                        <div className="coverage-warning">{projectQuality.coverage.warning}</div>
-                      )}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    className="quality-copy"
-                    onClick={copyProjectSummary}
-                  >
-                    Copy summary
-                  </button>
-                  {projectQuality.notes.length > 0 && (
-                    <div className="quality-notes">
-                      {projectQuality.notes.slice(0, 5).map(note => (
-                        <span className={note.level} key={note.text}>{note.text}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {projectDiagnosis.length > 0 && (
-                <div className="import-diagnosis">
-                  <div className="diagnosis-head">
-                    <span>Import Diagnosis</span>
-                    <span>{projectReadiness?.label || 'Review'}</span>
-                  </div>
-                  <div className="diagnosis-grid">
-                    {projectDiagnosis.map(item => (
-                      <div className={`diagnosis-card ${item.status}`} key={item.key}>
-                        <div className="diagnosis-card-head">
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                        </div>
-                        <p>{item.detail}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="object-constellation">
-                <div className="constellation-head">
-                  <span>Research Structure</span>
-                  <span>Graph view</span>
-                </div>
-                {constellationNodes.length > 0 ? (
-                  <div className="constellation-stage">
-                    <div className="constellation-core">
-                      <span>Core</span>
-                      Source
-                    </div>
-                    {constellationNodes.map((node, index) => (
-                      <button
-                        type="button"
-                        className={`constellation-node ${node.layer}`}
-                        key={node.id}
-                        style={{ '--node-index': index } as React.CSSProperties}
-                        disabled={!node.sampleEntityId}
-                        onClick={() => {
-                          if (node.sampleEntityId) {
-                            setSelectedEntityId(node.sampleEntityId);
-                            setStatus(`${DISPLAY_LAYER_LABELS[node.layer]} selected`);
-                          }
-                        }}
-                      >
-                        <span>{DISPLAY_LAYER_LABELS[node.layer]}</span>
-                        {node.type === 'world' ? 'Spatial context' : node.type === 'capability' ? 'Reusable knowledge' : node.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="constellation-empty">Research structure will appear after extraction.</div>
-                )}
-              </div>
-
-              <div className="project-lenses">
-                <div className="lens-head">
-                  <span>Views</span>
-                  <span>{lensesLoading ? 'Loading' : 'Explore'}</span>
-                </div>
-                {lensesLoading ? (
-                  <div className="lens-empty">Building project views...</div>
-                ) : lensSummaries.length > 0 ? (
-                  <div className="lens-grid">
-                    {lensSummaries.map(lens => (
-                      <button
-                        type="button"
-                        className={`lens-card ${lens.status}`}
-                        key={lens.name}
-                        disabled={!lens.targetId}
-                        onClick={() => {
-                          if (lens.targetId) {
-                            setSelectedEntityId(lens.targetId);
-                            setStatus(`${lens.name} focus selected`);
-                          }
-                        }}
-                      >
-                        <div className="lens-name">{lens.name}</div>
-                        <div className="lens-value">{lens.value}</div>
-                        <div className="lens-detail">{lens.detail}</div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="lens-empty">No lens output yet.</div>
-                )}
-              </div>
-
               {recommendedActions.length > 0 && (
                 <div className="next-actions">
                   <div className="next-actions-head">Next Actions</div>
@@ -977,44 +746,6 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="object-groups">
-                {projectEntities.length === 0 ? (
-                  <div className="project-panel-empty">
-                    {selectedProject.analysis?.status === 'failed'
-                      ? selectedProject.analysis.error || 'Import failed'
-                      : 'Objects will appear when the import completes.'}
-                  </div>
-                ) : (
-                  DISPLAY_LAYER_ORDER.map(layer => {
-                    const items = groupedProjectEntities[layer];
-                    if (items.length === 0) return null;
-
-                    return (
-                      <div className="object-group" key={layer}>
-                        <div className="object-group-header">
-                          <span>{DISPLAY_LAYER_LABELS[layer]}</span>
-                          <span>Inspect</span>
-                        </div>
-                        <div className="object-list">
-                          {items.map(entity => (
-                            <button
-                              key={entity.id}
-                              className={`object-row ${selectedEntityId === entity.id ? 'active' : ''}`}
-                              onClick={() => setSelectedEntityId(entity.id)}
-                            >
-                              <span className={`object-dot ${getEntityLayer(entity)}`} />
-                              <span className="object-main">
-                                <span className="object-name">{getEntityName(entity)}</span>
-                                <span className="object-type">{entity.type}</span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
             </>
           )}
         </div>
@@ -1297,19 +1028,4 @@ function compactMetaList(value: unknown) {
     .filter(Boolean)
     .slice(0, 4)
     .join(', ');
-}
-
-function groupEntitiesByLayer(entities: Entity[]) {
-  const groups: Record<DisplayLayer, Entity[]> = {
-    source: [],
-    capability: [],
-    world: [],
-    foundation: [],
-  };
-
-  for (const entity of entities) {
-    groups[getDisplayLayer(entity)].push(entity);
-  }
-
-  return groups;
 }
