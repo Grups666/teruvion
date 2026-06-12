@@ -18,6 +18,7 @@ import {
   getProjectDiagnosis,
   getProjectProgressSteps,
   getProjectQuality,
+  getProjectReadiness,
   getProjectStats,
   getRecommendedNextActions,
   getSourceCapsule,
@@ -427,6 +428,7 @@ export default function Home() {
   const sourceCapsule = selectedProject ? getSourceCapsule(selectedProject, projectQuality) : null;
   const constellationNodes = getObjectConstellation(projectEntities);
   const projectDiagnosis = selectedProject ? getProjectDiagnosis(selectedProject, projectQuality, projectStats, projectEntities.length) : [];
+  const projectReadiness = selectedProject ? getProjectReadiness(selectedProject, projectDiagnosis) : null;
   const recommendedActions = getRecommendedNextActions(projectQuality, projectStats, projectEntities.length);
   const lensSummaries = getLensSummaries(projectLenses);
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
@@ -676,6 +678,18 @@ export default function Home() {
 
               {projectQuality && (
                 <div className="project-quality">
+                  {projectReadiness && (
+                    <div className={`readiness-strip ${projectReadiness.status}`}>
+                      <div className="readiness-main">
+                        <span>{projectReadiness.label}</span>
+                        <strong>{projectReadiness.score}%</strong>
+                      </div>
+                      <div className="readiness-bar">
+                        <span style={{ width: `${projectReadiness.score}%` }} />
+                      </div>
+                      <div className="readiness-next">{projectReadiness.nextStep}</div>
+                    </div>
+                  )}
                   <div className="quality-head">
                     <span className={`quality-pill ${projectQuality.level}`}>
                       {projectQuality.label}

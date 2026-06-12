@@ -83,6 +83,73 @@ function buildProjectImportDiagnosis({
   ];
 }
 
+function buildProjectReadinessSummary(diagnosis = []) {
+  const items = Array.isArray(diagnosis) ? diagnosis : [];
+  const counts = items.reduce((summary, item) => {
+    if (item?.status && summary[item.status] !== undefined) {
+      summary[item.status]++;
+    }
+    return summary;
+  }, {
+    ready: 0,
+    limited: 0,
+    missing: 0,
+    pending: 0
+  });
+
+  const total = items.length;
+  const score = total > 0 ? Math.round((counts.ready / total) * 100) : 0;
+  const blockers = items
+    .filter(item => item.status === 'missing' || item.status === 'limited')
+    .map(item => item.label)
+    .slice(0, 3);
+  const pipeline = items.find(item => item.key === 'pipeline');
+
+  if (counts.pending > 0) {
+    return {
+      status: 'processing',
+      label: 'Processing',
+      score,
+      counts,
+      blockers: [],
+      nextStep: pipeline?.detail || 'Wait for the import pipeline to finish.'
+    };
+  }
+
+  if (pipeline?.status === 'missing') {
+    return {
+      status: 'blocked',
+      label: 'Blocked',
+      score,
+      counts,
+      blockers: [pipeline.label],
+      nextStep: pipeline.detail || 'Fix the failed import before using this project.'
+    };
+  }
+
+  if (counts.missing === 0 && counts.limited === 0 && total > 0) {
+    return {
+      status: 'ready',
+      label: 'Ready for Use',
+      score,
+      counts,
+      blockers: [],
+      nextStep: 'Open objects, inspect evidence, or compare this project with another source.'
+    };
+  }
+
+  return {
+    status: 'review',
+    label: 'Needs Review',
+    score,
+    counts,
+    blockers,
+    nextStep: blockers.length > 0
+      ? `Review ${blockers.join(', ')} before relying on this project.`
+      : 'Review limited diagnostic signals before relying on this project.'
+  };
+}
+
 function getObjectCounts(decomposition) {
   const source = decomposition.sourceObject ? 1 : 0;
   const capability = Array.isArray(decomposition.capabilityObjects)
@@ -166,5 +233,6 @@ function normalizeMethod(value) {
 }
 
 module.exports = {
-  buildProjectImportDiagnosis
+  buildProjectImportDiagnosis,
+  buildProjectReadinessSummary
 };

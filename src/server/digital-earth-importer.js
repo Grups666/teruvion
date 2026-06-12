@@ -15,7 +15,10 @@ const llm = require('../../core/utils/llm');
 const ConnectorRegistry = require('../../core/connectors/ConnectorRegistry');
 const ontology = require('../../core/registry/ontology');
 const { summarizeSourceCoverage } = require('../../core/source/SourceCoverage');
-const { buildProjectImportDiagnosis } = require('../../core/project/ProjectDiagnostics');
+const {
+  buildProjectImportDiagnosis,
+  buildProjectReadinessSummary
+} = require('../../core/project/ProjectDiagnostics');
 const PaperIdentifierResolver = require('../../core/connectors/PaperIdentifierResolver');
 
 class DigitalEarthImporter {
@@ -174,12 +177,14 @@ class DigitalEarthImporter {
       project.metadata.decomposition = decomposition;
       project.metadata.admission = admissionResult;
       project.metadata.sourceCoverage = sourceCoverage;
-      project.metadata.importDiagnosis = buildProjectImportDiagnosis({
+      const importDiagnosis = buildProjectImportDiagnosis({
         status: project.analysis.status,
         sourceCoverage,
         decomposition,
         stored
       });
+      project.metadata.importDiagnosis = importDiagnosis;
+      project.metadata.importReadiness = buildProjectReadinessSummary(importDiagnosis);
 
       await this.projectRegistry.save();
       await this.store.save();

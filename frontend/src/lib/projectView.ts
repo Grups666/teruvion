@@ -1,4 +1,12 @@
-import type { Decomposition, Entity, EntityLayer, Project, ProjectDiagnosisItem, ProjectDiagnosisStatus } from '../types/api';
+import type {
+  Decomposition,
+  Entity,
+  EntityLayer,
+  Project,
+  ProjectDiagnosisItem,
+  ProjectDiagnosisStatus,
+  ProjectReadinessSummary
+} from '../types/api';
 import { getEntityLayer } from '../types/api';
 import { formatSignalText } from './entityView';
 
@@ -404,6 +412,73 @@ export function getProjectDiagnosis(
         : 'Objects are not connected enough yet; relation extraction or manual review is needed.'
     }
   ];
+}
+
+export function getProjectReadiness(project: Project, diagnosis: ProjectDiagnosisItem[]): ProjectReadinessSummary {
+  if (project.metadata?.importReadiness) {
+    return project.metadata.importReadiness;
+  }
+
+  const counts = diagnosis.reduce<Record<ProjectDiagnosisStatus, number>>((summary, item) => {
+    summary[item.status] += 1;
+    return summary;
+  }, {
+    ready: 0,
+    limited: 0,
+    missing: 0,
+    pending: 0
+  });
+  const total = diagnosis.length;
+  const score = total > 0 ? Math.round((counts.ready / total) * 100) : 0;
+  const blockers = diagnosis
+    .filter(item => item.status === 'missing' || item.status === 'limited')
+    .map(item => item.label)
+    .slice(0, 3);
+  const pipeline = diagnosis.find(item => item.key === 'pipeline');
+
+  if (counts.pending > 0) {
+    return {
+      status: 'processing',
+      label: 'Processing',
+      score,
+      counts,
+      blockers: [],
+      nextStep: pipeline?.detail || 'Wait for the import pipeline to finish.'
+    };
+  }
+
+  if (pipeline?.status === 'missing') {
+    return {
+      status: 'blocked',
+      label: 'Blocked',
+      score,
+      counts,
+      blockers: [pipeline.label],
+      nextStep: pipeline.detail || 'Fix the failed import before using this project.'
+    };
+  }
+
+  if (counts.missing === 0 && counts.limited === 0 && total > 0) {
+    return {
+      status: 'ready',
+      label: 'Ready for Use',
+      score,
+      counts,
+      blockers: [],
+      nextStep: 'Open objects, inspect evidence, or compare this project with another source.'
+    };
+  }
+
+  return {
+    status: 'review',
+    label: 'Needs Review',
+    score,
+    counts,
+    blockers,
+    nextStep: blockers.length > 0
+      ? `Review ${blockers.join(', ')} before relying on this project.`
+      : 'Review limited diagnostic signals before relying on this project.'
+  };
 }
 
 export function buildProjectSummaryText(project: Project, quality: ProjectQuality, stats: ProjectStats, objectCount: number) {

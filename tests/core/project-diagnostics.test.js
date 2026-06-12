@@ -3,7 +3,10 @@
  */
 
 const { assert, describe, it } = require('../setup');
-const { buildProjectImportDiagnosis } = require('../../core/project/ProjectDiagnostics');
+const {
+  buildProjectImportDiagnosis,
+  buildProjectReadinessSummary
+} = require('../../core/project/ProjectDiagnostics');
 
 describe('ProjectDiagnostics', () => {
   it('should explain metadata-only imports without inventing missing structure', () => {
@@ -77,5 +80,34 @@ describe('ProjectDiagnostics', () => {
     assert.strictEqual(failed.length, 1);
     assert.strictEqual(failed[0].status, 'missing');
     assert.strictEqual(failed[0].detail, 'Source rejected');
+  });
+
+  it('should summarize readiness from diagnostic hard signals', () => {
+    const review = buildProjectReadinessSummary([
+      { key: 'source', label: 'Source', status: 'limited' },
+      { key: 'spatial', label: 'Spatial Anchor', status: 'missing' },
+      { key: 'capability', label: 'Methods & Data', status: 'ready' },
+      { key: 'evidence', label: 'Evidence', status: 'limited' },
+      { key: 'graph', label: 'Object Links', status: 'ready' }
+    ]);
+
+    assert.strictEqual(review.status, 'review');
+    assert.strictEqual(review.score, 40);
+    assert.deepStrictEqual(review.blockers, ['Source', 'Spatial Anchor', 'Evidence']);
+
+    const ready = buildProjectReadinessSummary([
+      { key: 'source', label: 'Source', status: 'ready' },
+      { key: 'spatial', label: 'Spatial Anchor', status: 'ready' }
+    ]);
+
+    assert.strictEqual(ready.status, 'ready');
+    assert.strictEqual(ready.score, 100);
+
+    const processing = buildProjectReadinessSummary([
+      { key: 'pipeline', label: 'Pipeline', status: 'pending', detail: 'Still running' }
+    ]);
+
+    assert.strictEqual(processing.status, 'processing');
+    assert.strictEqual(processing.nextStep, 'Still running');
   });
 });

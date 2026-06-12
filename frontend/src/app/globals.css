@@ -703,6 +703,87 @@ html, body {
   background: rgba(250, 250, 250, 0.72);
 }
 
+.readiness-strip {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.readiness-strip.ready {
+  border-color: rgba(22, 163, 74, 0.24);
+  background: rgba(240, 253, 244, 0.48);
+}
+
+.readiness-strip.review,
+.readiness-strip.processing {
+  border-color: rgba(217, 119, 6, 0.24);
+  background: rgba(255, 251, 235, 0.62);
+}
+
+.readiness-strip.blocked {
+  border-color: rgba(220, 38, 38, 0.18);
+  background: rgba(254, 242, 242, 0.48);
+}
+
+.readiness-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.readiness-main span {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.readiness-main strong {
+  color: var(--primary);
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.readiness-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.08);
+}
+
+.readiness-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.readiness-strip.ready .readiness-bar span {
+  background: #16a34a;
+}
+
+.readiness-strip.review .readiness-bar span,
+.readiness-strip.processing .readiness-bar span {
+  background: #d97706;
+}
+
+.readiness-strip.blocked .readiness-bar span {
+  background: #dc2626;
+}
+
+.readiness-next {
+  margin-top: 8px;
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .quality-head {
   display: flex;
   align-items: center;

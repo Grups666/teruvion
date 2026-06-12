@@ -39,6 +39,7 @@ export interface Project {
     decomposition?: Decomposition;
     admission?: AdmissionResult;
     importDiagnosis?: ProjectDiagnosisItem[];
+    importReadiness?: ProjectReadinessSummary;
     [key: string]: any;
   };
   analysis?: AnalysisProgress;
@@ -82,6 +83,17 @@ export interface ProjectDiagnosisItem {
   status: ProjectDiagnosisStatus;
   value: string;
   detail: string;
+}
+
+export type ProjectReadinessStatus = 'ready' | 'review' | 'blocked' | 'processing';
+
+export interface ProjectReadinessSummary {
+  status: ProjectReadinessStatus;
+  label: string;
+  score: number;
+  counts: Record<ProjectDiagnosisStatus, number>;
+  blockers: string[];
+  nextStep: string;
 }
 
 // API Response types
