@@ -6,6 +6,7 @@ import api from '../types/client';
 import type { Entity, Project, SSEEvent, AnalysisProgress, EntityExploreResponse, RelatedEntity } from '../types/api';
 import { getEntityLayer } from '../types/api';
 import {
+  formatSignalText,
   getEntityName,
   getEntityReviewNotes,
   getEntitySignals
@@ -1034,6 +1035,9 @@ function RelationRow({
   const selectedName = getEntityName(selectedEntity);
   const left = item.direction === 'outgoing' ? selectedName : item.name;
   const right = item.direction === 'outgoing' ? item.name : selectedName;
+  const confidence = typeof item.confidence === 'number' ? `${Math.round(item.confidence * 100)}%` : null;
+  const provenanceLabel = getRelationProvenanceLabel(item.provenance);
+  const verification = item.verificationState ? formatSignalText(item.verificationState) : null;
 
   return (
     <button className="relation-row" onClick={() => onSelectEntity(item.id)}>
@@ -1045,9 +1049,23 @@ function RelationRow({
           <span className="relation-node">{right}</span>
         </span>
         <span className="relation-type">{item.type}</span>
+        {(confidence || verification || provenanceLabel || item.isFallback) && (
+          <span className="relation-evidence">
+            {confidence && <span>{confidence}</span>}
+            {verification && <span>{verification}</span>}
+            {provenanceLabel && <span>{provenanceLabel}</span>}
+            {item.isFallback && <span className="warning">Fallback</span>}
+          </span>
+        )}
       </span>
     </button>
   );
+}
+
+function getRelationProvenanceLabel(provenance?: Record<string, any>) {
+  if (!provenance) return null;
+  const raw = provenance.section || provenance.source || provenance.matchType || provenance.provider || provenance.type;
+  return typeof raw === 'string' && raw.trim() ? raw : null;
 }
 
 function groupEntitiesByLayer(entities: Entity[]) {

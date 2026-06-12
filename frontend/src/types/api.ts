@@ -98,6 +98,10 @@ export interface RelatedEntity {
   category?: string;
   relation: string;
   direction: 'incoming' | 'outgoing';
+  confidence?: number;
+  isFallback?: boolean;
+  provenance?: Record<string, any>;
+  verificationState?: string;
 }
 
 export interface EntityExploreResponse {

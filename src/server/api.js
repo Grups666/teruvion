@@ -80,6 +80,16 @@ async function initializeCoreEngine() {
 // Initialize on module load
 initializeCoreEngine();
 
+function serializeRelatedEntityWithEvidence(entity, relation, direction, rel) {
+  return {
+    ...serializeRelatedEntity(entity, relation, direction, ontology),
+    confidence: rel.confidence ?? 0.7,
+    isFallback: rel.metadata?.isFallback || false,
+    provenance: rel.provenance || rel.metadata?.provenance,
+    verificationState: rel.verificationState
+  };
+}
+
 // ============================================================================
 // ENTITIES API
 // ============================================================================
@@ -169,7 +179,7 @@ router.get('/entities/:id/explore', async (req, res) => {
     for (const rel of relations.outgoing) {
       const target = store.getEntity(rel.object);
       if (target) {
-        relatedEntities.push(serializeRelatedEntity(target, rel.predicate, 'outgoing', ontology));
+        relatedEntities.push(serializeRelatedEntityWithEvidence(target, rel.predicate, 'outgoing', rel));
 
         if (isSourceEntity(target, ontology)) {
           sources.push(getSourceLabel(target));
@@ -181,7 +191,7 @@ router.get('/entities/:id/explore', async (req, res) => {
     for (const rel of relations.incoming) {
       const source = store.getEntity(rel.subject);
       if (source) {
-        relatedEntities.push(serializeRelatedEntity(source, rel.predicate, 'incoming', ontology));
+        relatedEntities.push(serializeRelatedEntityWithEvidence(source, rel.predicate, 'incoming', rel));
 
         if (isSourceEntity(source, ontology)) {
           sources.push(getSourceLabel(source));

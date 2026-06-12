@@ -1492,6 +1492,33 @@ html, body {
   letter-spacing: 0.08em;
 }
 
+.relation-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.relation-evidence span {
+  max-width: 140px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--secondary);
+  font-size: 10px;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-evidence .warning {
+  border-color: rgba(217, 119, 6, 0.24);
+  background: rgba(217, 119, 6, 0.08);
+  color: #92400e;
+}
+
 .action-list {
   display: flex;
   flex-wrap: wrap;
