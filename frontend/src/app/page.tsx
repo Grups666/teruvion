@@ -427,6 +427,20 @@ export default function Home() {
   const selectedEntityBrief = selectedEntity
     ? getEntityResearchBrief(selectedEntity, selectedExplore, selectedEntitySignals, selectedEntityReviewNotes)
     : null;
+  const projectSourceAttributes = ((selectedProject?.metadata?.decomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
+  const projectAuthorLine = compactMetaList(
+    projectSourceAttributes.authors
+      || projectSourceAttributes.author
+      || projectSourceAttributes.creators
+      || projectSourceAttributes.contributors
+  );
+  const projectVenueLine = compactMetaList(
+    projectSourceAttributes.institutions
+      || projectSourceAttributes.affiliations
+      || projectSourceAttributes.venue
+      || projectSourceAttributes.publisher
+      || projectSourceAttributes.journal
+  );
 
   async function copyProjectSummary() {
     if (!selectedProject || !projectQuality) return;
@@ -646,7 +660,19 @@ export default function Home() {
               {sourceCapsule && (
                 <div className="source-capsule">
                   <div className="capsule-kicker">Source Capsule</div>
-                  <div className="capsule-title">{sourceCapsule.title}</div>
+                  {isExternalUrl(sourceCapsule.source) ? (
+                    <a className="capsule-title capsule-title-link" href={sourceCapsule.source!} target="_blank" rel="noreferrer">
+                      {sourceCapsule.title}
+                    </a>
+                  ) : (
+                    <div className="capsule-title">{sourceCapsule.title}</div>
+                  )}
+                  {(projectAuthorLine || projectVenueLine) && (
+                    <div className="capsule-meta">
+                      {projectAuthorLine && <span>{projectAuthorLine}</span>}
+                      {projectVenueLine && <span>{projectVenueLine}</span>}
+                    </div>
+                  )}
                   <div className="capsule-grid">
                     <span>
                       <strong>{sourceCapsule.type}</strong>
@@ -668,6 +694,33 @@ export default function Home() {
                   {sourceCapsule.source && (
                     <div className="capsule-source">{sourceCapsule.source}</div>
                   )}
+                </div>
+              )}
+
+              {cockpitSignals.length > 0 && (
+                <div className="technical-route">
+                  <div className="technical-route-head">
+                    <span>Technical Route</span>
+                    <span>Click a step to inspect it</span>
+                  </div>
+                  <div className="technical-route-track">
+                    {cockpitSignals.map((signal, index) => (
+                      <button
+                        type="button"
+                        key={signal.key}
+                        className={`route-node ${signal.status} ${activeCockpitSignal?.key === signal.key ? 'active' : ''}`}
+                        style={{ '--route-index': index } as React.CSSProperties}
+                        onClick={() => {
+                          setActiveCockpitKey(signal.key);
+                          setStatus(`${signal.label} route selected`);
+                        }}
+                      >
+                        <span>{signal.label}</span>
+                        <strong>{signal.value}</strong>
+                        <small>{signal.detail}</small>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1223,6 +1276,27 @@ function getRelationProvenanceLabel(provenance?: Record<string, any>) {
   if (!provenance) return null;
   const raw = provenance.section || provenance.source || provenance.matchType || provenance.provider || provenance.type;
   return typeof raw === 'string' && raw.trim() ? raw : null;
+}
+
+function isExternalUrl(value?: string | null) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+}
+
+function compactMetaList(value: unknown) {
+  if (!value) return '';
+  const items = Array.isArray(value) ? value : [value];
+  return items
+    .map(item => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') {
+        const record = item as Record<string, any>;
+        return record.name || record.displayName || record.title || record.label || '';
+      }
+      return String(item);
+    })
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(', ');
 }
 
 function groupEntitiesByLayer(entities: Entity[]) {
