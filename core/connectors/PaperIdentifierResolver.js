@@ -41,6 +41,25 @@ class PaperIdentifierResolver {
     };
   }
 
+  async resolveMetadata(input) {
+    if (!this.isURL(input)) {
+      return { doi: this.resolveFromText(input), title: null, source: 'input' };
+    }
+
+    try {
+      const html = await this.fetchHTML(input);
+      if (!html) return { doi: null, title: null, source: 'none' };
+      return {
+        doi: this.resolveFromHTML(html),
+        title: this.resolveTitleFromHTML(html),
+        source: 'html_metadata'
+      };
+    } catch (err) {
+      console.warn('[PaperIdentifierResolver] Metadata discovery failed:', err.message);
+      return { doi: null, title: null, source: 'none' };
+    }
+  }
+
   resolveFromText(text) {
     if (!text) return null;
 
@@ -64,25 +83,30 @@ class PaperIdentifierResolver {
 
   async resolveFromHTMLURL(input) {
     try {
-      const response = await fetch(input, {
-        headers: {
-          'User-Agent': 'Teruvion/0.12.13 (https://teruvion.org)',
-          'Accept': 'text/html'
-        },
-        signal: AbortSignal.timeout(10000),
-        follow: 10
-      });
-
-      if (!response.ok) return null;
-
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('text/html')) return null;
-
-      return this.resolveFromHTML(await response.text());
+      const html = await this.fetchHTML(input);
+      return html ? this.resolveFromHTML(html) : null;
     } catch (err) {
       console.warn('[PaperIdentifierResolver] DOI discovery failed:', err.message);
       return null;
     }
+  }
+
+  async fetchHTML(input) {
+    const response = await fetch(input, {
+      headers: {
+        'User-Agent': 'Teruvion/0.12.76 (https://teruvion.org)',
+        'Accept': 'text/html'
+      },
+      signal: AbortSignal.timeout(this.config.htmlTimeout || 20000),
+      follow: 10
+    });
+
+    if (!response.ok) return null;
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html')) return null;
+
+    return response.text();
   }
 
   resolveFromHTML(html) {
@@ -95,6 +119,31 @@ class PaperIdentifierResolver {
     }
 
     return this.extractDOIFromText($('body').text().slice(0, 20000));
+  }
+
+  resolveTitleFromHTML(html) {
+    const $ = cheerio.load(html);
+    const candidates = [
+      $('meta[name="citation_title"]').attr('content'),
+      $('meta[property="og:title"]').attr('content'),
+      $('meta[name="dc.title"]').attr('content'),
+      $('meta[name="DC.Title"]').attr('content'),
+      $('h1').first().text(),
+      $('title').first().text()
+    ];
+
+    for (const candidate of candidates) {
+      const title = this.cleanTitle(candidate);
+      if (title && title.split(/\s+/).length >= 3) return title;
+    }
+
+    return null;
+  }
+
+  cleanTitle(title) {
+    return String(title || '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   extractDOIFromText(text) {

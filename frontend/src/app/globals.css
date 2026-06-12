@@ -1222,6 +1222,81 @@ html, body {
   line-height: 1.45;
 }
 
+.research-gaps {
+  padding: 16px 22px 18px;
+  border-top: 1px solid var(--border);
+  background: rgba(255,255,255,0.9);
+}
+
+.research-gaps-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.research-gaps-head span,
+.research-gaps-head small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.research-gap-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.research-gap {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.88);
+}
+
+.research-gap.warning,
+.research-gap.error {
+  border-color: rgba(217, 119, 6, 0.2);
+  background: rgba(255, 251, 235, 0.52);
+}
+
+.research-gap span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.research-gap strong {
+  display: block;
+  min-width: 0;
+  margin-bottom: 4px;
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.research-gap small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .visual-evidence {
   padding: 18px 22px 20px;
   border-top: 1px solid var(--border);
@@ -1255,14 +1330,41 @@ html, body {
   line-height: 1.2;
 }
 
-.visual-evidence-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px;
+.visual-evidence-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.visual-card {
+.visual-evidence-controls button {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: rgba(255,255,255,0.92);
+  color: var(--secondary);
+  font-size: 11px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.visual-evidence-controls button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.visual-evidence-controls small {
+  min-width: 42px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
+  text-align: center;
+}
+
+.visual-carousel-card {
   display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(280px, 1.1fr);
+  gap: 14px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(15, 118, 110, 0.16);
@@ -1273,25 +1375,41 @@ html, body {
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.04);
 }
 
-.visual-card:hover {
+.visual-carousel-card:hover {
   border-color: rgba(15, 118, 110, 0.34);
 }
 
-.visual-thumb {
-  height: 150px;
-  border-bottom: 1px solid var(--border);
+.visual-preview {
+  display: flex;
+  min-width: 0;
+  min-height: 260px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-right: 1px solid var(--border);
   background: rgba(241,245,249,0.72);
+  cursor: zoom-in;
 }
 
-.visual-thumb img {
+.visual-preview:disabled {
+  cursor: default;
+}
+
+.visual-preview img {
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 
-.visual-card-body {
+.visual-preview span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.visual-narrative {
   min-width: 0;
-  padding: 12px;
+  padding: 18px 16px;
 }
 
 .visual-card-topline {
@@ -1331,44 +1449,116 @@ html, body {
   text-transform: none;
 }
 
-.visual-card strong {
+.visual-narrative strong {
   display: block;
   min-width: 0;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
   overflow: hidden;
   color: var(--primary);
-  font-size: 13px;
+  font-size: 17px;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.visual-card p {
+.visual-narrative p {
   display: -webkit-box;
-  min-height: 52px;
-  margin: 0 0 9px;
+  min-height: 84px;
+  margin: 0 0 14px;
   overflow: hidden;
   color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.visual-narrative small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
 
-.visual-card small {
-  display: -webkit-box;
+.visual-modal {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5vh 5vw;
+}
+
+.visual-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15,23,42,0.54);
+  cursor: zoom-out;
+}
+
+.visual-modal-panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: min(90vw, 1320px);
+  max-height: 90vh;
   overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.26);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.98);
+  box-shadow: 0 30px 80px rgba(15,23,42,0.34);
+}
+
+.visual-modal-panel img {
+  width: 100%;
+  max-height: 74vh;
+  object-fit: contain;
+  background: rgba(248,250,252,0.96);
+}
+
+.visual-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.92);
+  color: var(--secondary);
+  cursor: pointer;
+}
+
+.visual-modal-caption {
+  padding: 14px 18px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.visual-modal-caption span {
+  display: block;
+  margin-bottom: 5px;
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  font-size: 10px;
+  font-weight: 780;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.visual-modal-caption p {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .project-resources {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
-  gap: 12px;
+  display: block;
   padding: 18px 22px;
   border-top: 1px solid var(--border);
   background: rgba(255,255,255,0.84);
@@ -1407,6 +1597,7 @@ html, body {
 .project-resource-list,
 .project-limit-list {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 8px;
 }
 

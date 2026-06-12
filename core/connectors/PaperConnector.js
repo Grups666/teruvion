@@ -29,17 +29,21 @@ class PaperConnector extends BaseConnector {
     let queryUrl;
 
     // 1. Extract DOI from URL or direct DOI
-    const resolved = await this.identifierResolver.resolve(input);
+    const resolved = await this.identifierResolver.resolveMetadata(input);
     const doi = resolved.doi;
     if (doi) {
       queryUrl = `https://api.openalex.org/works/https://doi.org/${doi}`;
     } else {
-      if (this.identifierResolver.isURL(input)) {
-        throw new Error('No DOI metadata found on paper URL');
+      const titleQuery = this.identifierResolver.isURL(input)
+        ? resolved.title
+        : input.trim();
+
+      if (!titleQuery) {
+        throw new Error('No DOI or title metadata found on paper URL');
       }
 
       // 2. Search by title
-      const encodedTitle = encodeURIComponent(input.trim());
+      const encodedTitle = encodeURIComponent(titleQuery);
       queryUrl = `https://api.openalex.org/works?filter=display_name.search:${encodedTitle}&per-page=1`;
     }
 

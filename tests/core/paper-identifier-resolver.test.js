@@ -50,6 +50,20 @@ describe('PaperIdentifierResolver', () => {
     assert.strictEqual(doi, '10.5555/example.paper.2026');
   });
 
+  it('should extract title metadata as a generic fallback when DOI is absent', () => {
+    const resolver = new PaperIdentifierResolver();
+    const title = resolver.resolveTitleFromHTML(`
+      <html>
+        <head>
+          <meta name="citation_title" content="Global prediction of extreme floods in ungauged watersheds" />
+        </head>
+        <body>Publisher landing page</body>
+      </html>
+    `);
+
+    assert.strictEqual(title, 'Global prediction of extreme floods in ungauged watersheds');
+  });
+
   it('should allow generic non-GitHub URLs to be evaluated as possible paper URLs', () => {
     const resolver = new PaperIdentifierResolver();
 

@@ -66,6 +66,8 @@ export default function Home() {
   const [accessCode, setAccessCode] = useState('');
   const [accessError, setAccessError] = useState<string | null>(null);
   const [checkingAccess, setCheckingAccess] = useState(false);
+  const [activeVisualIndex, setActiveVisualIndex] = useState(0);
+  const [expandedVisualIndex, setExpandedVisualIndex] = useState<number | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -74,6 +76,11 @@ export default function Home() {
       loadData();
     }
   }, [accessGranted]);
+
+  useEffect(() => {
+    setActiveVisualIndex(0);
+    setExpandedVisualIndex(null);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -469,6 +476,8 @@ export default function Home() {
   const projectSourceAttributes = ((projectDecomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
   const projectResources = rankProjectResources(projectDecomposition?.externalResources || []).slice(0, 6);
   const projectVisualEvidence = rankProjectVisualEvidence(projectDecomposition?.visualEvidence || []).slice(0, 8);
+  const activeVisualEvidence = projectVisualEvidence[Math.min(activeVisualIndex, Math.max(0, projectVisualEvidence.length - 1))] || null;
+  const expandedVisualEvidence = expandedVisualIndex !== null ? projectVisualEvidence[expandedVisualIndex] || null : null;
   const projectLimitations = rankProjectLimitations(projectDecomposition?.inferredLimitations || []).slice(0, 4);
   const recommendedActions = mergeRecommendedActions(
     buildResourceNextActions(projectResources),
@@ -759,6 +768,42 @@ export default function Home() {
                 </div>
               )}
 
+              {projectBrief.length > 0 && (
+                <div className="project-brief">
+                  <div className="project-brief-head">
+                    <span>Key Takeaways</span>
+                    <span>{projectDecomposition?.researchBrief?.oneLine || projectReadiness?.nextStep || 'Review extracted source'}</span>
+                  </div>
+                  <div className="project-brief-grid">
+                    {projectBrief.map(item => (
+                      <div className={`brief-card ${item.status}`} key={item.key}>
+                        <span>{item.label}</span>
+                        <strong>{item.value}</strong>
+                        <small>{item.detail}</small>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {projectLimitations.length > 0 && (
+                <div className="research-gaps">
+                  <div className="research-gaps-head">
+                    <span>Research Gaps</span>
+                    <small>Review before relying on this import</small>
+                  </div>
+                  <div className="research-gap-list">
+                    {projectLimitations.map(limit => (
+                      <div className={`research-gap ${limit.severity || 'info'}`} key={limit.id || limit.label}>
+                        <span>{formatLimitationSource(limit.source)}</span>
+                        <strong>{limit.label}</strong>
+                        <small>{limit.detail}</small>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {cockpitSignals.length > 0 && (
                 <div className="technical-route">
                   <div className="technical-route-head">
@@ -771,6 +816,7 @@ export default function Home() {
                     onSelect={key => {
                       const signal = cockpitSignals.find(item => item.key === key);
                       setActiveCockpitKey(key);
+                      setActiveFocusIndex(0);
                       setStatus(`${signal?.label || 'Research'} graph node selected`);
                     }}
                   />
@@ -818,77 +864,60 @@ export default function Home() {
                 </div>
               )}
 
-              {projectBrief.length > 0 && (
-                <div className="project-brief">
-                  <div className="project-brief-head">
-                    <span>Key Takeaways</span>
-                    <span>{projectDecomposition?.researchBrief?.oneLine || projectReadiness?.nextStep || 'Review extracted source'}</span>
-                  </div>
-                  <div className="project-brief-grid">
-                    {projectBrief.map(item => (
-                      <div className={`brief-card ${item.status}`} key={item.key}>
-                        <span>{item.label}</span>
-                        <strong>{item.value}</strong>
-                        <small>{item.detail}</small>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {projectVisualEvidence.length > 0 && (
+              {activeVisualEvidence && (
                 <div className="visual-evidence">
                   <div className="visual-evidence-head">
                     <div>
                       <span>Visual Evidence</span>
                       <strong>{visualEvidenceSummary(projectVisualEvidence)}</strong>
                     </div>
-                    <small>Figures and tables extracted from the source</small>
+                    <div className="visual-evidence-controls">
+                      <button
+                        type="button"
+                        onClick={() => setActiveVisualIndex(index => Math.max(0, index - 1))}
+                        disabled={activeVisualIndex <= 0}
+                      >
+                        Prev
+                      </button>
+                      <small>{Math.min(activeVisualIndex + 1, projectVisualEvidence.length)} / {projectVisualEvidence.length}</small>
+                      <button
+                        type="button"
+                        onClick={() => setActiveVisualIndex(index => Math.min(projectVisualEvidence.length - 1, index + 1))}
+                        disabled={activeVisualIndex >= projectVisualEvidence.length - 1}
+                      >
+                        Next
+                      </button>
+                    </div>
                   </div>
-                  <div className="visual-evidence-grid">
-                    {projectVisualEvidence.map(item => {
-                      const href = item.sourceUrl || item.imageUrl || null;
-                      const content = (
-                        <>
-                          {item.imageUrl && (
-                            <div className="visual-thumb">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={item.imageUrl} alt={item.label || item.title || 'Source figure'} loading="lazy" />
-                            </div>
-                          )}
-                          <div className="visual-card-body">
-                            <div className="visual-card-topline">
-                              <span>{formatVisualKind(item.kind)}</span>
-                              <em>{item.routeRole || 'Source evidence'}</em>
-                            </div>
-                            <strong>{item.label || item.title || 'Source visual'}</strong>
-                            <p>{item.caption || item.supports || 'Caption unavailable.'}</p>
-                            <small>{item.readHint || item.supports || 'Verify this visual against the original source.'}</small>
-                          </div>
-                        </>
-                      );
-
-                      return href ? (
-                        <a
-                          className="visual-card"
-                          href={normalizeExternalHref(href)}
-                          target="_blank"
-                          rel="noreferrer"
-                          key={item.id || `${item.kind}-${item.label}`}
-                        >
-                          {content}
-                        </a>
+                  <div className="visual-carousel-card">
+                    <button
+                      type="button"
+                      className="visual-preview"
+                      onClick={() => setExpandedVisualIndex(activeVisualIndex)}
+                      disabled={!activeVisualEvidence.imageUrl}
+                      aria-label="Open figure preview"
+                    >
+                      {activeVisualEvidence.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={activeVisualEvidence.imageUrl} alt={activeVisualEvidence.label || activeVisualEvidence.title || 'Source figure'} loading="lazy" />
                       ) : (
-                        <div className="visual-card" key={item.id || `${item.kind}-${item.label}`}>
-                          {content}
-                        </div>
-                      );
-                    })}
+                        <span>No image preview</span>
+                      )}
+                    </button>
+                    <div className="visual-narrative">
+                      <div className="visual-card-topline">
+                        <span>{formatVisualKind(activeVisualEvidence.kind)}</span>
+                        <em>{activeVisualEvidence.routeRole || 'Source evidence'}</em>
+                      </div>
+                      <strong>{activeVisualEvidence.label || activeVisualEvidence.title || 'Source visual'}</strong>
+                      <p>{activeVisualEvidence.caption || activeVisualEvidence.supports || 'Caption unavailable.'}</p>
+                      <small>{activeVisualEvidence.readHint || activeVisualEvidence.supports || 'Verify this visual against the original source.'}</small>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {(projectResources.length > 0 || projectLimitations.length > 0) && (
+              {projectResources.length > 0 && (
                 <div className="project-resources">
                   <div className="project-resources-column">
                     <div className="project-resources-head">
@@ -926,26 +955,6 @@ export default function Home() {
                       )}
                     </div>
                   </div>
-                  <div className="project-resources-column">
-                    <div className="project-resources-head">
-                      <span>Limits</span>
-                      <small>{projectLimitations.length > 0 ? 'Review before use' : 'No major limit'}</small>
-                    </div>
-                    <div className="project-limit-list">
-                      {projectLimitations.length > 0 ? projectLimitations.map(limit => (
-                        <div className={`project-limit ${limit.severity || 'info'}`} key={limit.id || limit.label}>
-                          <span>{formatLimitationSource(limit.source)}</span>
-                          <strong>{limit.label}</strong>
-                          <small>{limit.detail}</small>
-                        </div>
-                      )) : (
-                        <div className="project-limit info">
-                          <strong>No protocol limitation reported</strong>
-                          <small>Continue inspecting source evidence and route nodes.</small>
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -975,6 +984,25 @@ export default function Home() {
             </>
           )}
         </div>
+
+        {expandedVisualEvidence && (
+          <div className="visual-modal" role="dialog" aria-modal="true">
+            <button className="visual-modal-backdrop" type="button" onClick={() => setExpandedVisualIndex(null)} aria-label="Close figure preview" />
+            <div className="visual-modal-panel">
+              <button className="visual-modal-close" type="button" onClick={() => setExpandedVisualIndex(null)} aria-label="Close figure preview">
+                x
+              </button>
+              {expandedVisualEvidence.imageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={expandedVisualEvidence.imageUrl} alt={expandedVisualEvidence.label || 'Expanded source figure'} />
+              )}
+              <div className="visual-modal-caption">
+                <span>{expandedVisualEvidence.label || formatVisualKind(expandedVisualEvidence.kind)}</span>
+                <p>{expandedVisualEvidence.caption || expandedVisualEvidence.supports}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ===== Detail Panel ===== */}
         <div className={`detail-panel ${selectedEntityId ? 'open' : ''}`}>
