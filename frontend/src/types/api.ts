@@ -122,6 +122,9 @@ export interface Decomposition {
     role?: string;
     source?: string;
     context?: string;
+    investigationLabel?: string;
+    routeRelevance?: string;
+    verificationFocus?: string;
     reviewHint?: string;
   }>;
   inferredLimitations?: Array<{

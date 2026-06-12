@@ -302,9 +302,9 @@ class DigitalEarthDecomposer {
 
       // Calculate overall confidence
       result.confidence = this._calculateConfidence(result);
-      result.researchBrief = this._buildResearchBrief(result, content, normalizedAdmissionResult);
       result.workflowOutline = merged.researchRoute || this._buildWorkflowOutline(result, content);
       result.externalResources = this._extractExternalResources(result, content);
+      result.researchBrief = this._buildResearchBrief(result, content, normalizedAdmissionResult);
       result.inferredLimitations = this._buildInferredLimitations(result);
       result.inferredLimitations = await this._buildCriticalLimitations(result, content, result.inferredLimitations);
 
@@ -1146,31 +1146,54 @@ Return JSON with this structure:
       attributes.institution
     ]).slice(0, 5).join(', ');
     const title = attributes.title || source.name || metadata.title || result.input || 'Untitled source';
+    const routeNodes = (result.workflowOutline?.nodes || [])
+      .filter(node => node.id !== 'source' && node.label && !this._isGenericRouteLabel(node.label));
+    const routeSummary = result.workflowOutline?.summary || '';
+    const dataOrContextNode = routeNodes.find(node => ['data', 'context', 'resource'].includes(node.stage))
+      || routeNodes[0];
+    const methodNode = routeNodes.find(node => ['method', 'execution'].includes(node.stage));
+    const evidenceNode = routeNodes.find(node => node.stage === 'evidence')
+      || routeNodes[routeNodes.length - 1];
+    const routeValue = routeNodes.length > 0
+      ? routeNodes.slice(0, 4).map(node => node.label).join(' -> ')
+      : 'Route still forming';
+    const externalResources = result.externalResources || [];
+    const strongestResource = externalResources.find(resource => ['repository', 'code', 'dataset'].includes(String(resource.type || '').toLowerCase()))
+      || externalResources[0];
 
     const keyPoints = [
       {
-        id: 'source',
-        label: 'Source',
-        value: source.type || result.sourceType || 'Source',
-        detail: title
-      },
-      {
-        id: 'scope',
-        label: 'Scope',
-        value: result.worldObjects?.length > 0 ? 'Spatial or Earth context extracted' : 'Global or unspecified scope',
-        detail: result.worldObjects?.[0]?.name || result.worldObjects?.[0]?.attributes?.name || 'No verified study region was extracted from available source material.'
+        id: 'route',
+        label: 'Core Route',
+        value: this._summarizeText(routeValue, 90),
+        detail: routeNodes.length > 0
+          ? this._summarizeText(routeSummary || 'Main content route extracted from the source.', 180)
+          : 'The available source material does not yet expose a clear content route.'
       },
       {
         id: 'method',
-        label: 'Method route',
-        value: result.capabilityObjects?.length > 0 ? 'Inspectable' : 'Sparse',
-        detail: result.capabilityObjects?.[0]?.name || result.capabilityObjects?.[0]?.attributes?.name || 'No explicit method, data, or workflow object was extracted yet.'
+        label: 'Method / Mechanism',
+        value: this._summarizeText(methodNode?.label || result.capabilityObjects?.[0]?.name || result.capabilityObjects?.[0]?.attributes?.name || 'Needs extraction', 70),
+        detail: methodNode?.summary
+          || result.capabilityObjects?.[0]?.attributes?.description
+          || 'No explicit method, model, code path, or workflow mechanism is available yet.'
+      },
+      {
+        id: 'material',
+        label: 'Input / Context',
+        value: this._summarizeText(dataOrContextNode?.label || result.worldObjects?.[0]?.name || result.worldObjects?.[0]?.attributes?.name || 'Needs anchor', 70),
+        detail: dataOrContextNode?.summary
+          || result.worldObjects?.[0]?.attributes?.description
+          || 'No verified data, resource, spatial, temporal, or Earth-system anchor was extracted yet.'
       },
       {
         id: 'evidence',
-        label: 'Evidence',
-        value: result.evidenceObjects?.length > 0 ? 'Traceable' : 'Limited',
-        detail: result.evidenceObjects?.[0]?.attributes?.statement || result.evidenceObjects?.[0]?.name || 'No claim-level evidence chain is available yet.'
+        label: strongestResource ? 'Evidence / Resource' : 'Result / Evidence',
+        value: this._summarizeText(evidenceNode?.label || result.evidenceObjects?.[0]?.attributes?.statement || result.evidenceObjects?.[0]?.name || strongestResource?.label || 'Needs verification', 70),
+        detail: evidenceNode?.summary
+          || result.evidenceObjects?.[0]?.attributes?.statement
+          || strongestResource?.reviewHint
+          || 'No claim-level evidence chain or linked resource is available yet.'
       }
     ];
 
@@ -1740,6 +1763,9 @@ Return JSON with this structure:
         type,
         role: candidate.role || this._resourceRole(type),
         source: candidate.source || 'metadata',
+        investigationLabel: candidate.investigationLabel || this._resourceInvestigationLabel(type),
+        routeRelevance: candidate.routeRelevance || this._resourceRouteRelevance(type, candidate.source),
+        verificationFocus: candidate.verificationFocus || this._resourceVerificationFocus(type),
         reviewHint: candidate.reviewHint || this._resourceReviewHint(type, candidate.source)
       });
     };
@@ -2113,6 +2139,52 @@ Return JSON with this structure:
         : 'Open this source to verify extracted claims and citation context.';
     }
     return 'Review this link before using it as evidence, data, or implementation support.';
+  }
+
+  _resourceInvestigationLabel(type = '') {
+    const labels = {
+      repository: 'Reproduce method',
+      code: 'Reproduce method',
+      dataset: 'Verify data',
+      supplement: 'Inspect details',
+      paper: 'Check evidence',
+      doi: 'Check citation',
+      source: 'Read source'
+    };
+    return labels[String(type || '').toLowerCase()] || 'Review link';
+  }
+
+  _resourceRouteRelevance(type = '', source = '') {
+    const normalizedType = String(type || '').toLowerCase();
+    const normalizedSource = String(source || '').toLowerCase();
+    if (normalizedType === 'repository' || normalizedType === 'code') {
+      return 'May explain the implementation path behind the route graph.';
+    }
+    if (normalizedType === 'dataset') {
+      return 'May verify the inputs, variables, coverage, or evidence behind the route graph.';
+    }
+    if (normalizedType === 'supplement') {
+      return 'May contain method details, tables, figures, or ablation evidence missing from the main source.';
+    }
+    if (normalizedType === 'paper' || normalizedType === 'doi' || normalizedType === 'source') {
+      return normalizedSource === 'sourceobject'
+        ? 'Canonical source for checking the extracted route and brief.'
+        : 'Related source for checking citation context and claims.';
+    }
+    return 'Linked material that may support or qualify the extracted route.';
+  }
+
+  _resourceVerificationFocus(type = '') {
+    const focuses = {
+      repository: 'README, license, dependencies, examples, run instructions',
+      code: 'README, license, dependencies, examples, run instructions',
+      dataset: 'access terms, version, variables, spatial/temporal coverage',
+      supplement: 'methods, tables, figures, additional experiment details',
+      paper: 'claims, methods, citation context',
+      doi: 'metadata, citation context, source availability',
+      source: 'claims, methods, evidence, limitations'
+    };
+    return focuses[String(type || '').toLowerCase()] || 'evidence role, access, provenance, and limitations';
   }
 
   _normalizeSourceType(type) {

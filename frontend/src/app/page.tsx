@@ -853,7 +853,7 @@ export default function Home() {
                             <small>{resourceReviewText(resource)}</small>
                             <div className="resource-foot">
                               <b>{resourceHost(resource.url)}</b>
-                              <i>{resource.role || formatResourceSource(resource.source)}</i>
+                              <i>{resource.verificationFocus || resource.role || formatResourceSource(resource.source)}</i>
                             </div>
                           </a>
                         );
@@ -1193,6 +1193,9 @@ type ProjectResource = {
   role?: string;
   source?: string;
   context?: string;
+  investigationLabel?: string;
+  routeRelevance?: string;
+  verificationFocus?: string;
   reviewHint?: string;
 };
 
@@ -1223,6 +1226,9 @@ function resourcePriority(resource: ProjectResource) {
 }
 
 function resourceSignal(resource: ProjectResource) {
+  if (resource.investigationLabel) {
+    return { label: resource.investigationLabel, level: resourcePriority(resource) >= 80 ? 'strong' : 'normal' };
+  }
   const priority = resourcePriority(resource);
   if (priority >= 80) return { label: 'Reproducibility lead', level: 'strong' };
   if (priority >= 58) return { label: 'Evidence lead', level: 'normal' };
@@ -1257,15 +1263,16 @@ function formatResourceSource(source?: string) {
 }
 
 function resourceReviewText(resource: ProjectResource) {
-  return resource.reviewHint
+  return resource.routeRelevance
+    || resource.reviewHint
     || resource.context
     || resource.role
     || 'Open this link to verify how it supports the research route.';
 }
 
 function formatLimitationSource(source?: string) {
-  if (source === 'llm-review') return 'LLM Review';
-  if (source === 'protocol') return 'Protocol';
+  if (source === 'llm-review') return 'Model Review';
+  if (source === 'protocol') return 'System Check';
   return 'Review';
 }
 

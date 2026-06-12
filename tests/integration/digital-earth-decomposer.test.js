@@ -246,10 +246,15 @@ describe('Digital Earth Decomposer', () => {
     assert.ok(result.evidenceObjects.some(obj => obj.type === 'Claim'), 'Should create claim object from abstract text');
     assert.ok(result.worldObjects.some(obj => obj.type === 'Region'), 'Should create global scope object from explicit source wording');
     assert.ok(result.researchBrief, 'Should build product-level research brief');
+    assert.strictEqual(result.researchBrief.keyPoints[0].label, 'Core Route');
+    assert.ok(result.researchBrief.keyPoints[0].value !== 'Paper', 'Brief should summarize content route, not source container');
     assert.ok(result.workflowOutline?.nodes?.length >= 2, 'Should build protocol-level workflow outline');
     const datasetResource = result.externalResources.find(resource => resource.type === 'dataset');
     assert.ok(datasetResource, 'Should expose external dataset resources');
     assert.ok(datasetResource.reviewHint?.includes('data version'), 'Dataset resources should explain what a researcher needs to verify');
+    assert.strictEqual(datasetResource.investigationLabel, 'Verify data');
+    assert.ok(datasetResource.routeRelevance?.includes('inputs'), 'Dataset resources should explain how they relate to the route');
+    assert.ok(datasetResource.verificationFocus?.includes('coverage'), 'Dataset resources should expose a verification focus');
     assert.ok(Array.isArray(result.inferredLimitations), 'Should report inferred limitations for the UI');
   });
 
