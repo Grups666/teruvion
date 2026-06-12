@@ -20,6 +20,20 @@ export interface EntityTakeaway {
   detail: string;
 }
 
+export interface EntityResearchBrief {
+  role: string;
+  headline: string;
+  significance: string;
+  evidence: string;
+  limitation: string;
+  nextStep: string;
+  badges: Array<{
+    label: string;
+    value: string;
+    level: EntitySignalLevel;
+  }>;
+}
+
 const SPATIAL_FIELDS = [
   'bbox',
   'location',
@@ -100,7 +114,7 @@ export function getEntitySignals(entity: Entity, explore: EntityExploreResponse 
 
   signals.push({
     label: 'Connections',
-    value: `${connectionCount}`,
+    value: connectionCount > 0 ? 'Linked' : 'Sparse',
     level: connectionCount > 2 ? 'strong' : connectionCount > 0 ? 'normal' : 'weak'
   });
 
@@ -111,7 +125,7 @@ export function getEntitySignals(entity: Entity, explore: EntityExploreResponse 
         ? 'Recorded'
         : hasProvenanceText
           ? 'Source text'
-          : `${sourceCount} link${sourceCount === 1 ? '' : 's'}`
+          : 'Inspectable'
       : 'Missing',
     level: hasSource ? 'strong' : 'weak'
   });
@@ -161,22 +175,22 @@ export function getEntityTakeaways(
   takeaways.push({
     label: 'What It Is',
     value: role,
-    detail: primaryScope || `${name} is represented as a ${formatSignalText(entity.type)} object in the research graph.`
+    detail: primaryScope || `${name} is represented as a ${formatSignalText(entity.type)} detail in the research graph.`
   });
 
   takeaways.push({
     label: 'Why It Matters',
-    value: relationCount > 0 ? `${relationCount} link${relationCount === 1 ? '' : 's'}` : 'Standalone',
+    value: relationCount > 0 ? 'Linked' : 'Standalone',
     detail: relationCount > 0
-      ? 'This object participates in the graph and can be used to trace methods, evidence, or context.'
-      : 'This object is not yet connected enough to support deeper reasoning.'
+      ? 'This detail participates in the graph and can be used to trace methods, evidence, or context.'
+      : 'This detail is not yet connected enough to support deeper reasoning.'
   });
 
   takeaways.push({
     label: 'Evidence Level',
     value: confidence,
     detail: sourceCount > 0
-      ? `${sourceCount} source link${sourceCount === 1 ? '' : 's'} support inspection.`
+      ? 'Source material is available for inspection.'
       : 'No linked source is visible yet; treat this as a provisional extraction.'
   });
 
@@ -184,7 +198,7 @@ export function getEntityTakeaways(
     takeaways.push({
       label: 'Spatial Scope',
       value: compactValue(spatial),
-      detail: 'This object can contribute to map or region reasoning.'
+      detail: 'This detail can contribute to map or region reasoning.'
     });
   }
 
@@ -197,6 +211,73 @@ export function getEntityTakeaways(
   }
 
   return takeaways.slice(0, 5);
+}
+
+export function getEntityResearchBrief(
+  entity: Entity,
+  explore: EntityExploreResponse | null,
+  signals: EntitySignal[],
+  reviewNotes: EntityReviewNote[]
+): EntityResearchBrief {
+  const layer = getEntityLayer(entity);
+  const name = getEntityName(entity);
+  const role = getReadableResearchRole(entity);
+  const confidence = signals.find(signal => signal.label === 'Confidence');
+  const source = signals.find(signal => signal.label === 'Source');
+  const connections = signals.find(signal => signal.label === 'Connections');
+  const spatial = signals.find(signal => signal.label === 'Spatial');
+  const temporal = signals.find(signal => signal.label === 'Temporal');
+  const primaryScope = pickAttributeValue(entity, [
+    'description',
+    'abstract',
+    'summary',
+    'purpose',
+    'objective',
+    'method',
+    'approach',
+    'model',
+    'dataset',
+    'region',
+    'spatialCoverage'
+  ]);
+  const sourceCount = explore?.sources?.length || 0;
+  const relatedCount = explore?.relatedEntities?.length || 0;
+  const hasExternalSource = Boolean(entity.metadata?.source) || sourceCount > 0;
+  const hasReviewWarning = reviewNotes.some(note => note.level === 'warning');
+
+  return {
+    role,
+    headline: primaryScope
+      ? compactSentence(primaryScope, 160)
+      : `${name} is a ${role.toLowerCase()} extracted into the research graph.`,
+    significance: relatedCount > 0
+      ? 'Connected to other research details, so it can help explain methods, evidence, context, or reuse potential.'
+      : 'Currently stands alone; it needs more links before it can support deeper reasoning.',
+    evidence: hasExternalSource
+      ? 'Source material is available for inspection.'
+      : source?.value === 'Source text'
+        ? 'Backed by captured source text, but not yet linked to an external reference.'
+        : 'No visible source reference yet; treat this as provisional.',
+    limitation: reviewNotes[0]?.text || inferDefaultLimitation(layer, confidence, spatial, temporal),
+    nextStep: getEntityNextStep(layer, hasReviewWarning, relatedCount, hasExternalSource),
+    badges: [
+      {
+        label: 'Confidence',
+        value: confidence?.value || 'Unknown',
+        level: confidence?.level || 'weak'
+      },
+      {
+        label: 'Evidence',
+        value: source?.value || 'Missing',
+        level: source?.level || 'weak'
+      },
+      {
+        label: 'Links',
+        value: connections?.value === '0' ? 'Sparse' : 'Linked',
+        level: connections?.level || 'weak'
+      }
+    ]
+  };
 }
 
 export function getEntityReviewNotes(
@@ -242,9 +323,9 @@ export function getEntityReviewNotes(
     });
   }
 
-  if (connectionsSignal?.value === '0') {
+  if (connectionsSignal?.value === 'Sparse') {
     notes.push({
-      text: 'No graph connections yet; this object is not contributing much to reasoning or comparison.',
+      text: 'No research graph connections yet; this detail is not contributing much to reasoning or comparison.',
       level: 'info'
     });
   }
@@ -271,6 +352,60 @@ export function getEntityReviewNotes(
   }
 
   return notes.slice(0, 4);
+}
+
+function getReadableResearchRole(entity: Entity) {
+  const layer = getEntityLayer(entity);
+  const category = entity.category || '';
+  const type = entity.type || '';
+
+  if (layer === 'source') return 'Source material';
+  if (layer === 'world') return 'Spatial or Earth context';
+  if (layer === 'capability') return 'Method, data, or reusable resource';
+  if (category === 'evidence') return 'Evidence detail';
+  return formatSignalText(category || type || 'Research detail');
+}
+
+function inferDefaultLimitation(
+  layer: EntityLayer,
+  confidence?: EntitySignal,
+  spatial?: EntitySignal,
+  temporal?: EntitySignal
+) {
+  if (confidence?.level === 'weak') {
+    return 'Confidence is weak or unknown, so this needs source review before use.';
+  }
+
+  if (layer === 'world' && spatial?.value === 'None') {
+    return 'Spatial context is not explicit enough for precise map reasoning.';
+  }
+
+  if (temporal?.value === 'None' && TEMPORAL_REVIEW_LAYERS.has(layer)) {
+    return 'Temporal context is not explicit, so timeline interpretation may be limited.';
+  }
+
+  return 'No major limitation is detected by the current checks, but this has not been human verified.';
+}
+
+function getEntityNextStep(
+  layer: EntityLayer,
+  hasReviewWarning: boolean,
+  relatedCount: number,
+  hasExternalSource: boolean
+) {
+  if (hasReviewWarning) return 'Review the warning before relying on this detail.';
+  if (!hasExternalSource) return 'Find or attach source evidence.';
+  if (relatedCount === 0) return 'Link it to methods, data, evidence, places, or workflow steps.';
+  if (layer === 'source') return 'Inspect extracted methods, data, places, and evidence.';
+  if (layer === 'capability') return 'Check whether this can be reproduced or reused.';
+  if (layer === 'world') return 'Open the map or compare related spatial context.';
+  return 'Use the graph below to continue drilling into related details.';
+}
+
+function compactSentence(value: unknown, limit: number) {
+  const text = compactValue(value).replace(/\s+/g, ' ').trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 1)).trim()}...`;
 }
 
 export function shouldReviewTemporalMetadata(entity: Entity) {

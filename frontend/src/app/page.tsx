@@ -8,6 +8,7 @@ import { getEntityLayer } from '../types/api';
 import {
   formatSignalText,
   getEntityName,
+  getEntityResearchBrief,
   getEntityReviewNotes,
   getEntitySignals,
   getEntityTakeaways
@@ -423,6 +424,9 @@ export default function Home() {
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
   const selectedEntityTakeaways = selectedEntity ? getEntityTakeaways(selectedEntity, selectedExplore, selectedEntitySignals) : [];
+  const selectedEntityBrief = selectedEntity
+    ? getEntityResearchBrief(selectedEntity, selectedExplore, selectedEntitySignals, selectedEntityReviewNotes)
+    : null;
 
   async function copyProjectSummary() {
     if (!selectedProject || !projectQuality) return;
@@ -973,7 +977,7 @@ export default function Home() {
                   </div>
                   <div className="detail-subtitle">
                     <span className={`badge ${getEntityLayer(selectedEntity)}`}>
-                      {selectedEntity.type}
+                      {selectedEntityBrief?.role || selectedEntity.type}
                     </span>
                   </div>
                 </div>
@@ -983,9 +987,42 @@ export default function Home() {
               </div>
 
               <div className="detail-body">
+                {selectedEntityBrief && (
+                  <div className="detail-hero">
+                    <div className="detail-hero-kicker">Research Detail</div>
+                    <h2>{selectedEntityBrief.headline}</h2>
+                    <div className="detail-hero-grid">
+                      <div>
+                        <span>Why it matters</span>
+                        <p>{selectedEntityBrief.significance}</p>
+                      </div>
+                      <div>
+                        <span>Evidence</span>
+                        <p>{selectedEntityBrief.evidence}</p>
+                      </div>
+                      <div>
+                        <span>Limitation</span>
+                        <p>{selectedEntityBrief.limitation}</p>
+                      </div>
+                      <div>
+                        <span>Next step</span>
+                        <p>{selectedEntityBrief.nextStep}</p>
+                      </div>
+                    </div>
+                    <div className="detail-hero-badges">
+                      {selectedEntityBrief.badges.map(badge => (
+                        <span className={badge.level} key={badge.label}>
+                          <strong>{badge.value}</strong>
+                          {badge.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {selectedEntityTakeaways.length > 0 && (
                   <div className="detail-section">
-                    <div className="detail-label">Key Takeaways</div>
+                    <div className="detail-label">Structured Reading</div>
                     <div className="takeaway-list">
                       {selectedEntityTakeaways.map(item => (
                         <div className="takeaway-card" key={item.label}>
@@ -1112,7 +1149,7 @@ function EntityGraphView({
           </div>
           {related.length > 12 && (
             <div className="graph-more">
-              {related.length - 12} more connection{related.length - 12 !== 1 ? 's' : ''}
+              Additional linked details are available in the graph.
             </div>
           )}
         </div>
