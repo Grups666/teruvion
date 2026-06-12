@@ -68,6 +68,116 @@ html, body {
   min-width: 0;
 }
 
+.access-screen {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(20, 184, 166, 0.14), transparent 24%),
+    linear-gradient(180deg, #f8fafc, #eef5f4);
+}
+
+.access-panel {
+  width: min(420px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.86);
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.12);
+}
+
+.access-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.access-brand span {
+  color: #0f172a;
+  font-size: 21px;
+  font-weight: 760;
+}
+
+.access-brand small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.access-panel h1 {
+  margin: 0 0 8px;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.access-panel p {
+  margin: 0 0 18px;
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.access-form {
+  display: flex;
+  gap: 8px;
+}
+
+.access-form input {
+  min-width: 0;
+  flex: 1;
+  height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.access-form input:focus {
+  border-color: rgba(20, 184, 166, 0.7);
+}
+
+.access-form button {
+  height: 42px;
+  padding: 0 15px;
+  border: none;
+  border-radius: 7px;
+  background: #0f172a;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.access-form button:disabled {
+  background: var(--muted);
+  cursor: not-allowed;
+}
+
+.access-error {
+  margin-top: 12px;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.access-apply {
+  display: inline-block;
+  margin-top: 16px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 /* ===== Sidebar ===== */
 .sidebar {
   width: var(--sidebar-width);
@@ -314,9 +424,8 @@ html, body {
 .project-name {
   font-size: 14px;
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
   margin-bottom: 2px;
 }
 
@@ -662,8 +771,15 @@ html, body {
 
 .route-graph-canvas {
   position: relative;
-  min-height: 190px;
-  padding: 20px 6px 4px;
+  min-height: 300px;
+  overflow: hidden;
+  border: 1px solid rgba(20, 184, 166, 0.12);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.12), transparent 7%),
+    radial-gradient(circle at 50% 50%, transparent 0 26%, rgba(20, 184, 166, 0.05) 27%, transparent 28%),
+    radial-gradient(circle at 50% 50%, transparent 0 43%, rgba(15, 118, 110, 0.04) 44%, transparent 45%),
+    linear-gradient(180deg, rgba(255,255,255,0.68), rgba(240, 253, 250, 0.32));
 }
 
 .route-graph-lines,
@@ -676,48 +792,49 @@ html, body {
   pointer-events: none;
 }
 
-.route-graph-lines path,
-.route-detail-lines path,
-.route-micro-lines path {
-  fill: none;
+.route-graph-lines line,
+.route-detail-lines line,
+.route-micro-lines line {
   stroke: rgba(20, 184, 166, 0.52);
-  stroke-width: 1.3;
+  stroke-width: 0.75;
   stroke-linecap: round;
-  stroke-dasharray: 2 1.8;
+  stroke-dasharray: 1.8 1.8;
   vector-effect: non-scaling-stroke;
 }
 
 .route-graph-nodes {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(var(--node-count, 5), minmax(136px, 1fr));
-  gap: 14px;
-  align-items: center;
 }
 
 .route-node {
-  position: relative;
+  position: absolute;
+  left: var(--node-x);
+  top: var(--node-y);
+  width: 160px;
   min-width: 0;
-  min-height: 128px;
-  padding: 40px 13px 13px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 10px;
-  background: rgba(255,255,255,0.88);
+  min-height: 68px;
+  padding: 10px 11px 10px 34px;
+  border: 1px solid rgba(20, 184, 166, 0.24);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.84);
   color: var(--primary);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  transform: translate(-50%, -50%);
   transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .route-node i {
   position: absolute;
-  top: 15px;
+  top: 50%;
   left: 12px;
   width: 15px;
   height: 15px;
+  transform: translateY(-50%);
   border: 3px solid var(--surface);
   border-radius: 999px;
   background: var(--border);
@@ -741,13 +858,13 @@ html, body {
 .route-node.active {
   border-color: rgba(20, 184, 166, 0.58);
   background: var(--surface);
-  transform: translateY(-1px);
+  transform: translate(-50%, -52%);
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.1);
 }
 
 .route-node span {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 760;
@@ -759,10 +876,10 @@ html, body {
 .route-node strong {
   display: block;
   min-width: 0;
-  margin-bottom: 7px;
+  margin-bottom: 3px;
   overflow: hidden;
   color: var(--primary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 760;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -773,10 +890,10 @@ html, body {
   display: -webkit-box;
   overflow: hidden;
   color: var(--secondary);
-  font-size: 11px;
-  line-height: 1.38;
+  font-size: 10px;
+  line-height: 1.3;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
 .decomposition-progress {
@@ -1046,17 +1163,20 @@ html, body {
 
 .route-detail-graph {
   position: relative;
-  min-height: 150px;
-  padding: 12px 0 0;
+  min-height: 245px;
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(20, 184, 166, 0.12);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.1), transparent 8%),
+    linear-gradient(180deg, rgba(255,255,255,0.58), rgba(240, 253, 250, 0.42));
 }
 
 .route-drilldown-path {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(var(--detail-count, 4), minmax(124px, 1fr));
-  gap: 12px;
-  align-items: center;
 }
 
 .project-resources {
@@ -1258,24 +1378,28 @@ html, body {
 }
 
 .route-subnode {
-  position: relative;
+  position: absolute;
+  left: var(--node-x);
+  top: var(--node-y);
+  width: 170px;
   min-width: 0;
-  min-height: 108px;
-  padding: 34px 10px 10px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 10px;
+  min-height: 72px;
+  padding: 10px 11px 10px 36px;
+  border: 1px solid rgba(20, 184, 166, 0.26);
+  border-radius: 999px;
   background: rgba(255,255,255,0.86);
   color: var(--primary);
   font: inherit;
   text-align: left;
   cursor: pointer;
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+  transform: translate(-50%, -50%);
   transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .route-subnode:hover {
   border-color: rgba(20, 184, 166, 0.52);
-  transform: translateY(-1px);
+  transform: translate(-50%, -52%);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
 }
 
@@ -1287,12 +1411,13 @@ html, body {
 
 .route-subnode i {
   position: absolute;
-  top: 10px;
-  left: 10px;
+  top: 50%;
+  left: 12px;
   display: grid;
   width: 18px;
   height: 18px;
   place-items: center;
+  transform: translateY(-50%);
   border-radius: 999px;
   background: #0f766e;
   color: var(--surface);
@@ -1304,7 +1429,7 @@ html, body {
 
 .route-subnode span {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 700;
@@ -1316,7 +1441,7 @@ html, body {
 .route-subnode strong {
   display: block;
   min-width: 0;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
   overflow: hidden;
   color: var(--primary);
   font-size: 13px;
@@ -1333,7 +1458,7 @@ html, body {
   font-size: 10px;
   line-height: 1.35;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
 .route-focus-card {
@@ -1373,26 +1498,35 @@ html, body {
 
 .route-micro-graph {
   position: relative;
-  min-height: 122px;
+  min-height: 210px;
   margin-top: 13px;
-  padding-top: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(20, 184, 166, 0.12);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(20, 184, 166, 0.1), transparent 8%),
+    rgba(255,255,255,0.44);
 }
 
 .route-micro-nodes {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
-  display: grid;
-  grid-template-columns: repeat(var(--micro-count, 3), minmax(0, 1fr));
-  gap: 10px;
 }
 
 .route-micro-node {
+  position: absolute;
+  left: var(--node-x);
+  top: var(--node-y);
+  width: 156px;
   min-width: 0;
-  min-height: 92px;
-  padding: 11px;
+  min-height: 66px;
+  padding: 10px 11px;
   border: 1px solid rgba(20, 184, 166, 0.18);
-  border-radius: 9px;
+  border-radius: 999px;
   background: rgba(255,255,255,0.82);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+  transform: translate(-50%, -50%);
 }
 
 .route-micro-node span {
@@ -2964,22 +3098,26 @@ html, body {
     font-size: 18px;
   }
 
-  .route-graph-nodes {
-    grid-template-columns: 1fr;
-  }
-
-  .route-drilldown-path {
-    grid-template-columns: 1fr;
-  }
-
-  .route-micro-nodes {
-    grid-template-columns: 1fr;
-  }
-
   .route-graph-lines,
   .route-detail-lines,
   .route-micro-lines {
     display: none;
+  }
+
+  .route-graph-canvas,
+  .route-detail-graph {
+    min-height: 260px;
+  }
+
+  .route-micro-graph {
+    min-height: 230px;
+  }
+
+  .route-node,
+  .route-subnode,
+  .route-micro-node {
+    width: 138px;
+    min-height: 58px;
   }
 
   .detail-panel {

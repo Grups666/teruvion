@@ -179,6 +179,13 @@ class APIClient {
     });
   }
 
+  async verifyAccessCode(code: string): Promise<{ valid: boolean; role?: string; email?: string; error?: string }> {
+    return this.request('/alpha/access/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  }
+
   async activateMembership(code: string, email: string, name?: string): Promise<{ success: boolean; membershipId: string }> {
     return this.request('/alpha/memberships/activate', {
       method: 'POST',

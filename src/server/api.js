@@ -740,26 +740,65 @@ function requireAdmin(req, res) {
   const secret = Array.isArray(req.headers['x-admin-secret'])
     ? req.headers['x-admin-secret'][0]
     : req.headers['x-admin-secret'];
-  const expectedSecret = llm.getAdminSecret();
-
-  if (!expectedSecret) {
+  if (!llm.getAdminSecret()) {
     console.error('[Alpha] ADMIN_SECRET or local adminSecret is not configured');
     res.status(401).json({ error: 'Unauthorized' });
     return false;
   }
 
-  const secretBuffer = Buffer.from(String(secret || ''));
-  const expectedBuffer = Buffer.from(expectedSecret);
-
-  if (
-    secretBuffer.length !== expectedBuffer.length
-    || !crypto.timingSafeEqual(secretBuffer, expectedBuffer)
-  ) {
+  if (!isAdminSecret(secret)) {
     res.status(401).json({ error: 'Unauthorized' });
     return false;
   }
   return true;
 }
+
+function isAdminSecret(secret) {
+  const expectedSecret = llm.getAdminSecret();
+  if (!expectedSecret) return false;
+
+  const secretBuffer = Buffer.from(String(secret || ''));
+  const expectedBuffer = Buffer.from(expectedSecret);
+  return secretBuffer.length === expectedBuffer.length
+    && crypto.timingSafeEqual(secretBuffer, expectedBuffer);
+}
+
+// POST /api/alpha/access/verify - Gate main app access without exposing local secrets
+router.post('/alpha/access/verify', async (req, res) => {
+  try {
+    const code = String(req.body?.code || '').trim();
+    if (!code) {
+      return res.status(400).json({ valid: false, error: 'Missing access code' });
+    }
+
+    if (isAdminSecret(code)) {
+      return res.json({ valid: true, role: 'admin' });
+    }
+
+    const normalizedCode = code.toUpperCase();
+    if (!/^[A-Z0-9]{8}$/.test(normalizedCode)) {
+      return res.json({ valid: false, error: 'Invalid access code' });
+    }
+
+    const invite = inviteStore.findByCode(normalizedCode);
+    if (!invite) {
+      return res.json({ valid: false, error: 'Access code not found' });
+    }
+
+    if (invite.status !== 'used' && inviteStore.isExpired(invite)) {
+      return res.json({ valid: false, error: 'Access code has expired' });
+    }
+
+    return res.json({
+      valid: true,
+      role: 'alpha_user',
+      email: invite.email
+    });
+  } catch (err) {
+    console.error('[Alpha] Access verify error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // POST /api/alpha/apply - Submit application
 router.post('/alpha/apply', async (req, res) => {

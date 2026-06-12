@@ -61,10 +61,22 @@ export default function Home() {
   const [projectLenses, setProjectLenses] = useState<Record<string, any> | null>(null);
   const [activeCockpitKey, setActiveCockpitKey] = useState<string>('source');
   const [activeFocusIndex, setActiveFocusIndex] = useState(0);
+  const [accessGranted, setAccessGranted] = useState(false);
+  const [accessCode, setAccessCode] = useState('');
+  const [accessError, setAccessError] = useState<string | null>(null);
+  const [checkingAccess, setCheckingAccess] = useState(false);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    setAccessGranted(window.localStorage.getItem('teruvionAccessGranted') === 'true');
+  }, []);
+
+  useEffect(() => {
+    if (accessGranted) {
+      loadData();
+    }
+  }, [accessGranted]);
 
   useEffect(() => {
     let cancelled = false;
@@ -178,6 +190,29 @@ export default function Home() {
     if (!input) return;
 
     await submitImport(input, true);
+  }
+
+  async function handleAccessSubmit() {
+    const code = accessCode.trim();
+    if (!code) return;
+
+    setCheckingAccess(true);
+    setAccessError(null);
+    try {
+      const result = await api.verifyAccessCode(code);
+      if (!result.valid) {
+        setAccessError(result.error || 'Invalid invite code');
+        return;
+      }
+      window.localStorage.setItem('teruvionAccessGranted', 'true');
+      window.localStorage.setItem('teruvionAccessCode', code.toUpperCase());
+      setAccessGranted(true);
+      setStatus('Access granted');
+    } catch (err) {
+      setAccessError(err instanceof Error ? err.message : 'Access check failed');
+    } finally {
+      setCheckingAccess(false);
+    }
   }
 
   async function submitImport(input: string, clearInput: boolean) {
@@ -408,9 +443,9 @@ export default function Home() {
     : [];
   const activeFocusItem = cockpitFocusItems[activeFocusIndex] || cockpitFocusItems[0] || null;
   const focusMicroGraph = buildFocusMicroGraph(activeFocusItem);
-  const routeGraphPath = buildGraphPath(cockpitSignals.length, 'main');
-  const detailGraphPath = buildGraphPath(cockpitFocusItems.length, 'detail');
-  const focusGraphPath = buildGraphPath(focusMicroGraph.length, 'detail');
+  const routeGraphPoints = buildConstellationPoints(cockpitSignals.length, 'main');
+  const detailGraphPoints = buildConstellationPoints(cockpitFocusItems.length, 'detail');
+  const focusGraphPoints = buildConstellationPoints(focusMicroGraph.length, 'micro');
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
   const selectedEntityTakeaways = selectedEntity ? getEntityTakeaways(selectedEntity, selectedExplore, selectedEntitySignals) : [];
@@ -485,6 +520,38 @@ export default function Home() {
     }
 
     setStatus(action.label);
+  }
+
+  if (!accessGranted) {
+    return (
+      <main className="access-screen">
+        <section className="access-panel">
+          <div className="access-brand">
+            <span>Teruvion</span>
+            <small>Digital Earth Alpha</small>
+          </div>
+          <h1>Enter invite code</h1>
+          <p>Teruvion is currently limited to invited alpha users.</p>
+          <div className="access-form">
+            <input
+              value={accessCode}
+              onChange={event => {
+                setAccessCode(event.target.value);
+                setAccessError(null);
+              }}
+              onKeyDown={event => event.key === 'Enter' && handleAccessSubmit()}
+              placeholder="Invite code"
+              autoComplete="one-time-code"
+            />
+            <button type="button" onClick={handleAccessSubmit} disabled={!accessCode.trim() || checkingAccess}>
+              {checkingAccess ? 'Checking' : 'Enter'}
+            </button>
+          </div>
+          {accessError && <div className="access-error">{accessError}</div>}
+          <a className="access-apply" href="/alpha/apply">Request alpha access</a>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -581,7 +648,7 @@ export default function Home() {
                     }}
                   >
                     <div className="project-info">
-                      <div className="project-name">{project.name}</div>
+                      <div className="project-name">{shortProjectName(project)}</div>
                       <div className="project-status">
                         <span className={`dot ${isFailed ? 'failed' : isImporting ? 'importing' : isReady ? 'ready' : ''}`} />
                         <span>{isFailed ? 'Failed' : isImporting ? 'Analyzing' : isReady ? 'Ready' : 'Processing'}</span>
@@ -668,9 +735,6 @@ export default function Home() {
                       Confidence
                     </span>
                   </div>
-                  {sourceCapsule.source && (
-                    <div className="capsule-source">{sourceCapsule.source}</div>
-                  )}
                 </div>
               )}
 
@@ -680,17 +744,21 @@ export default function Home() {
                     <span>Research Graph</span>
                     <span>Click a node to open its inner route</span>
                   </div>
-                  <div className="route-graph-canvas" style={{ '--node-count': cockpitSignals.length } as React.CSSProperties}>
+                  <div className="route-graph-canvas">
                     <svg className="route-graph-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                      <path d={routeGraphPath} />
+                      {buildConstellationEdges(routeGraphPoints).map(edge => (
+                        <line key={edge.id} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} />
+                      ))}
                     </svg>
                     <div className="route-graph-nodes">
-                      {cockpitSignals.map((signal, index) => (
+                      {cockpitSignals.map((signal, index) => {
+                        const point = routeGraphPoints[index] || { x: 50, y: 50 };
+                        return (
                         <button
                           type="button"
                           key={signal.key}
                           className={`route-node ${signal.status} ${activeCockpitSignal?.key === signal.key ? 'active' : ''}`}
-                          style={{ '--route-index': index } as React.CSSProperties}
+                          style={{ '--node-x': `${point.x}%`, '--node-y': `${point.y}%` } as React.CSSProperties}
                           onClick={() => {
                             setActiveCockpitKey(signal.key);
                             setStatus(`${signal.label} graph node selected`);
@@ -701,7 +769,8 @@ export default function Home() {
                           <strong>{signal.value}</strong>
                           <small>{signal.detail}</small>
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -718,16 +787,21 @@ export default function Home() {
                   </div>
                   <p>{activeCockpitSignal.detail}</p>
                   {cockpitFocusItems.length > 0 && (
-                    <div className="route-detail-graph" style={{ '--detail-count': cockpitFocusItems.length } as React.CSSProperties}>
+                    <div className="route-detail-graph">
                       <svg className="route-detail-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                        <path d={detailGraphPath} />
+                        {buildConstellationEdges(detailGraphPoints).map(edge => (
+                          <line key={edge.id} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} />
+                        ))}
                       </svg>
                       <div className="route-drilldown-path">
-                        {cockpitFocusItems.map((item, index) => (
+                        {cockpitFocusItems.map((item, index) => {
+                          const point = detailGraphPoints[index] || { x: 50, y: 50 };
+                          return (
                           <button
                             type="button"
                             className={`route-subnode ${activeFocusItem === item ? 'active' : ''}`}
                             key={`${activeCockpitSignal.key}-${item.label}`}
+                            style={{ '--node-x': `${point.x}%`, '--node-y': `${point.y}%` } as React.CSSProperties}
                             onClick={() => {
                               setActiveFocusIndex(index);
                               setStatus(`${item.label} inner node selected`);
@@ -738,7 +812,8 @@ export default function Home() {
                             <strong>{item.value}</strong>
                             <small>{item.detail}</small>
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -748,18 +823,27 @@ export default function Home() {
                       <strong>{activeFocusItem.value}</strong>
                       <p>{activeFocusItem.detail}</p>
                       {focusMicroGraph.length > 0 && (
-                        <div className="route-micro-graph" style={{ '--micro-count': focusMicroGraph.length } as React.CSSProperties}>
+                        <div className="route-micro-graph">
                           <svg className="route-micro-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                            <path d={focusGraphPath} />
+                            {buildConstellationEdges(focusGraphPoints).map(edge => (
+                              <line key={edge.id} x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} />
+                            ))}
                           </svg>
                           <div className="route-micro-nodes">
-                            {focusMicroGraph.map(node => (
-                              <div className="route-micro-node" key={node.label}>
+                            {focusMicroGraph.map((node, index) => {
+                              const point = focusGraphPoints[index] || { x: 50, y: 50 };
+                              return (
+                              <div
+                                className="route-micro-node"
+                                key={node.label}
+                                style={{ '--node-x': `${point.x}%`, '--node-y': `${point.y}%` } as React.CSSProperties}
+                              >
                                 <span>{node.label}</span>
                                 <strong>{node.value}</strong>
                                 <small>{node.detail}</small>
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -1260,25 +1344,80 @@ function summarizeInline(value: string, limit: number) {
   return `${normalized.slice(0, Math.max(0, limit - 3)).trim()}...`;
 }
 
-function buildGraphPath(count: number, variant: 'main' | 'detail') {
-  if (count <= 1) return 'M 50 50';
+function shortProjectName(project: Project) {
+  const decomposition = project.metadata?.decomposition;
+  const rawTitle = decomposition?.researchBrief?.title
+    || decomposition?.sourceObject?.attributes?.title
+    || decomposition?.sourceObject?.name
+    || project.name;
+  const cleaned = String(rawTitle || 'Untitled')
+    .replace(/[^\w\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const stopwords = new Set(['a', 'an', 'the', 'of', 'in', 'on', 'for', 'and', 'to', 'with', 'using', 'global']);
+  const words = cleaned.split(' ')
+    .filter(word => word.length > 1 && !stopwords.has(word.toLowerCase()))
+    .slice(0, 4);
+  return words.length > 0 ? words.join(' ') : cleaned.split(' ').slice(0, 4).join(' ') || 'Untitled';
+}
 
-  const left = variant === 'main' ? 8 : 7;
-  const right = variant === 'main' ? 92 : 93;
-  const usableWidth = right - left;
-  const points = Array.from({ length: count }, (_, index) => {
-    const x = left + (usableWidth * index) / Math.max(count - 1, 1);
-    const y = variant === 'main'
-      ? 50
-      : index % 2 === 0 ? 42 : 58;
-    return { x, y };
+function buildConstellationPoints(count: number, variant: 'main' | 'detail' | 'micro') {
+  if (count <= 0) return [];
+  if (count === 1) return [{ x: 50, y: 50 }];
+
+  const radiusByVariant = {
+    main: 34,
+    detail: 33,
+    micro: 30
+  };
+  const centerYByVariant = {
+    main: 50,
+    detail: 51,
+    micro: 50
+  };
+  const radius = radiusByVariant[variant];
+  const center = { x: 50, y: centerYByVariant[variant] };
+  const start = variant === 'main' ? -142 : -118;
+  const sweep = variant === 'micro' ? 360 : 284;
+
+  return Array.from({ length: count }, (_, index) => {
+    const angle = count === 2
+      ? start + index * 180
+      : start + (sweep * index) / count;
+    const radians = (angle * Math.PI) / 180;
+    const yCompression = variant === 'main' ? 0.58 : 0.68;
+    return {
+      x: clampPercent(center.x + Math.cos(radians) * radius),
+      y: clampPercent(center.y + Math.sin(radians) * radius * yCompression)
+    };
   });
+}
 
-  return points.slice(1).reduce((path, point, index) => {
-    const previous = points[index];
-    const midX = (previous.x + point.x) / 2;
-    return `${path} C ${midX.toFixed(2)} ${previous.y.toFixed(2)}, ${midX.toFixed(2)} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
-  }, `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`);
+function buildConstellationEdges(points: Array<{ x: number; y: number }>) {
+  if (points.length <= 1) return [];
+  const center = { x: 50, y: 50 };
+  const spokeEdges = points.map((point, index) => ({
+    id: `spoke-${index}`,
+    x1: center.x,
+    y1: center.y,
+    x2: point.x,
+    y2: point.y
+  }));
+  const ringEdges = points.map((point, index) => {
+    const next = points[(index + 1) % points.length];
+    return {
+      id: `ring-${index}`,
+      x1: point.x,
+      y1: point.y,
+      x2: next.x,
+      y2: next.y
+    };
+  });
+  return [...spokeEdges, ...ringEdges];
+}
+
+function clampPercent(value: number) {
+  return Math.min(90, Math.max(10, Number(value.toFixed(2))));
 }
 
 function resourceHost(url: string) {

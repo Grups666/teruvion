@@ -263,11 +263,29 @@ export function getSourceCapsule(project: Project, quality: ProjectQuality | nul
   return {
     title,
     type: sourceObject.type || project.metadata?.sourceType || 'Source',
-    source: sourceCoverage?.source || project.metadata?.source || quality?.coverage?.source || null,
+    source: selectExternalSourceLink([
+      sourceObject.attributes?.url,
+      sourceObject.attributes?.identifier,
+      project.metadata?.source,
+      quality?.coverage?.source,
+      sourceCoverage?.source
+    ]),
     depth: formatSignalText(project.metadata?.admission?.depth || 'pending'),
     extraction: quality?.method || 'Pending',
     confidence
   };
+}
+
+function selectExternalSourceLink(candidates: unknown[]): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const value = candidate.trim();
+    if (/^https?:\/\//i.test(value)) {
+      return value;
+    }
+    if (/^10\.\d{4,9}\//.test(value)) return `https://doi.org/${value}`;
+  }
+  return null;
 }
 
 export function getObjectConstellation(entities: Entity[]): ObjectConstellationNode[] {
