@@ -123,6 +123,9 @@ class SourceAdmission {
     const normalized = String(type).toLowerCase();
     const typeMap = {
       paper: 'Paper',
+      article: 'Paper',
+      journalarticle: 'Paper',
+      preprint: 'Paper',
       doi: null,
       github: 'Repository',
       repository: 'Repository',

@@ -224,6 +224,20 @@ describe('Source Admission Integration', () => {
     assert.ok(result.primaryRole, 'Should have primaryRole');
   });
 
+  it('should normalize article metadata type to Paper', async () => {
+    const llm = createMockLLM();
+    const admission = new SourceAdmission(llm);
+
+    const result = await admission.evaluate('https://publisher.example/articles/example', {
+      type: 'article',
+      title: 'Global flood forecasting using LSTM',
+      abstract: 'This article presents a hydrological model for predicting floods using deep learning.',
+      keywords: ['hydrology', 'flood', 'machine learning']
+    });
+
+    assert.strictEqual(result.sourceType, 'Paper');
+  });
+
   it('should evaluate GitHub repo with modeling capability', async () => {
     const llm = createMockLLM();
     const admission = new SourceAdmission(llm);

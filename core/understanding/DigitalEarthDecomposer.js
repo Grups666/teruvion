@@ -66,6 +66,7 @@ class DigitalEarthDecomposer {
       confidenceThreshold: options.confidenceThreshold || 0.6,
       useLLM: options.useLLM !== false, // Default to true
       maxChunkSize: options.maxChunkSize || 8000,
+      llmTimeout: options.llmTimeout || 45000,
       // Fallback bridge relations are disabled by default
       // LLM-extracted relations are preferred
       allowFallbackBridgeRelations: options.allowFallbackBridgeRelations || false,
@@ -85,11 +86,16 @@ class DigitalEarthDecomposer {
   async decompose(input, content, admissionResult) {
     const startTime = Date.now();
     const depth = admissionResult.depth;
+    const normalizedSourceType = this._normalizeSourceType(admissionResult.sourceType);
+    const normalizedAdmissionResult = {
+      ...admissionResult,
+      sourceType: normalizedSourceType
+    };
 
     // Initialize result structure
     const result = {
       input,
-      sourceType: admissionResult.sourceType,
+      sourceType: normalizedSourceType,
       depth,
 
       // Layer 1: Source objects (the source itself as an entity)
@@ -136,10 +142,10 @@ class DigitalEarthDecomposer {
 
     try {
       // Step 1: Create source object (always from metadata)
-      result.sourceObject = this._createSourceObject(input, content, admissionResult);
+      result.sourceObject = this._createSourceObject(input, content, normalizedAdmissionResult);
 
       // Step 2: Phase 1 - Metadata-driven extraction
-      const metadataResult = this._extractFromMetadata(content, admissionResult);
+      const metadataResult = this._extractFromMetadata(content, normalizedAdmissionResult);
       result.extractionMetadata.metadataExtraction = {
         capabilityCount: metadataResult.capabilityObjects.length,
         worldCount: metadataResult.worldObjects.length,
@@ -148,14 +154,26 @@ class DigitalEarthDecomposer {
 
       // Step 3: Phase 2 - LLM-assisted extraction (if LLM available and text exists)
       let llmResult = null;
-      if (this.options.useLLM && this.llm && content.text && content.text.length > 100) {
+      const sourceText = this._getSourceText(content);
+      const textFallbackResult = this._extractFromSourceText(content, normalizedAdmissionResult);
+      result.extractionMetadata.textFallbackExtraction = {
+        capabilityCount: textFallbackResult.capabilityObjects.length,
+        worldCount: textFallbackResult.worldObjects.length,
+        evidenceCount: textFallbackResult.evidenceObjects.length,
+        relationCount: textFallbackResult.bridgeRelations.length
+      };
+      if (this.options.useLLM && this.llm && sourceText.length > 100) {
         try {
-          llmResult = await this._extractWithLLM(input, content, admissionResult);
+          llmResult = await this._extractWithLLM(input, content, normalizedAdmissionResult);
+          if (!this._hasExtractionObjects(llmResult)) {
+            llmResult = null;
+          }
           result.extractionMetadata.llmExtraction = {
-            capabilityCount: llmResult.capabilityObjects?.length || 0,
-            worldCount: llmResult.worldObjects?.length || 0,
-            evidenceCount: llmResult.evidenceObjects?.length || 0,
-            success: true
+            capabilityCount: llmResult?.capabilityObjects?.length || 0,
+            worldCount: llmResult?.worldObjects?.length || 0,
+            evidenceCount: llmResult?.evidenceObjects?.length || 0,
+            relationCount: llmResult?.bridgeRelations?.length || 0,
+            success: Boolean(llmResult)
           };
         } catch (llmError) {
           result.extractionMetadata.llmExtraction = {
@@ -166,7 +184,7 @@ class DigitalEarthDecomposer {
       }
 
       // Step 4: Merge results (LLM takes precedence, metadata as fallback)
-      const merged = this._mergeExtractions(metadataResult, llmResult, admissionResult);
+      const merged = this._mergeExtractions(metadataResult, llmResult, normalizedAdmissionResult, textFallbackResult);
       result.capabilityObjects = merged.capabilityObjects;
       result.worldObjects = merged.worldObjects;
       result.evidenceObjects = merged.evidenceObjects;
@@ -174,7 +192,9 @@ class DigitalEarthDecomposer {
 
       // Update provenance
       result.provenance.sections = merged.sections;
-      result.provenance.extractionMethod = llmResult ? 'hybrid' : 'metadata';
+      result.provenance.extractionMethod = llmResult
+        ? 'hybrid'
+        : (this._hasExtractionObjects(textFallbackResult) ? 'source-text-fallback' : 'metadata');
 
       // Step 5: Build bridge relations
       if (depth === 'deep' || depth === 'structured') {
@@ -201,7 +221,7 @@ class DigitalEarthDecomposer {
       this._validateObjects(result);
 
       // Step 7: Validate provenance (source text verification)
-      this._validateProvenance(result, content.text);
+      this._validateProvenance(result, sourceText);
 
       // Calculate overall confidence
       result.confidence = this._calculateConfidence(result);
@@ -247,6 +267,125 @@ class DigitalEarthDecomposer {
       const evidence = this._extractEvidenceSync(metadata, admissionResult);
       result.evidenceObjects = evidence.objects;
       result.sections.evidence = evidence.sections;
+    }
+
+    return result;
+  }
+
+  /**
+   * Source-text fallback used when LLM extraction is unavailable or empty.
+   * This does not infer hidden semantics. It creates low-confidence objects from
+   * explicit scholarly sections so the UI can still expose inspectable research
+   * structure instead of collapsing to a title-only object.
+   */
+  _extractFromSourceText(content, admissionResult) {
+    const result = {
+      capabilityObjects: [],
+      worldObjects: [],
+      evidenceObjects: [],
+      bridgeRelations: [],
+      sections: {}
+    };
+
+    const sourceText = this._getSourceText(content);
+    const sections = content.sections || {};
+    const metadata = content.metadata || {};
+
+    if (!sourceText || sourceText.length < 100) {
+      return result;
+    }
+
+    const methodSection = this._findSectionByRole(sections, ['method', 'model', 'experiment', 'algorithm']);
+    if (methodSection) {
+      const name = this._humanizeSectionTitle(methodSection.key, 'Source-described method');
+      result.capabilityObjects.push(this._createSourceTextObject({
+        type: methodSection.key.includes('model') ? 'Model' : 'Method',
+        idPrefix: methodSection.key.includes('model') ? 'model' : 'method',
+        name,
+        description: this._firstSentence(methodSection.text),
+        section: methodSection.key,
+        sourceText: this._shortSourceText(methodSection.text),
+        role: 'method'
+      }));
+      result.sections.methodFallback = { count: 1, section: methodSection.key };
+    }
+
+    const dataSection = this._findSectionByRole(sections, ['data availability', 'input data', 'data', 'dataset']);
+    if (dataSection) {
+      const datasetName = this._extractFirstUrl(dataSection.text)
+        || this._humanizeSectionTitle(dataSection.key, 'Source-described dataset');
+      result.capabilityObjects.push(this._createSourceTextObject({
+        type: 'Dataset',
+        idPrefix: 'dataset',
+        name: datasetName,
+        description: this._firstSentence(dataSection.text),
+        section: dataSection.key,
+        sourceText: this._shortSourceText(dataSection.text),
+        role: 'data'
+      }));
+      result.sections.dataFallback = { count: 1, section: dataSection.key };
+    }
+
+    const workflowSection = this._findSectionByRole(sections, ['workflow', 'experiment', 'methods']);
+    if (workflowSection) {
+      const workflowName = `${metadata.title || content.title || 'Source-described'} workflow`;
+      result.capabilityObjects.push(this._createSourceTextObject({
+        type: 'Workflow',
+        idPrefix: 'workflow',
+        name: workflowName,
+        description: this._firstSentence(workflowSection.text),
+        section: workflowSection.key,
+        sourceText: this._shortSourceText(workflowSection.text),
+        role: 'workflow'
+      }));
+      result.sections.workflowFallback = { count: 1, section: workflowSection.key };
+    }
+
+    const abstractSection = this._findSectionByRole(sections, ['abstract']) || { key: 'abstract', text: metadata.abstract || content.abstract || '' };
+    if (abstractSection.text) {
+      const claimText = this._selectClaimSentence(abstractSection.text);
+      if (claimText) {
+        result.evidenceObjects.push(this._createExtractedObject({
+          type: 'Claim',
+          idPrefix: 'claim',
+          idSeed: claimText.substring(0, 80),
+          attributes: {
+            statement: claimText,
+            type: 'source-stated-summary'
+          },
+          metadata: {
+            sourceDerived: true,
+            confidence: 0.5
+          },
+          provenance: this._createProvenance(abstractSection.key, claimText, {
+            evidenceStrength: 'weak',
+            note: 'Source-text fallback claim. Review before treating as a verified conclusion.'
+          })
+        }));
+        result.sections.claimFallback = { count: 1, section: abstractSection.key };
+      }
+
+      if (this._hasScopeSignal(abstractSection.text, metadata.title || content.title || '')) {
+        result.worldObjects.push(this._createExtractedObject({
+          type: 'Region',
+          idPrefix: 'region',
+          idSeed: 'global-scope',
+          attributes: {
+            name: 'Global scope',
+            type: 'global',
+            description: 'The source explicitly describes a global study or system scope.'
+          },
+          metadata: {
+            sourceDerived: true,
+            confidence: 0.45
+          },
+          provenance: this._createProvenance(abstractSection.key, this._shortSourceText(abstractSection.text), {
+            evidenceStrength: 'weak',
+            note: 'Scope object derived from explicit source wording; no precise geometry is available.'
+          })
+        }));
+        result.sections.scopeFallback = { count: 1, section: abstractSection.key };
+      }
     }
 
     return result;
@@ -414,7 +553,7 @@ class DigitalEarthDecomposer {
     if (!this.llm) return null;
 
     // Parse source text into sections
-    const fullText = content.text || '';
+    const fullText = this._getSourceText(content);
     const parsedSections = this.sectionParser.parse(fullText, admissionResult.sourceType);
 
     // Get activated ontology subset for LLM
@@ -426,6 +565,7 @@ class DigitalEarthDecomposer {
     // Process chunks (most important sections first)
     const chunks = parsedSections.chunks;
     const allResults = [];
+    let hadRequestError = false;
 
     // System prompt for LLM
     const systemPrompt = `You are a Digital Earth knowledge extraction system. Extract structured objects from the source text according to the provided ontology.
@@ -455,7 +595,8 @@ Return JSON for this chunk. Focus on extracting objects mentioned in this sectio
             { role: 'user', content: chunkPrompt }
           ],
           temperature: 0.1,
-          max_tokens: 4000
+          max_tokens: 4000,
+          timeout: this.options.llmTimeout
         });
 
         // Parse LLM response
@@ -481,13 +622,14 @@ Return JSON for this chunk. Focus on extracting objects mentioned in this sectio
         if (allResults.length >= 3) break;
 
       } catch (error) {
+        hadRequestError = true;
         console.error(`LLM extraction failed for chunk ${chunk.index}:`, error.message);
         continue;
       }
     }
 
     // If no chunks, try full text (fallback)
-    if (allResults.length === 0 && fullText.length > 0) {
+    if (allResults.length === 0 && fullText.length > 0 && !hadRequestError) {
       const fallbackPrompt = `${prompt}
 
 ## Source Text
@@ -502,7 +644,8 @@ Return JSON with this structure:`;
             { role: 'user', content: fallbackPrompt }
           ],
           temperature: 0.1,
-          max_tokens: 4000
+          max_tokens: 4000,
+          timeout: this.options.llmTimeout
         });
 
         const responseText = response.choices?.[0]?.message?.content || response.content || '';
@@ -607,7 +750,7 @@ Return JSON with this structure:`;
   /**
    * Merge metadata and LLM extraction results
    */
-  _mergeExtractions(metadataResult, llmResult, admissionResult) {
+  _mergeExtractions(metadataResult, llmResult, admissionResult, textFallbackResult = null) {
     const result = {
       capabilityObjects: [],
       worldObjects: [],
@@ -617,10 +760,13 @@ Return JSON with this structure:`;
     };
 
     if (!llmResult) {
-      // No LLM result, use metadata only
+      const fallbackResult = textFallbackResult || {};
+      const hasTextFallback = this._hasExtractionObjects(fallbackResult);
+      const merged = this._mergeNonLLMExtractions(metadataResult, fallbackResult);
+
       return {
-        ...metadataResult,
-        strategy: 'metadata-only'
+        ...merged,
+        strategy: hasTextFallback ? 'source-text-fallback' : 'metadata-only'
       };
     }
 
@@ -674,13 +820,52 @@ Return JSON with this structure:`;
     }
     result.evidenceObjects = Array.from(evidenceByKey.values());
 
+    result.bridgeRelations = llmResult.bridgeRelations || [];
+
     // Merge sections
     result.sections = {
       ...metadataResult.sections,
+      ...(textFallbackResult?.sections || {}),
       llmExtracted: true
     };
 
     return result;
+  }
+
+  _mergeNonLLMExtractions(metadataResult, textFallbackResult = {}) {
+    const mergeObjects = (metadataObjects = [], fallbackObjects = []) => {
+      const byKey = new Map();
+
+      for (const obj of fallbackObjects) {
+        const key = `${obj.type}:${obj.attributes?.name?.toLowerCase() || obj.id}`;
+        if (key) {
+          obj.extractionSource = obj.extractionSource || 'source-text-fallback';
+          byKey.set(key, obj);
+        }
+      }
+
+      for (const obj of metadataObjects) {
+        const key = `${obj.type}:${obj.attributes?.name?.toLowerCase() || obj.id}`;
+        if (key && !byKey.has(key)) {
+          obj.extractionSource = obj.extractionSource || 'metadata';
+          byKey.set(key, obj);
+        }
+      }
+
+      return Array.from(byKey.values());
+    };
+
+    return {
+      capabilityObjects: mergeObjects(metadataResult.capabilityObjects, textFallbackResult.capabilityObjects),
+      worldObjects: mergeObjects(metadataResult.worldObjects, textFallbackResult.worldObjects),
+      evidenceObjects: mergeObjects(metadataResult.evidenceObjects, textFallbackResult.evidenceObjects),
+      bridgeRelations: textFallbackResult.bridgeRelations || [],
+      sections: {
+        ...(metadataResult.sections || {}),
+        ...(textFallbackResult.sections || {}),
+        sourceTextFallback: this._hasExtractionObjects(textFallbackResult)
+      }
+    };
   }
 
   /**
@@ -718,7 +903,7 @@ Return JSON with this structure:`;
    * Create the primary source object
    */
   _createSourceObject(input, content, admissionResult) {
-    const sourceType = admissionResult.sourceType;
+    const sourceType = this._normalizeSourceType(admissionResult.sourceType);
     const metadata = content.metadata || {};
     const text = content.text || '';
 
@@ -796,6 +981,132 @@ Return JSON with this structure:`;
     }
 
     return sourceObject;
+  }
+
+  _getSourceText(content = {}) {
+    return content.text || content.content || content.fullText || '';
+  }
+
+  _hasExtractionObjects(result) {
+    if (!result) return false;
+    return Boolean(
+      result.capabilityObjects?.length
+      || result.worldObjects?.length
+      || result.evidenceObjects?.length
+      || result.bridgeRelations?.length
+    );
+  }
+
+  _normalizeSourceType(type) {
+    if (!type) return 'Source';
+    const normalized = String(type).toLowerCase();
+    const typeMap = {
+      paper: 'Paper',
+      article: 'Paper',
+      journalarticle: 'Paper',
+      preprint: 'Paper',
+      repository: 'Repository',
+      github: 'Repository',
+      datasetpage: 'DatasetPage',
+      dataset: 'DatasetPage',
+      report: 'Report',
+      assessmentreport: 'AssessmentReport',
+      policydocument: 'PolicyDocument',
+      news: 'News'
+    };
+
+    return Object.prototype.hasOwnProperty.call(typeMap, normalized)
+      ? typeMap[normalized]
+      : type;
+  }
+
+  _findSectionByRole(sections = {}, roleHints = []) {
+    const entries = Object.entries(sections)
+      .filter(([, value]) => typeof value === 'string' && value.trim().length > 80);
+
+    for (const hint of roleHints) {
+      const normalizedHint = hint.toLowerCase();
+      const exact = entries.find(([key]) => key.toLowerCase() === normalizedHint);
+      if (exact) {
+        return { key: exact[0], text: exact[1].trim() };
+      }
+
+      const partial = entries.find(([key]) => key.toLowerCase().includes(normalizedHint));
+      if (partial) {
+        return { key: partial[0], text: partial[1].trim() };
+      }
+    }
+
+    return null;
+  }
+
+  _humanizeSectionTitle(sectionKey, fallback) {
+    if (!sectionKey) return fallback;
+    return sectionKey
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ') || fallback;
+  }
+
+  _shortSourceText(text, maxLength = 600) {
+    if (!text) return null;
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    return normalized.length > maxLength
+      ? `${normalized.substring(0, maxLength).trim()}...`
+      : normalized;
+  }
+
+  _firstSentence(text) {
+    const normalized = this._shortSourceText(text, 800);
+    if (!normalized) return undefined;
+    const sentence = normalized.match(/^(.{80,}?[.!?])\s/);
+    return sentence ? sentence[1] : normalized;
+  }
+
+  _selectClaimSentence(text) {
+    const normalized = this._shortSourceText(text, 1200);
+    if (!normalized) return null;
+
+    const sentences = normalized
+      .split(/(?<=[.!?])\s+/)
+      .map(sentence => sentence.trim())
+      .filter(sentence => sentence.length >= 80);
+
+    return sentences.find(sentence => /\b(show|shows|demonstrate|achieve|achieves|provide|provides|improve|improves|result|results)\b/i.test(sentence))
+      || sentences[0]
+      || null;
+  }
+
+  _extractFirstUrl(text) {
+    if (!text) return null;
+    const match = text.match(/https?:\/\/[^\s),;]+/i);
+    return match ? match[0] : null;
+  }
+
+  _hasScopeSignal(...texts) {
+    return texts.some(text => typeof text === 'string' && /\bglobal\b/i.test(text));
+  }
+
+  _createSourceTextObject({ type, idPrefix, name, description, section, sourceText, role }) {
+    return this._createExtractedObject({
+      type,
+      idPrefix,
+      idSeed: name,
+      attributes: {
+        name,
+        description,
+        role
+      },
+      metadata: {
+        sourceDerived: true,
+        confidence: 0.5
+      },
+      provenance: this._createProvenance(section, sourceText, {
+        evidenceStrength: 'weak',
+        note: 'Created from explicit source text because LLM extraction was unavailable or empty.'
+      })
+    });
   }
 
   /**

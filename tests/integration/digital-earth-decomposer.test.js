@@ -27,6 +27,129 @@ describe('Digital Earth Decomposer', () => {
     assert.strictEqual(result.sourceObject.attributes.title, 'Test Paper');
   });
 
+  it('should normalize article source type to Paper', async () => {
+    const decomposer = new DigitalEarthDecomposer();
+    const admissionResult = {
+      sourceType: 'article',
+      depth: 'light',
+      activatedCategories: [],
+      activatedOntologyLayers: ['source'],
+      sourceRoles: { earth_content: 0.5 },
+      primaryRole: 'earth_content',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('https://publisher.example/article/1', {
+      metadata: { title: 'Publisher Article' }
+    }, admissionResult);
+
+    assert.strictEqual(result.sourceType, 'Paper');
+    assert.strictEqual(result.sourceObject.type, 'Paper');
+  });
+
+  it('should use connector content field as LLM source text', async () => {
+    const sourceText = [
+      '## Methods',
+      'The AI flood model uses an LSTM architecture for streamflow forecasting.',
+      'The AI flood model uses an LSTM architecture for streamflow forecasting.',
+      'The AI flood model uses an LSTM architecture for streamflow forecasting.'
+    ].join('\n');
+    const llm = {
+      async chat() {
+        return {
+          content: JSON.stringify({
+            capabilityObjects: [{
+              type: 'Model',
+              attributes: { name: 'AI flood model' },
+              provenance: {
+                section: 'methods',
+                sourceText: 'The AI flood model uses an LSTM architecture for streamflow forecasting.'
+              },
+              confidence: 0.8
+            }],
+            worldObjects: [],
+            evidenceObjects: [],
+            bridgeRelations: []
+          })
+        };
+      }
+    };
+    const decomposer = new DigitalEarthDecomposer(llm);
+    const admissionResult = {
+      sourceType: 'Paper',
+      depth: 'deep',
+      activatedCategories: ['modeling'],
+      activatedOntologyLayers: ['source', 'capability'],
+      sourceRoles: { modeling_capability: 0.9 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('10.1038/test-paper', {
+      type: 'paper',
+      title: 'Paper with connector content',
+      content: sourceText,
+      metadata: { title: 'Paper with connector content' }
+    }, admissionResult);
+
+    assert.strictEqual(result.provenance.extractionMethod, 'hybrid');
+    assert.ok(result.capabilityObjects.some(obj => obj.type === 'Model'), 'Should extract Model from content.content');
+    assert.strictEqual(result.extractionMetadata.llmExtraction.success, true);
+  });
+
+  it('should create source-text fallback objects when LLM extraction fails', async () => {
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    const llm = {
+      async chat() {
+        throw new Error('LLM API error 504: Gateway Time-out');
+      }
+    };
+    const decomposer = new DigitalEarthDecomposer(llm);
+    const admissionResult = {
+      sourceType: 'article',
+      depth: 'deep',
+      activatedCategories: ['modeling', 'data', 'earth-object'],
+      activatedOntologyLayers: ['source', 'capability', 'world'],
+      sourceRoles: { modeling_capability: 0.9, data_capability: 0.7, earth_content: 0.7 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+
+    let result;
+    try {
+      result = await decomposer.decompose('https://publisher.example/paper', {
+        type: 'paper',
+        title: 'Global prediction of extreme floods in ungauged watersheds',
+        content: [
+          'Abstract',
+          'Here we show that artificial intelligence-based forecasting achieves reliability in predicting extreme riverine events in ungauged watersheds at up to a five-day lead time.',
+          'Methods',
+          'The AI streamflow forecasting model uses an encoder-decoder model with LSTM networks over meteorological input data and forecast horizons.',
+          'Data availability',
+          'Reanalysis and reforecast data produced by the model are available at https://doi.org/10.5281/zenodo.10397664 for review.'
+        ].join('\n'),
+        sections: {
+          abstract: 'Here we show that artificial intelligence-based forecasting achieves reliability in predicting extreme riverine events in ungauged watersheds at up to a five-day lead time.',
+          methods: 'The AI streamflow forecasting model uses an encoder-decoder model with LSTM networks over meteorological input data and forecast horizons.',
+          'data availability': 'Reanalysis and reforecast data produced by the model are available at https://doi.org/10.5281/zenodo.10397664 for review.'
+        },
+        metadata: { title: 'Global prediction of extreme floods in ungauged watersheds' }
+      }, admissionResult);
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    assert.strictEqual(result.sourceType, 'Paper');
+    assert.strictEqual(result.provenance.extractionMethod, 'source-text-fallback');
+    assert.strictEqual(result.extractionMetadata.llmExtraction.success, false);
+    assert.strictEqual(result.extractionMetadata.mergeStrategy, 'source-text-fallback');
+    assert.ok(result.capabilityObjects.some(obj => obj.type === 'Method'), 'Should create method object from source text');
+    assert.ok(result.capabilityObjects.some(obj => obj.type === 'Dataset'), 'Should create dataset object from source text');
+    assert.ok(result.evidenceObjects.some(obj => obj.type === 'Claim'), 'Should create claim object from abstract text');
+    assert.ok(result.worldObjects.some(obj => obj.type === 'Region'), 'Should create global scope object from explicit source wording');
+  });
+
   it('should extract capability objects based on activated categories', async () => {
     const decomposer = new DigitalEarthDecomposer();
     const admissionResult = {
