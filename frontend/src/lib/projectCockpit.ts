@@ -244,7 +244,7 @@ export function getCockpitFocusItems(input: {
     ];
   }
 
-  if (input.signal.key === 'source') {
+  if (input.signal.key === 'source-material') {
     return [
       {
         label: 'Original',
@@ -271,32 +271,34 @@ export function getCockpitFocusItems(input: {
     ];
   }
 
-  if (input.signal.key === 'object-graph') {
+  if (input.signal.key === 'route-gap') {
     return [
       {
-        label: 'Origin',
-        value: input.stats.source > 0 ? 'Recorded' : 'Missing',
-        detail: 'The source record preserves where this project came from.'
+        label: 'Missing Route',
+        value: capabilityDiagnosis?.value || 'Needs extraction',
+        detail: capabilityDiagnosis?.detail || 'The source has not exposed enough inputs, variables, methods, workflow steps, outputs, and findings.'
       },
       {
-        label: 'Methods & Resources',
-        value: input.stats.capability > 0 ? 'Inspectable' : 'Missing',
-        detail: capabilityDiagnosis?.detail || 'Methods, datasets, workflows, code, and reusable resources can be inspected here.'
+        label: 'What To Look For',
+        value: 'Data -> Method -> Output',
+        detail: 'A useful route should show what goes in, what transforms it, and what comes out.'
       },
       {
-        label: 'Spatial Context',
-        value: input.stats.world > 0 ? 'Anchored' : 'Missing',
-        detail: spatialDiagnosis?.detail || 'Spatial context anchors the research to regions, events, hazards, or Earth system entities.'
+        label: 'Best Next Step',
+        value: input.sourceCapsule?.source ? 'Review source' : 'Attach source',
+        detail: input.sourceCapsule?.source
+          ? 'Open the original source and inspect whether full text, code, data, or supplementary material is available.'
+          : 'A source link is needed before the route can be checked deeply.'
       },
       {
-        label: 'Connections',
-        value: (input.quality?.relations || 0) > 0 ? 'Linked' : 'Sparse',
-        detail: graphDiagnosis?.detail || 'Connections determine whether the extracted structure can support reasoning and comparison.'
+        label: 'Current Risk',
+        value: graphDiagnosis?.status ? formatSignalText(graphDiagnosis.status) : 'Limited route',
+        detail: graphDiagnosis?.detail || 'Without content-level links, the graph should be treated as a diagnosis rather than a readable research route.'
       }
     ];
   }
 
-  if (input.signal.key === 'spatial') {
+  if (input.signal.key === 'spatial-context') {
     return [
       {
         label: 'Map State',
@@ -318,7 +320,7 @@ export function getCockpitFocusItems(input: {
     ];
   }
 
-  if (input.signal.key === 'evidence') {
+  if (input.signal.key === 'evidence-check') {
     return [
       {
         label: 'Claims',
@@ -511,11 +513,11 @@ function getRouteDisplayType(stage: string, objectType: string, fallback?: strin
 
 function cleanRouteSummary(summary: string, stage: string, brief?: string) {
   if (!summary || isInternalRouteValue(summary)) {
-    if (stage === 'context') return 'Spatial or Earth-system scope extracted from available source material.';
-    if (stage === 'evidence') return 'Finding-level support is provisional until source evidence is inspected.';
-    if (stage === 'method') return 'Method node extracted from source text, metadata, or linked research objects.';
-    if (stage === 'data') return 'Data node extracted from source text, metadata, or linked resources.';
-    return brief || 'Route node extracted from available source material.';
+    if (stage === 'context') return 'Places, hazards, events, or Earth-system scope visible in the source.';
+    if (stage === 'evidence') return 'Findings should stay provisional until their source evidence is checked.';
+    if (stage === 'method') return 'Method, model, algorithm, or analysis step used by the source.';
+    if (stage === 'data') return 'Inputs, variables, observations, or datasets used by the source.';
+    return brief || 'Readable step from the source route.';
   }
   return summarizeRouteText(summary, 180);
 }

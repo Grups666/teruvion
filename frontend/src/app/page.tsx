@@ -730,7 +730,7 @@ export default function Home() {
 
               {sourceCapsule && (
                 <div className="source-capsule">
-                  <div className="capsule-kicker">Source Capsule</div>
+                  <div className="capsule-kicker">Source Brief</div>
                   {isExternalUrl(sourceCapsule.source) ? (
                     <a className="capsule-title capsule-title-link" href={sourceCapsule.source!} target="_blank" rel="noreferrer">
                       {sourceCapsule.title}
@@ -780,7 +780,7 @@ export default function Home() {
                 <div className={`route-drilldown ${activeCockpitSignal.status}`}>
                   <div className="route-drilldown-head">
                     <div>
-                      <span>Node Detail</span>
+                      <span>Selected Step</span>
                       <strong>{activeCockpitSignal.label}</strong>
                     </div>
                     <em>{activeCockpitSignal.value}</em>
@@ -820,7 +820,7 @@ export default function Home() {
               {projectBrief.length > 0 && (
                 <div className="project-brief">
                   <div className="project-brief-head">
-                    <span>Project Brief</span>
+                    <span>Key Takeaways</span>
                     <span>{projectDecomposition?.researchBrief?.oneLine || projectReadiness?.nextStep || 'Review extracted source'}</span>
                   </div>
                   <div className="project-brief-grid">
