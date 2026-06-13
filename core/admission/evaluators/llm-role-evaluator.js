@@ -8,6 +8,8 @@
  * - Rules are minimal fallbacks, LLM is primary
  */
 
+const { parseLLMJson } = require('../../utils/llm-json');
+
 class LLMRoleEvaluator {
   constructor(llm) {
     this.llm = llm;
@@ -85,12 +87,7 @@ Return JSON:
       });
 
       const responseText = response.choices?.[0]?.message?.content || response.content || '';
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('No JSON in response');
-      }
-
-      const result = JSON.parse(jsonMatch[0]);
+      const result = parseLLMJson(responseText, { attachWarning: false });
 
       // Normalize scores
       for (const role of Object.keys(result.roles)) {
@@ -111,8 +108,7 @@ Return JSON:
       };
 
     } catch (error) {
-      console.error('LLM role evaluation failed:', error.message);
-      return this._fallbackEvaluation(metadata);
+      return this._fallbackEvaluation(metadata, `LLM role evaluation failed: ${error.message}`);
     }
   }
 
@@ -120,7 +116,7 @@ Return JSON:
    * Minimal fallback when LLM unavailable
    * Uses source type inference, not keyword matching
    */
-  _fallbackEvaluation(metadata) {
+  _fallbackEvaluation(metadata, reason = null) {
     const type = metadata.type || '';
     const roles = {};
 
@@ -170,7 +166,10 @@ Return JSON:
       roles,
       primaryRole: detectedRoles[0]?.role || 'earth_content',
       detectedRoles,
-      reasons: [`Inferred from source type: ${type}`],
+      reasons: [
+        ...(reason ? [reason] : []),
+        `Inferred from source type: ${type}`
+      ],
       transferPotential: null,
       transferReasons: [],
       evaluationMethod: 'type-fallback'
@@ -239,10 +238,7 @@ Return JSON:
       });
 
       const responseText = response.choices?.[0]?.message?.content || response.content || '';
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return this.detectSourceType(input, metadata);
-
-      const result = JSON.parse(jsonMatch[0]);
+      const result = parseLLMJson(responseText, { attachWarning: false });
       return result.type || this.detectSourceType(input, metadata);
 
     } catch (error) {

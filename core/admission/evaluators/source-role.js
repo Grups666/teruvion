@@ -10,6 +10,7 @@
  */
 
 const { LLMRoleEvaluator } = require('./llm-role-evaluator');
+const { parseLLMJson } = require('../../utils/llm-json');
 
 // Role definitions (descriptions only, no hardcoded keywords)
 const SOURCE_ROLES = {
@@ -272,10 +273,7 @@ Return JSON:
       });
 
       const responseText = response.choices?.[0]?.message?.content || response.content || '';
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON');
-
-      const result = JSON.parse(jsonMatch[0]);
+      const result = parseLLMJson(responseText, { attachWarning: false });
 
       return {
         transferPotential: result.transferPotential || 0,

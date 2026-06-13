@@ -7,20 +7,22 @@
  */
 
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 class ClaudeCodeProvider {
   constructor(config = {}) {
     this.name = 'claude-code';
     this.config = {
+      ...config,
       command: config.command || process.env.TERUVION_AGENT_COMMAND || 'claude',
       args: Array.isArray(config.args)
         ? config.args
         : this._parseArgs(process.env.TERUVION_AGENT_ARGS || '-p --dangerously-skip-permissions'),
-      promptMode: config.promptMode || process.env.TERUVION_AGENT_PROMPT_MODE || 'argument',
+      promptMode: config.promptMode || process.env.TERUVION_AGENT_PROMPT_MODE || 'stdin',
       cwd: config.cwd || process.env.TERUVION_AGENT_CWD || process.cwd(),
-      timeout: Number(config.timeout || process.env.TERUVION_AGENT_TIMEOUT || 300000),
-      maxOutputBytes: Number(config.maxOutputBytes || 1024 * 1024),
-      ...config
+      timeout: Number(config.timeout || process.env.TERUVION_AGENT_TIMEOUT || 600000),
+      maxOutputBytes: Number(config.maxOutputBytes || 1024 * 1024)
     };
   }
 
@@ -61,7 +63,9 @@ class ClaudeCodeProvider {
         ? [...this.config.args, prompt]
         : this.config.args;
 
-      const child = spawn(this.config.command, args, {
+      const command = this._resolveCommand(this.config.command);
+      const spawnSpec = this._buildSpawnSpec(command, args);
+      const child = spawn(spawnSpec.command, spawnSpec.args, {
         cwd: this.config.cwd,
         windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe']
@@ -138,6 +142,46 @@ class ClaudeCodeProvider {
       .split(/\s+/)
       .map(part => part.trim())
       .filter(Boolean);
+  }
+
+  _resolveCommand(command) {
+    if (!command || typeof command !== 'string') return command;
+    if (path.isAbsolute(command) || command.includes(path.sep) || command.includes('/')) {
+      return command;
+    }
+    if (process.platform !== 'win32') return command;
+
+    const extensions = ['.cmd', '.exe', '.bat', '.ps1', ''];
+    const pathEntries = String(process.env.PATH || '')
+      .split(path.delimiter)
+      .filter(Boolean);
+
+    for (const entry of pathEntries) {
+      for (const extension of extensions) {
+        const candidate = path.join(entry, `${command}${extension}`);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+
+    return command;
+  }
+
+  _buildSpawnSpec(command, args = []) {
+    if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(String(command || ''))) {
+      return {
+        command: process.env.ComSpec || 'cmd.exe',
+        args: ['/d', '/s', '/c', command, ...args]
+      };
+    }
+
+    if (process.platform === 'win32' && /\.ps1$/i.test(String(command || ''))) {
+      return {
+        command: 'powershell.exe',
+        args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', command, ...args]
+      };
+    }
+
+    return { command, args };
   }
 }
 

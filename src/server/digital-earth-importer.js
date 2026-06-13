@@ -20,6 +20,7 @@ const {
   buildProjectImportDiagnosis,
   buildProjectReadinessSummary
 } = require('../../core/project/ProjectDiagnostics');
+const { buildProjectRecomposition } = require('../../core/project/ProjectRecomposer');
 const PaperIdentifierResolver = require('../../core/connectors/PaperIdentifierResolver');
 
 class DigitalEarthImporter {
@@ -178,13 +179,20 @@ class DigitalEarthImporter {
 
       // Store decomposition metadata
       const sourceCoverage = summarizeSourceCoverage(content);
+      const projectRecomposition = buildProjectRecomposition({
+        decomposition,
+        sourceCoverage,
+        admission: admissionResult
+      });
       project.metadata.decomposition = decomposition;
       project.metadata.admission = admissionResult;
       project.metadata.sourceCoverage = sourceCoverage;
+      project.metadata.projectRecomposition = projectRecomposition;
       this._updateProjectImportProtocol(project, {
         status: project.analysis.status,
         sourceCoverage,
         decomposition,
+        projectRecomposition,
         stored
       });
 

@@ -1021,6 +1021,96 @@ describe('Real Source End-to-End Tests', () => {
     });
   });
 
+  describe('Cross-Source Fidelity', () => {
+    const fidelityCases = [
+      {
+        name: 'technical paper',
+        source: REAL_SOURCES.doi_flood_lstm,
+        requiredFacets: ['data', 'method', 'evidence'],
+        minScore: 70,
+        minProductScore: 62
+      },
+      {
+        name: 'repository',
+        source: REAL_SOURCES.github_lstm_flood,
+        requiredFacets: ['method', 'resource'],
+        minScore: 60,
+        minProductScore: 55
+      },
+      {
+        name: 'dataset page',
+        source: REAL_SOURCES.dataset_camels,
+        requiredFacets: ['data', 'context', 'resource'],
+        minScore: 70,
+        minProductScore: 60
+      },
+      {
+        name: 'policy report',
+        source: REAL_SOURCES.report_wmo_ew4all,
+        requiredFacets: ['context', 'evidence'],
+        minScore: 60,
+        minProductScore: 55
+      },
+      {
+        name: 'news event',
+        source: REAL_SOURCES.news_flood_pakistan,
+        requiredFacets: ['context', 'evidence'],
+        minScore: 60,
+        minProductScore: 55
+      }
+    ];
+
+    for (const testCase of fidelityCases) {
+      it(`should preserve low-loss content facets for ${testCase.name}`, async () => {
+        const admission = new SourceAdmission();
+        const admissionResult = await admission.evaluate(
+          testCase.source.input,
+          testCase.source,
+          testCase.source.metadata
+        );
+        const decomposer = new DigitalEarthDecomposer();
+        const decomposition = await decomposer.decompose(testCase.source.input, testCase.source, admissionResult);
+        const fidelity = decomposition.extractionIntegrity?.contentFidelity;
+
+        assert.ok(fidelity, 'Should expose content fidelity integrity signals');
+        assert.ok(
+          fidelity.score >= testCase.minScore,
+          `${testCase.name} should retain enough source facets (score ${fidelity.score}, missing ${fidelity.missingFacets?.join(', ')})`
+        );
+
+        for (const facet of testCase.requiredFacets) {
+          assert.ok(
+            fidelity.coveredFacets.includes(facet),
+            `${testCase.name} should cover ${facet} facet; covered=${fidelity.coveredFacets.join(', ')} missing=${fidelity.missingFacets.join(', ')}`
+          );
+        }
+
+        assert.strictEqual(
+          fidelity.internalRouteLabels.length,
+          0,
+          `${testCase.name} route should not expose internal labels: ${fidelity.internalRouteLabels.join(', ')}`
+        );
+
+        const productReadiness = decomposition.extractionIntegrity?.productReadiness;
+        assert.ok(productReadiness, 'Should expose product-level source-to-object graph quality');
+        assert.ok(
+          productReadiness.score >= testCase.minProductScore,
+          `${testCase.name} product readiness should be reviewable enough (score ${productReadiness.score}, reasons ${productReadiness.reasons?.join('; ')})`
+        );
+        assert.notStrictEqual(
+          productReadiness.components?.brief?.level,
+          'missing',
+          `${testCase.name} should not miss SourceBrief quality`
+        );
+        assert.notStrictEqual(
+          productReadiness.components?.route?.level,
+          'weak',
+          `${testCase.name} should not have a weak ResearchRoute`
+        );
+      });
+    }
+  });
+
   // Bridge relation semantic tests
   describe('Bridge Relation Semantics', () => {
 

@@ -3,7 +3,15 @@
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import api from '../types/client';
-import type { Entity, Project, SSEEvent, AnalysisProgress, EntityExploreResponse, RelatedEntity } from '../types/api';
+import type {
+  Entity,
+  Project,
+  ProjectRecomposition,
+  SSEEvent,
+  AnalysisProgress,
+  EntityExploreResponse,
+  RelatedEntity
+} from '../types/api';
 import { getEntityLayer } from '../types/api';
 import {
   formatSignalText,
@@ -26,8 +34,7 @@ import {
 import {
   getCockpitFocusItems,
   getCockpitSignals,
-  getLensSummaries,
-  getProjectBrief
+  getLensSummaries
 } from '../lib/projectCockpit';
 import ResearchRouteGraph from '../components/ResearchRouteGraph';
 
@@ -70,6 +77,15 @@ export default function Home() {
   const [expandedVisualIndex, setExpandedVisualIndex] = useState<number | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const savedToken = sessionStorage.getItem('teruvionAccessToken');
+    if (savedToken) {
+      api.setAccessCode(savedToken);
+      setAccessGranted(true);
+      setStatus('Access restored');
+    }
+  }, []);
 
   useEffect(() => {
     if (accessGranted) {
@@ -181,6 +197,13 @@ export default function Home() {
       setStatus((pData.projects?.length || 0) > 0 ? 'Updated' : 'Ready');
     } catch (err) {
       console.error('Failed to load data:', err);
+      if (err instanceof Error && err.message.toLowerCase().includes('unauthorized')) {
+        api.setAccessCode(null);
+        sessionStorage.removeItem('teruvionAccessToken');
+        sessionStorage.removeItem('teruvionAccessTokenExpiresAt');
+        setAccessGranted(false);
+        setAccessError('This session is no longer active. Enter your invite code again.');
+      }
       setStatus('Error');
     }
   }
@@ -212,7 +235,12 @@ export default function Home() {
         setAccessError(result.error || 'Invalid invite code');
         return;
       }
-      api.setAccessCode(code);
+      const accessToken = result.accessToken || code;
+      api.setAccessCode(accessToken);
+      sessionStorage.setItem('teruvionAccessToken', accessToken);
+      if (result.accessTokenExpiresAt) {
+        sessionStorage.setItem('teruvionAccessTokenExpiresAt', result.accessTokenExpiresAt);
+      }
       setAccessGranted(true);
       setStatus('Access granted');
     } catch (err) {
@@ -413,16 +441,6 @@ export default function Home() {
   const projectDiagnosis = selectedProject ? getProjectDiagnosis(selectedProject, projectQuality, projectStats) : [];
   const projectReadiness = selectedProject ? getProjectReadiness(selectedProject, projectDiagnosis) : null;
   const lensSummaries = getLensSummaries(projectLenses);
-  const projectBrief = selectedProject
-    ? getProjectBrief({
-        project: selectedProject,
-        quality: projectQuality,
-        readiness: projectReadiness,
-        diagnosis: projectDiagnosis,
-        lenses: lensSummaries,
-        sourceCapsule
-      })
-    : [];
   const cockpitSignals = selectedProject
     ? getCockpitSignals({
         project: selectedProject,
@@ -473,12 +491,15 @@ export default function Home() {
     ? getEntityResearchBrief(selectedEntity, selectedExplore, selectedEntitySignals, selectedEntityReviewNotes)
     : null;
   const projectDecomposition = selectedProject?.metadata?.decomposition;
+  const projectRecomposition = selectedProject?.metadata?.projectRecomposition as ProjectRecomposition | undefined;
   const projectSourceAttributes = ((projectDecomposition as any)?.sourceObject?.attributes || {}) as Record<string, any>;
-  const projectResources = rankProjectResources(projectDecomposition?.externalResources || []).slice(0, 6);
-  const projectVisualEvidence = rankProjectVisualEvidence(projectDecomposition?.visualEvidence || []).slice(0, 8);
+  const projectResources = rankProjectResources(getProjectResourceItems(projectRecomposition, projectDecomposition)).slice(0, 8);
+  const projectVisualEvidence = rankProjectVisualEvidence(getProjectVisualEvidenceItems(projectRecomposition, projectDecomposition)).slice(0, 8);
   const activeVisualEvidence = projectVisualEvidence[Math.min(activeVisualIndex, Math.max(0, projectVisualEvidence.length - 1))] || null;
   const expandedVisualEvidence = expandedVisualIndex !== null ? projectVisualEvidence[expandedVisualIndex] || null : null;
-  const projectLimitations = rankProjectLimitations(projectDecomposition?.inferredLimitations || []).slice(0, 4);
+  const projectLimitations = rankProjectLimitations(getProjectLimitationItems(projectRecomposition, projectDecomposition)).slice(0, 4);
+  const projectHighlights = getProjectHighlights(projectRecomposition, projectDecomposition, sourceCapsule);
+  const projectIntegritySignals = getProjectIntegritySignals(projectDecomposition);
   const recommendedActions = mergeRecommendedActions(
     buildResourceNextActions(projectResources),
     getRecommendedNextActions(selectedProject || null, projectQuality, projectStats)
@@ -738,69 +759,65 @@ export default function Home() {
                 </button>
               </div>
 
-              {sourceCapsule && (
-                <div className="source-capsule">
-                  <div className="capsule-kicker">Source Brief</div>
-                  {isExternalUrl(sourceCapsule.source) ? (
-                    <a className="capsule-title capsule-title-link" href={sourceCapsule.source!} target="_blank" rel="noreferrer">
-                      {sourceCapsule.title}
-                    </a>
-                  ) : (
-                    <div className="capsule-title">{sourceCapsule.title}</div>
-                  )}
-                  {(projectAuthorLine || projectVenueLine) && (
-                    <div className="capsule-meta">
-                      {projectAuthorLine && <span>{projectAuthorLine}</span>}
-                      {projectVenueLine && <span>{projectVenueLine}</span>}
-                    </div>
-                  )}
-                  <p className="capsule-brief">{sourceCapsule.brief}</p>
-                  <div className="capsule-review-row">
+              <div className="project-overview">
+                {sourceCapsule && (
+                  <section className="source-capsule">
+                    <div className="capsule-kicker">Source Brief</div>
                     {isExternalUrl(sourceCapsule.source) ? (
-                      <a href={sourceCapsule.source!} target="_blank" rel="noreferrer">
-                        Open original source
+                      <a className="capsule-title capsule-title-link" href={sourceCapsule.source!} target="_blank" rel="noreferrer">
+                        {sourceCapsule.title}
                       </a>
                     ) : (
-                      <span>Original source not linked</span>
+                      <div className="capsule-title">{sourceCapsule.title}</div>
                     )}
-                    <span>{sourceCapsule.reviewState}</span>
-                  </div>
-                </div>
-              )}
-
-              {projectBrief.length > 0 && (
-                <div className="project-brief">
-                  <div className="project-brief-head">
-                    <span>Key Takeaways</span>
-                    <span>{projectDecomposition?.researchBrief?.oneLine || projectReadiness?.nextStep || 'Review extracted source'}</span>
-                  </div>
-                  <div className="project-brief-grid">
-                    {projectBrief.map(item => (
-                      <div className={`brief-card ${item.status}`} key={item.key}>
-                        <span>{item.label}</span>
-                        <strong>{item.value}</strong>
-                        <small>{item.detail}</small>
+                    {(projectAuthorLine || projectVenueLine) && (
+                      <div className="capsule-meta">
+                        {projectAuthorLine && <span>{projectAuthorLine}</span>}
+                        {projectVenueLine && <span>{projectVenueLine}</span>}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    )}
+                    <p className="capsule-brief">{sourceCapsule.brief}</p>
+                  </section>
+                )}
 
-              {projectLimitations.length > 0 && (
-                <div className="research-gaps">
-                  <div className="research-gaps-head">
-                    <span>Research Gaps</span>
-                    <small>Review before relying on this import</small>
+                <section className="project-highlights">
+                  <div className="project-highlights-block">
+                    <div className="project-highlights-head">Highlights</div>
+                    <div className="project-highlight-list">
+                      {projectHighlights.map(item => (
+                        <div className="project-highlight" key={item.key}>
+                          <strong>{item.value}</strong>
+                          {item.detail && <small>{item.detail}</small>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="research-gap-list">
-                    {projectLimitations.map(limit => (
-                      <div className={`research-gap ${limit.severity || 'info'}`} key={limit.id || limit.label}>
-                        <span>{formatLimitationSource(limit.source)}</span>
-                        <strong>{limit.label}</strong>
-                        <small>{limit.detail}</small>
+
+                  {projectLimitations.length > 0 && (
+                    <div className="project-highlights-block">
+                      <div className="project-highlights-head">Research Gaps</div>
+                      <div className="research-gap-list">
+                        {projectLimitations.slice(0, 3).map(limit => (
+                          <div className={`research-gap ${limit.severity || 'info'}`} key={limit.id || limit.label}>
+                            <strong>{limit.label}</strong>
+                            <small>{limit.detail}</small>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              {projectIntegritySignals.length > 0 && (
+                <div className="extraction-integrity-strip" aria-label="Extraction integrity">
+                  {projectIntegritySignals.map(signal => (
+                    <div className={`extraction-integrity-signal ${signal.level}`} key={signal.key}>
+                      <span>{signal.label}</span>
+                      <strong>{signal.value}</strong>
+                      <small>{signal.detail}</small>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -872,38 +889,42 @@ export default function Home() {
                       <strong>{visualEvidenceSummary(projectVisualEvidence)}</strong>
                     </div>
                     <div className="visual-evidence-controls">
-                      <button
-                        type="button"
-                        onClick={() => setActiveVisualIndex(index => Math.max(0, index - 1))}
-                        disabled={activeVisualIndex <= 0}
-                      >
-                        Prev
-                      </button>
                       <small>{Math.min(activeVisualIndex + 1, projectVisualEvidence.length)} / {projectVisualEvidence.length}</small>
-                      <button
-                        type="button"
-                        onClick={() => setActiveVisualIndex(index => Math.min(projectVisualEvidence.length - 1, index + 1))}
-                        disabled={activeVisualIndex >= projectVisualEvidence.length - 1}
-                      >
-                        Next
-                      </button>
                     </div>
                   </div>
                   <div className="visual-carousel-card">
-                    <button
-                      type="button"
-                      className="visual-preview"
-                      onClick={() => setExpandedVisualIndex(activeVisualIndex)}
-                      disabled={!activeVisualEvidence.imageUrl}
-                      aria-label="Open figure preview"
-                    >
-                      {activeVisualEvidence.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={activeVisualEvidence.imageUrl} alt={activeVisualEvidence.label || activeVisualEvidence.title || 'Source figure'} loading="lazy" />
-                      ) : (
-                        <span>No image preview</span>
-                      )}
-                    </button>
+                    <div className="visual-preview-wrap">
+                      <button
+                        type="button"
+                        className="visual-nav visual-nav-prev"
+                        onClick={() => setActiveVisualIndex(index => (index - 1 + projectVisualEvidence.length) % projectVisualEvidence.length)}
+                        aria-label="Previous figure"
+                      >
+                        <span aria-hidden="true">‹</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="visual-preview"
+                        onClick={() => setExpandedVisualIndex(activeVisualIndex)}
+                        disabled={!activeVisualEvidence.imageUrl}
+                        aria-label="Open figure preview"
+                      >
+                        {activeVisualEvidence.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={activeVisualEvidence.imageUrl} alt={activeVisualEvidence.label || activeVisualEvidence.title || 'Source figure'} loading="lazy" />
+                        ) : (
+                          <span>No image preview</span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="visual-nav visual-nav-next"
+                        onClick={() => setActiveVisualIndex(index => (index + 1) % projectVisualEvidence.length)}
+                        aria-label="Next figure"
+                      >
+                        <span aria-hidden="true">›</span>
+                      </button>
+                    </div>
                     <div className="visual-narrative">
                       <div className="visual-card-topline">
                         <span>{formatVisualKind(activeVisualEvidence.kind)}</span>
@@ -911,6 +932,13 @@ export default function Home() {
                       </div>
                       <strong>{activeVisualEvidence.label || activeVisualEvidence.title || 'Source visual'}</strong>
                       <p>{activeVisualEvidence.caption || activeVisualEvidence.supports || 'Caption unavailable.'}</p>
+                      {(activeVisualEvidence.interpretation || activeVisualEvidence.howProduced || activeVisualEvidence.supportedClaim) && (
+                        <div className="visual-interpretation">
+                          {activeVisualEvidence.interpretation && <span>{activeVisualEvidence.interpretation}</span>}
+                          {activeVisualEvidence.howProduced && <span>{activeVisualEvidence.howProduced}</span>}
+                          {activeVisualEvidence.supportedClaim && <span>{activeVisualEvidence.supportedClaim}</span>}
+                        </div>
+                      )}
                       <small>{activeVisualEvidence.readHint || activeVisualEvidence.supports || 'Verify this visual against the original source.'}</small>
                     </div>
                   </div>
@@ -927,24 +955,19 @@ export default function Home() {
                     <div className="project-resource-list">
                       {projectResources.length > 0 ? projectResources.map(resource => {
                         const signal = resourceSignal(resource);
+                        const resourceUrl = String(resource.url || '');
                         return (
                           <a
-                            href={normalizeExternalHref(resource.url)}
+                            href={normalizeExternalHref(resourceUrl)}
                             target="_blank"
                             rel="noreferrer"
                             className={`project-resource ${signal.level}`}
-                            key={`${resource.type || 'resource'}-${resource.url}`}
+                            key={`${resource.type || 'resource'}-${resourceUrl}`}
                           >
-                            <div className="resource-topline">
-                              <span>{formatResourceType(resource.type)}</span>
-                              <em>{signal.label}</em>
-                            </div>
-                            <strong>{resource.label || resourceHost(resource.url)}</strong>
+                            <span>{formatResourceType(resource.type)}</span>
+                            <strong>{resource.label || resourceHost(resourceUrl)}</strong>
                             <small>{resourceReviewText(resource)}</small>
-                            <div className="resource-foot">
-                              <b>{resourceHost(resource.url)}</b>
-                              <i>{resource.verificationFocus || resource.role || formatResourceSource(resource.source)}</i>
-                            </div>
+                            <em>{resourceHost(resourceUrl)}</em>
                           </a>
                         );
                       }) : (
@@ -999,6 +1022,13 @@ export default function Home() {
               <div className="visual-modal-caption">
                 <span>{expandedVisualEvidence.label || formatVisualKind(expandedVisualEvidence.kind)}</span>
                 <p>{expandedVisualEvidence.caption || expandedVisualEvidence.supports}</p>
+                {(expandedVisualEvidence.interpretation || expandedVisualEvidence.howProduced || expandedVisualEvidence.supportedClaim) && (
+                  <small>
+                    {[expandedVisualEvidence.interpretation, expandedVisualEvidence.howProduced, expandedVisualEvidence.supportedClaim]
+                      .filter(Boolean)
+                      .join(' ')}
+                  </small>
+                )}
               </div>
             </div>
           </div>
@@ -1279,8 +1309,8 @@ function normalizeExternalHref(value: string) {
 }
 
 type ProjectResource = {
-  label: string;
-  url: string;
+  label?: string;
+  url?: string | null;
   type?: string;
   role?: string;
   source?: string;
@@ -1290,6 +1320,7 @@ type ProjectResource = {
   verificationFocus?: string;
   reproducibilityGrade?: string;
   reviewHint?: string;
+  linked?: boolean;
 };
 
 type ProjectVisualEvidence = {
@@ -1304,6 +1335,9 @@ type ProjectVisualEvidence = {
   routeRole?: string;
   supports?: string;
   readHint?: string;
+  interpretation?: string;
+  howProduced?: string;
+  supportedClaim?: string;
 };
 
 type ProjectAction = {
@@ -1350,6 +1384,264 @@ function visualEvidenceSummary(items: ProjectVisualEvidence[]) {
   return parts.length > 0 ? parts.join(' / ') : `${items.length} visual evidence items`;
 }
 
+type ProjectHighlight = {
+  key: string;
+  value: string;
+  detail: string;
+};
+
+type ProjectIntegritySignal = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  level: 'ready' | 'review' | 'warning';
+};
+
+function getProjectResourceItems(
+  recomposition: ProjectRecomposition | undefined,
+  decomposition: any
+): ProjectResource[] {
+  const recomposed = recomposition?.aggregate?.resources?.items || [];
+  if (recomposed.length > 0) return recomposed as ProjectResource[];
+  return decomposition?.externalResources || [];
+}
+
+function getProjectVisualEvidenceItems(
+  recomposition: ProjectRecomposition | undefined,
+  decomposition: any
+): ProjectVisualEvidence[] {
+  const recomposed = recomposition?.aggregate?.visualEvidence?.items || [];
+  if (recomposed.length > 0) return recomposed as ProjectVisualEvidence[];
+  return decomposition?.visualEvidence || [];
+}
+
+function getProjectLimitationItems(
+  recomposition: ProjectRecomposition | undefined,
+  decomposition: any
+): ProjectLimitation[] {
+  const recomposed = recomposition?.aggregate?.limitations || [];
+  if (recomposed.length > 0) return recomposed as ProjectLimitation[];
+  return [
+    ...(decomposition?.llmInsights?.researchGaps || []).map((item: any) => ({ ...item, kind: 'research_gap' })),
+    ...(decomposition?.llmInsights?.limitations || []).map((item: any) => ({ ...item, kind: 'limitation' })),
+    ...(decomposition?.inferredLimitations || [])
+  ];
+}
+
+function getProjectHighlights(
+  recomposition: ProjectRecomposition | undefined,
+  decomposition: any,
+  sourceCapsule: ReturnType<typeof getSourceCapsule> | null
+): ProjectHighlight[] {
+  const keyPoints = recomposition?.aggregate?.brief?.keyPoints?.length
+    ? recomposition.aggregate.brief.keyPoints
+    : decomposition?.researchBrief?.keyPoints || [];
+  const mapped = keyPoints
+    .filter((item: any) => item?.value && !isLowMeaningHighlight(item))
+    .slice(0, 4)
+    .map((item: any, index: number) => ({
+      key: item.id || `highlight-${index}`,
+      value: cleanHighlightText(item.value),
+      detail: cleanHighlightText(item.detail || item.sourceTitle || item.label || '')
+    }));
+
+  if (mapped.length > 0) return mapped;
+
+  const oneLine = recomposition?.aggregate?.brief?.oneLine
+    || decomposition?.researchBrief?.oneLine
+    || sourceCapsule?.brief;
+  return [
+    {
+      key: 'source-summary',
+      value: cleanHighlightText(oneLine || 'Source imported for review'),
+      detail: 'Use the graph, figures, and links below to verify the extracted route.'
+    }
+  ];
+}
+
+function isLowMeaningHighlight(item: any) {
+  const text = `${item.label || ''} ${item.value || ''}`.toLowerCase();
+  return [
+    'core route',
+    'input / context',
+    'input/context',
+    'source brief',
+    'extraction confidence',
+    'review state'
+  ].some(token => text.includes(token));
+}
+
+function cleanHighlightText(value: string) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/^abstract\s+/i, '')
+    .trim();
+}
+
+function getProjectIntegritySignals(decomposition: any): ProjectIntegritySignal[] {
+  if (!decomposition) return [];
+
+  const integrity = decomposition.extractionIntegrity || {};
+  const routeQuality = integrity.routeQuality || decomposition.workflowOutline?.provenance?.routeQuality || {};
+  const graphTraceability = integrity.graphTraceability || {};
+  const contentFidelity = integrity.contentFidelity || {};
+  const briefQuality = integrity.briefQuality || {};
+  const visualEvidenceQuality = integrity.visualEvidenceQuality || {};
+  const resourceGraphQuality = integrity.resourceGraphQuality || {};
+  const evidenceSummary = decomposition.evidenceGraph?.summary || integrity.evidenceGraph || {};
+  const resourceSummary = decomposition.resourceGraph?.summary || integrity.resourceGraph || {};
+  const issues = Array.isArray(integrity.issues) ? integrity.issues : [];
+  const warningCount = issues.filter((issue: any) => issue?.severity === 'warning').length;
+
+  const signals: ProjectIntegritySignal[] = [];
+  if (routeQuality.level || routeQuality.contentNodeCount !== undefined) {
+    signals.push({
+      key: 'route',
+      label: 'Route',
+      value: formatSignalText(routeQuality.level || 'review'),
+      detail: `${routeQuality.contentNodeCount || 0} nodes / ${routeQuality.edgeCount || 0} links`,
+      level: routeQuality.level === 'content' ? 'ready' : 'review'
+    });
+  }
+
+  if (graphTraceability.level || graphTraceability.score !== undefined) {
+    const untraced = graphTraceability.untracedNodeCount || 0;
+    const weak = graphTraceability.weakNodeCount || 0;
+    const detail = untraced > 0
+      ? `${untraced} untraced nodes`
+      : weak > 0
+        ? `${weak} weakly traced nodes`
+        : `${graphTraceability.traceableNodeCount || 0}/${graphTraceability.routeNodeCount || 0} nodes traced`;
+    signals.push({
+      key: 'trace',
+      label: 'Trace',
+      value: graphTraceability.score !== undefined ? `${graphTraceability.score}%` : formatSignalText(graphTraceability.level || 'review'),
+      detail,
+      level: graphTraceability.level === 'traceable'
+        ? 'ready'
+        : graphTraceability.level === 'weak'
+          ? 'warning'
+          : 'review'
+    });
+  }
+
+  if (contentFidelity.level || contentFidelity.score !== undefined) {
+    const missing = Array.isArray(contentFidelity.missingFacets)
+      ? contentFidelity.missingFacets.join(', ')
+      : '';
+    const ungrounded = Array.isArray(contentFidelity.grounding?.ungroundedFacets)
+      ? contentFidelity.grounding.ungroundedFacets.join(', ')
+      : '';
+    const weakGrounding = Array.isArray(contentFidelity.grounding?.weaklyGroundedFacets)
+      ? contentFidelity.grounding.weaklyGroundedFacets.join(', ')
+      : '';
+    const detail = missing
+      ? `Missing ${missing}`
+      : ungrounded
+        ? `Ungrounded ${ungrounded}`
+        : weakGrounding
+          ? `Weak support ${weakGrounding}`
+          : `${(contentFidelity.coveredFacets || []).length || 0} facets covered`;
+    signals.push({
+      key: 'fidelity',
+      label: 'Fidelity',
+      value: contentFidelity.score !== undefined ? `${contentFidelity.score}%` : formatSignalText(contentFidelity.level || 'review'),
+      detail,
+      level: contentFidelity.level === 'content'
+        ? 'ready'
+        : contentFidelity.level === 'weak'
+          ? 'warning'
+          : 'review'
+    });
+  }
+
+  if (briefQuality.level || briefQuality.pointCount !== undefined) {
+    const reasons = Array.isArray(briefQuality.reasons) ? briefQuality.reasons : [];
+    signals.push({
+      key: 'brief',
+      label: 'Brief',
+      value: briefQuality.informationScore !== undefined
+        ? `${briefQuality.informationScore}%`
+        : formatSignalText(briefQuality.level || 'review'),
+      detail: reasons[0] || `${briefQuality.groundedPointCount || 0}/${briefQuality.pointCount || 0} points grounded`,
+      level: briefQuality.level === 'complete'
+        ? 'ready'
+        : briefQuality.level === 'weak' || briefQuality.level === 'missing'
+          ? 'warning'
+          : 'review'
+    });
+  }
+
+  if (visualEvidenceQuality.level || visualEvidenceQuality.visualCount !== undefined) {
+    const reasons = Array.isArray(visualEvidenceQuality.reasons) ? visualEvidenceQuality.reasons : [];
+    signals.push({
+      key: 'visuals',
+      label: 'Visuals',
+      value: visualEvidenceQuality.visualCount !== undefined
+        ? `${visualEvidenceQuality.explainedCount || 0}/${visualEvidenceQuality.visualCount || 0} explained`
+        : formatSignalText(visualEvidenceQuality.level || 'review'),
+      detail: reasons[0] || `${visualEvidenceQuality.expectedCount || 0} expected figures/tables`,
+      level: visualEvidenceQuality.level === 'complete' || visualEvidenceQuality.level === 'not_applicable'
+        ? 'ready'
+        : visualEvidenceQuality.level === 'weak' || visualEvidenceQuality.level === 'missing'
+          ? 'warning'
+          : 'review'
+    });
+  }
+
+  if (evidenceSummary.claimCount !== undefined || evidenceSummary.visualCount !== undefined) {
+    signals.push({
+      key: 'evidence',
+      label: 'Evidence',
+      value: `${evidenceSummary.linkedClaimCount || 0}/${evidenceSummary.claimCount || 0} linked`,
+      detail: `${evidenceSummary.visualCount || 0} visuals / ${evidenceSummary.resourceCount || 0} resources`,
+      level: (evidenceSummary.claimCount || 0) === 0 || (evidenceSummary.linkedClaimCount || 0) > 0 ? 'ready' : 'review'
+    });
+  }
+
+  if (resourceGraphQuality.level || resourceGraphQuality.resourceCount !== undefined) {
+    const reasons = Array.isArray(resourceGraphQuality.reasons) ? resourceGraphQuality.reasons : [];
+    signals.push({
+      key: 'resources',
+      label: 'Resources',
+      value: resourceGraphQuality.resourceCount !== undefined
+        ? `${resourceGraphQuality.linkedResourceCount || 0}/${resourceGraphQuality.resourceCount || 0} linked`
+        : formatSignalText(resourceGraphQuality.level || 'review'),
+      detail: reasons[0] || `${resourceGraphQuality.reusableResourceCount || 0} reusable resources`,
+      level: resourceGraphQuality.level === 'complete' || resourceGraphQuality.level === 'not_applicable'
+        ? 'ready'
+        : resourceGraphQuality.level === 'weak'
+          ? 'warning'
+          : 'review'
+    });
+  } else if (resourceSummary.resourceCount !== undefined) {
+    signals.push({
+      key: 'resources',
+      label: 'Resources',
+      value: `${resourceSummary.reusableResourceCount || 0} reusable`,
+      detail: `${resourceSummary.linkedResourceCount || 0}/${resourceSummary.resourceCount || 0} linked`,
+      level: (resourceSummary.resourceCount || 0) === 0 || (resourceSummary.linkedResourceCount || 0) > 0 ? 'ready' : 'review'
+    });
+  }
+
+  const integritySignal = {
+    key: 'warnings',
+    label: 'Integrity',
+    value: warningCount > 0 ? `${warningCount} warnings` : 'Checked',
+    detail: issues[0]?.detail || 'Schema, provenance, scope, and graph signals reviewed.',
+    level: warningCount > 0 ? 'warning' : 'ready'
+  } as ProjectIntegritySignal;
+
+  if (warningCount > 0) {
+    return [integritySignal, ...signals].slice(0, 7);
+  }
+
+  signals.push(integritySignal);
+
+  return signals.slice(0, 7);
+}
+
 function formatVisualKind(kind?: string) {
   const value = String(kind || 'figure').toLowerCase();
   return value === 'table' ? 'Table' : 'Figure';
@@ -1359,8 +1651,9 @@ function rankProjectResources(resources: ProjectResource[]) {
   const seen = new Set<string>();
   return resources
     .filter(resource => {
-      if (!resource?.url || seen.has(resource.url)) return false;
-      seen.add(resource.url);
+      const url = String(resource?.url || '').trim();
+      if (!url || seen.has(url)) return false;
+      seen.add(url);
       return true;
     })
     .sort((a, b) => resourcePriority(b) - resourcePriority(a));
@@ -1374,11 +1667,11 @@ function buildResourceNextActions(resources: ProjectResource[]): ProjectAction[]
       label: resourceActionLabel(resource),
       reason: resource.verificationFocus
         ? `Check ${resource.verificationFocus}.`
-        : resource.routeRelevance || resource.reviewHint || `Open ${resourceHost(resource.url)} to verify its role.`,
+        : resource.routeRelevance || resource.reviewHint || `Open ${resourceHost(String(resource.url || ''))} to verify its role.`,
       priority: resourcePriority(resource) >= 80 ? 'high' : 'normal',
       operation: 'open-resource',
       targetLayer: null,
-      href: resource.url
+      href: resource.url || undefined
     }));
 }
 

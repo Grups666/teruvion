@@ -37,6 +37,7 @@ export interface Project {
   entities: string[];
   metadata?: {
     decomposition?: Decomposition;
+    projectRecomposition?: ProjectRecomposition;
     admission?: AdmissionResult;
     importDiagnosis?: ProjectDiagnosisItem[];
     importReadiness?: ProjectReadinessSummary;
@@ -44,6 +45,153 @@ export interface Project {
     [key: string]: any;
   };
   analysis?: AnalysisProgress;
+}
+
+export interface ProjectRecomposition {
+  schemaVersion: 'project-recomposition-v1' | string;
+  generatedAt?: string;
+  sourceCount: number;
+  sources: Array<{
+    id: string;
+    type: string;
+    title: string;
+    url?: string | null;
+    brief: {
+      oneLine?: string;
+      keyPointCount?: number;
+      keyPoints?: Array<{
+        id?: string;
+        label: string;
+        value: string;
+        detail?: string;
+        provenance?: Record<string, any> | null;
+      }>;
+    };
+    extraction?: {
+      method?: string;
+      confidence?: number | null;
+      depth?: string | null;
+    };
+    objectCounts?: Record<string, number>;
+    coverage?: {
+      level?: string | null;
+      label?: string | null;
+      detail?: string | null;
+    } | null;
+    route?: Record<string, any>;
+    visualEvidence?: Record<string, any>;
+    resources?: Record<string, any>;
+    integrity?: Record<string, any>;
+  }>;
+  aggregate: {
+    brief?: {
+      title?: string;
+      oneLine?: string;
+      keyPointCount?: number;
+      keyPoints?: Array<{
+        id?: string;
+        label: string;
+        value: string;
+        detail?: string;
+        sourceId?: string;
+        sourceTitle?: string;
+        provenance?: Record<string, any> | null;
+      }>;
+    };
+    objectCounts?: Record<string, number>;
+    route?: {
+      nodeCount?: number;
+      edgeCount?: number;
+      stages?: string[];
+      nodes?: Array<{
+        id: string;
+        sourceId?: string;
+        label: string;
+        stage?: string | null;
+        summary?: string;
+        provenance?: Record<string, any> | null;
+        support?: Record<string, any> | null;
+      }>;
+      edges?: Array<{
+        from: string;
+        to: string;
+        label?: string;
+        sourceId?: string;
+      }>;
+    };
+    visualEvidence?: {
+      count?: number;
+      explainedCount?: number;
+      items?: Array<{
+        id?: string;
+        sourceId?: string;
+        label?: string;
+        kind?: string;
+        caption?: string;
+        imageUrl?: string | null;
+        sourceUrl?: string | null;
+        routeRole?: string;
+        supports?: string;
+        readHint?: string;
+        interpretation?: string;
+        howProduced?: string;
+        supportedClaim?: string;
+        provenance?: Record<string, any> | null;
+      }>;
+    };
+    resources?: {
+      count?: number;
+      reusableCount?: number;
+      linkedCount?: number;
+      items?: Array<{
+        id?: string;
+        sourceId?: string;
+        label?: string;
+        url?: string | null;
+        type?: string;
+        role?: string;
+        source?: string;
+        context?: string;
+        investigationLabel?: string;
+        routeRelevance?: string;
+        verificationFocus?: string;
+        reviewHint?: string;
+        reproducibilityGrade?: string | null;
+        linked?: boolean;
+      }>;
+    };
+    limitations?: Array<{
+      id?: string;
+      kind?: string;
+      label: string;
+      detail: string;
+      severity?: 'info' | 'warning' | 'error' | string;
+      source?: string | null;
+      sourceId?: string;
+      provenance?: Record<string, any> | null;
+    }>;
+    integrity?: {
+      status?: string;
+      warningCount?: number;
+      issueCount?: number;
+      weakSourceIds?: string[];
+    };
+    productQuality?: SourceObjectGraphQuality;
+  };
+}
+
+export interface SourceObjectGraphQuality {
+  schemaVersion?: string;
+  level?: 'product_ready' | 'reviewable' | 'weak' | string;
+  score?: number;
+  weakComponents?: string[];
+  reasons?: string[];
+  components?: Record<string, {
+    label?: string;
+    level?: string;
+    score?: number;
+    reasons?: string[];
+  }>;
 }
 
 export interface AnalysisProgress {
@@ -141,6 +289,163 @@ export interface Decomposition {
     enrichment?: Record<string, any>;
     reviewHint?: string;
   }>;
+  resourceGraph?: {
+    nodes?: Array<{
+      id: string;
+      kind?: string;
+      label?: string;
+      type?: string;
+      role?: string;
+      url?: string;
+      routeRelevance?: string;
+      verificationFocus?: string;
+      reviewHint?: string;
+      reproducibilityGrade?: string | null;
+      source?: string;
+      summary?: string;
+      routeNodeId?: string;
+    }>;
+    edges?: Array<{
+      from: string;
+      to: string;
+      label?: string;
+      confidence?: number;
+      provenance?: Record<string, any>;
+    }>;
+    summary?: {
+      resourceCount?: number;
+      repositoryCount?: number;
+      datasetCount?: number;
+      linkedResourceCount?: number;
+      reusableResourceCount?: number;
+      [key: string]: any;
+    };
+    provenance?: Record<string, any>;
+  };
+  evidenceGraph?: {
+    nodes?: Array<{
+      id: string;
+      kind?: string;
+      label?: string;
+      summary?: string;
+      sourceUrl?: string;
+      imageUrl?: string | null;
+      role?: string;
+      routeNodeId?: string;
+      provenance?: Record<string, any>;
+      confidence?: number | null;
+    }>;
+    edges?: Array<{
+      from: string;
+      to: string;
+      label?: string;
+      confidence?: number;
+      provenance?: Record<string, any>;
+    }>;
+    summary?: {
+      claimCount?: number;
+      visualCount?: number;
+      resourceCount?: number;
+      linkedClaimCount?: number;
+      [key: string]: any;
+    };
+    provenance?: Record<string, any>;
+  };
+  extractionIntegrity?: {
+    status?: 'ready' | 'needs_review' | string;
+    routeQuality?: {
+      level?: 'content' | 'partial' | 'limited' | string;
+      contentNodeCount?: number;
+      stageCount?: number;
+      edgeCount?: number;
+      detailNodeCount?: number;
+      informativeNodeCount?: number;
+      lowInformationNodeCount?: number;
+      informationScore?: number;
+      reasons?: string[];
+      [key: string]: any;
+    };
+    graphTraceability?: {
+      level?: 'traceable' | 'partial' | 'weak' | 'unknown' | string;
+      score?: number;
+      routeNodeCount?: number;
+      traceableNodeCount?: number;
+      weakNodeCount?: number;
+      untracedNodeCount?: number;
+      details?: Array<Record<string, any>>;
+      reasons?: string[];
+    };
+    contentFidelity?: {
+      level?: 'content' | 'partial' | 'weak' | 'unknown' | string;
+      score?: number;
+      expectedFacets?: string[];
+      coveredFacets?: string[];
+      missingFacets?: string[];
+      grounding?: {
+        score?: number;
+        groundedFacets?: string[];
+        weaklyGroundedFacets?: string[];
+        ungroundedFacets?: string[];
+        details?: Record<string, any>;
+      };
+      internalRouteLabels?: string[];
+      reasons?: string[];
+    };
+    visualEvidenceQuality?: {
+      level?: 'complete' | 'partial' | 'weak' | 'missing' | 'not_applicable' | string;
+      expectedCount?: number;
+      visualCount?: number;
+      captionCount?: number;
+      explainedCount?: number;
+      producedCount?: number;
+      supportedClaimCount?: number;
+      evidenceLinkedCount?: number;
+      groundedCount?: number;
+      expectedCoverage?: number;
+      explanationCoverage?: number;
+      groundingCoverage?: number;
+      reasons?: string[];
+    };
+    resourceGraphQuality?: {
+      level?: 'complete' | 'partial' | 'weak' | 'not_applicable' | string;
+      resourceCount?: number;
+      linkedResourceCount?: number;
+      reusableResourceCount?: number;
+      llmLinkedCount?: number;
+      roleCount?: number;
+      verificationFocusCount?: number;
+      provenanceLinkedCount?: number;
+      linkCoverage?: number;
+      reusableLinkCoverage?: number;
+      reviewCoverage?: number;
+      reasons?: string[];
+    };
+    briefQuality?: {
+      level?: 'complete' | 'partial' | 'weak' | 'missing' | string;
+      pointCount?: number;
+      informativePointCount?: number;
+      groundedPointCount?: number;
+      lowInformationPointCount?: number;
+      ungroundedPointCount?: number;
+      informationScore?: number;
+      groundingScore?: number;
+      missingExpected?: string[];
+      reasons?: string[];
+    };
+    productReadiness?: SourceObjectGraphQuality;
+    missingBibliographicFields?: string[];
+    schemaWarningCount?: number;
+    unknownRelationCount?: number;
+    endpointReviewRelationCount?: number;
+    scopeFilteredCount?: number;
+    evidenceGraph?: Record<string, any> | null;
+    resourceGraph?: Record<string, any> | null;
+    issues?: Array<{
+      id?: string;
+      severity?: 'info' | 'warning' | 'error' | string;
+      detail?: string;
+    }>;
+  };
   visualEvidence?: Array<{
     id?: string;
     kind?: 'figure' | 'table' | string;
@@ -153,8 +458,18 @@ export interface Decomposition {
     routeRole?: string;
     supports?: string;
     readHint?: string;
+    interpretation?: string;
+    howProduced?: string;
+    supportedClaim?: string;
     provenance?: Record<string, any>;
   }>;
+  llmInsights?: {
+    keyFindings?: Array<Record<string, any>>;
+    researchGaps?: Array<Record<string, any>>;
+    limitations?: Array<Record<string, any>>;
+    figureAnalyses?: Array<Record<string, any>>;
+    resourceLinks?: Array<Record<string, any>>;
+  } | null;
   inferredLimitations?: Array<{
     id?: string;
     label: string;

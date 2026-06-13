@@ -4,10 +4,12 @@
  *
  * Tests the complete alpha access flow:
  * 1. Submit application
- * 2. List applications (admin)
+ * 2. List applications as admin
  * 3. Approve application
  * 4. Verify invite code
- * 5. Activate membership
+ * 5. Activate membership and receive a session token
+ * 6. Log in with the invite code and rotate to a new session token
+ * 7. Confirm the old token is invalid and the latest token works
  */
 
 const path = require('path');
@@ -50,7 +52,6 @@ function loadLocalAdminSecret() {
   return '';
 }
 
-// Test data
 const testApplication = {
   name: 'Test User',
   email: `test-${Date.now()}@example.com`,
@@ -62,9 +63,11 @@ const testApplication = {
 
 let applicationId = null;
 let inviteCode = null;
+let firstAccessToken = null;
+let secondAccessToken = null;
 
-async function request(path, options = {}) {
-  const url = `${API_BASE}/api${path}`;
+async function request(pathname, options = {}) {
+  const url = `${API_BASE}/api${pathname}`;
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -88,71 +91,66 @@ async function test() {
   console.log('='.repeat(60));
   console.log();
 
-  // Test 1: Submit application
-  console.log('[1/5] Submitting application...');
+  console.log('[1/7] Submitting application...');
   const submitRes = await request('/alpha/apply', {
     method: 'POST',
     body: JSON.stringify(testApplication),
   });
 
   if (submitRes.status !== 200 || !submitRes.data.success) {
-    console.error('✗ Failed to submit application:', submitRes.data);
+    console.error('[FAIL] Failed to submit application:', submitRes.data);
     process.exit(1);
   }
 
   applicationId = submitRes.data.applicationId;
-  console.log(`✓ Application submitted: ${applicationId}`);
+  console.log(`[PASS] Application submitted: ${applicationId}`);
 
-  // Test 2: List applications (admin)
-  console.log('\n[2/5] Fetching applications as admin...');
+  console.log('\n[2/7] Fetching applications as admin...');
   const listRes = await request('/alpha/applications', {
     headers: { 'X-Admin-Secret': ADMIN_SECRET },
   });
 
   if (listRes.status !== 200) {
-    console.error('✗ Failed to list applications:', listRes.data);
+    console.error('[FAIL] Failed to list applications:', listRes.data);
     process.exit(1);
   }
 
   const found = listRes.data.applications.find(a => a.id === applicationId);
   if (!found) {
-    console.error('✗ Application not found in list');
+    console.error('[FAIL] Application not found in list');
     process.exit(1);
   }
 
-  console.log(`✓ Found application in list (${listRes.data.count} total)`);
+  console.log(`[PASS] Found application in list (${listRes.data.count} total)`);
 
-  // Test 3: Approve application
-  console.log('\n[3/5] Approving application...');
+  console.log('\n[3/7] Approving application...');
   const approveRes = await request(`/alpha/applications/${applicationId}/approve`, {
     method: 'POST',
     headers: { 'X-Admin-Secret': ADMIN_SECRET },
   });
 
   if (approveRes.status !== 200 || !approveRes.data.success) {
-    console.error('✗ Failed to approve application:', approveRes.data);
+    console.error('[FAIL] Failed to approve application:', approveRes.data);
     process.exit(1);
   }
 
   inviteCode = approveRes.data.inviteCode;
-  console.log(`✓ Application approved, invite code: ${inviteCode}`);
+  console.log(`[PASS] Application approved, invite code: ${inviteCode}`);
 
-  // Test 4: Verify invite code
-  console.log('\n[4/5] Verifying invite code...');
+  console.log('\n[4/7] Verifying invite code...');
   const verifyRes = await request('/alpha/invites/verify', {
     method: 'POST',
     body: JSON.stringify({ code: inviteCode }),
   });
 
   if (!verifyRes.data.valid) {
-    console.error('✗ Invite code invalid:', verifyRes.data);
+    console.error('[FAIL] Invite code invalid:', verifyRes.data);
     process.exit(1);
   }
 
-  console.log(`✓ Invite code valid for: ${verifyRes.data.email}`);
+  console.log(`[PASS] Invite code valid for: ${verifyRes.data.email}`);
 
-  // Test 5: Activate membership
-  console.log('\n[5/5] Activating membership...');
+  console.log('\n[5/7] Activating membership...');
   const activateRes = await request('/alpha/memberships/activate', {
     method: 'POST',
     body: JSON.stringify({
@@ -162,14 +160,51 @@ async function test() {
     }),
   });
 
-  if (activateRes.status !== 200 || !activateRes.data.success) {
-    console.error('✗ Failed to activate membership:', activateRes.data);
+  if (activateRes.status !== 200 || !activateRes.data.success || !activateRes.data.accessToken) {
+    console.error('[FAIL] Failed to activate membership:', activateRes.data);
     process.exit(1);
   }
 
-  console.log(`✓ Membership activated: ${activateRes.data.membershipId}`);
+  firstAccessToken = activateRes.data.accessToken;
+  console.log(`[PASS] Membership activated: ${activateRes.data.membershipId}`);
 
-  // Summary
+  console.log('\n[6/7] Logging in again with activated invite code...');
+  const loginRes = await request('/alpha/access/verify', {
+    method: 'POST',
+    body: JSON.stringify({ code: inviteCode }),
+  });
+
+  if (loginRes.status !== 200 || !loginRes.data.valid || !loginRes.data.accessToken) {
+    console.error('[FAIL] Failed to log in with invite code:', loginRes.data);
+    process.exit(1);
+  }
+
+  secondAccessToken = loginRes.data.accessToken;
+  console.log('[PASS] Invite login returned a fresh session token');
+
+  const oldTokenRes = await request('/projects', {
+    headers: { 'X-Teruvion-Access': firstAccessToken },
+  });
+
+  if (oldTokenRes.status !== 401) {
+    console.error('[FAIL] Old session token should have been invalidated:', oldTokenRes.status, oldTokenRes.data);
+    process.exit(1);
+  }
+
+  console.log('[PASS] Previous session token was invalidated');
+
+  console.log('\n[7/7] Checking protected API with latest session...');
+  const currentTokenRes = await request('/projects', {
+    headers: { 'X-Teruvion-Access': secondAccessToken },
+  });
+
+  if (currentTokenRes.status !== 200) {
+    console.error('[FAIL] Latest session token cannot access protected API:', currentTokenRes.data);
+    process.exit(1);
+  }
+
+  console.log('[PASS] Latest session token can access protected API');
+
   console.log('\n' + '='.repeat(60));
   console.log('All tests passed!');
   console.log('='.repeat(60));
@@ -177,6 +212,7 @@ async function test() {
 Application ID: ${applicationId}
 Invite Code:    ${inviteCode}
 Membership ID:  ${activateRes.data.membershipId}
+Access Token:   ${secondAccessToken.slice(0, 12)}...
   `);
 }
 

@@ -68,6 +68,258 @@ describe('ProjectDiagnostics', () => {
     assert.strictEqual(byKey.graph.value, '3 relations');
   });
 
+  it('should downgrade readiness when extraction integrity has warnings', () => {
+    const diagnosis = buildProjectImportDiagnosis({
+      sourceCoverage: {
+        contentLevel: 'full_text',
+        label: 'Full text',
+        detail: 'Structured source text is available.',
+        hasFullText: true,
+        hasStructuredSections: true
+      },
+      decomposition: {
+        sourceObject: { id: 'source-1', type: 'Paper' },
+        capabilityObjects: [{ id: 'model-1' }],
+        worldObjects: [{ id: 'region-1' }],
+        evidenceObjects: [{ id: 'claim-1' }],
+        bridgeRelations: [{ type: 'supports', from: 'model-1', to: 'claim-1' }],
+        extractionIntegrity: {
+          status: 'needs_review',
+          issues: [{
+            id: 'scope-filtered',
+            severity: 'warning',
+            detail: '1 out-of-scope extracted item was removed before graph construction.'
+          }]
+        },
+        provenance: { extractionMethod: 'hybrid' }
+      },
+      stored: { entities: 4, relations: 1 }
+    });
+    const readiness = buildProjectReadinessSummary(diagnosis);
+
+    assert.ok(diagnosis.some(item => item.key === 'integrity' && item.status === 'limited'));
+    assert.strictEqual(readiness.status, 'review');
+    assert.ok(readiness.blockers.includes('Extraction Integrity'));
+  });
+
+  it('should surface content fidelity gaps in extraction integrity diagnosis', () => {
+    const diagnosis = buildProjectImportDiagnosis({
+      sourceCoverage: {
+        contentLevel: 'full_text',
+        label: 'Full text',
+        detail: 'Structured source text is available.',
+        hasFullText: true,
+        hasStructuredSections: true
+      },
+      decomposition: {
+        sourceObject: { id: 'source-1', type: 'Paper' },
+        capabilityObjects: [{ id: 'model-1' }],
+        worldObjects: [],
+        evidenceObjects: [{ id: 'claim-1' }],
+        bridgeRelations: [{ type: 'supports', from: 'model-1', to: 'claim-1' }],
+        extractionIntegrity: {
+          status: 'needs_review',
+          contentFidelity: {
+            level: 'weak',
+            score: 50,
+            missingFacets: ['data', 'method']
+          },
+          issues: [{
+            id: 'content-fidelity',
+            severity: 'warning',
+            detail: 'Content fidelity is weak (50%): missing critical facets: data, method.'
+          }]
+        },
+        provenance: { extractionMethod: 'hybrid' }
+      },
+      stored: { entities: 3, relations: 1 }
+    });
+
+    const integrity = diagnosis.find(item => item.key === 'integrity');
+
+    assert.strictEqual(integrity.status, 'limited');
+    assert.ok(integrity.detail.includes('Content fidelity 50%'));
+    assert.ok(integrity.detail.includes('missing data, method'));
+  });
+
+  it('should surface weak graph traceability in extraction integrity diagnosis', () => {
+    const diagnosis = buildProjectImportDiagnosis({
+      sourceCoverage: {
+        contentLevel: 'full_text',
+        label: 'Full text',
+        detail: 'Structured source text is available.',
+        hasFullText: true,
+        hasStructuredSections: true
+      },
+      decomposition: {
+        sourceObject: { id: 'source-1', type: 'Paper' },
+        capabilityObjects: [{ id: 'model-1' }],
+        worldObjects: [{ id: 'region-1' }],
+        evidenceObjects: [{ id: 'claim-1' }],
+        bridgeRelations: [{ type: 'supports', from: 'model-1', to: 'claim-1' }],
+        extractionIntegrity: {
+          status: 'needs_review',
+          graphTraceability: {
+            level: 'weak',
+            score: 50,
+            routeNodeCount: 3,
+            traceableNodeCount: 0,
+            weakNodeCount: 3,
+            untracedNodeCount: 0
+          },
+          issues: [{
+            id: 'graph-traceability',
+            severity: 'warning',
+            detail: 'Research graph traceability is weak (50%): no route node is strongly linked to source-grounded objects, evidence, or reusable resources.'
+          }]
+        },
+        provenance: { extractionMethod: 'hybrid' }
+      },
+      stored: { entities: 4, relations: 1 }
+    });
+    const readiness = buildProjectReadinessSummary(diagnosis);
+    const actions = buildProjectActionPlan(diagnosis, readiness);
+    const integrity = diagnosis.find(item => item.key === 'integrity');
+
+    assert.strictEqual(integrity.status, 'limited');
+    assert.ok(integrity.detail.includes('Graph traceability 50%'));
+    assert.ok(integrity.detail.includes('3 weakly traced route node'));
+    assert.ok(actions.some(action => action.id === 'review-extraction-integrity'));
+  });
+
+  it('should surface unexplained visual evidence in extraction integrity diagnosis', () => {
+    const diagnosis = buildProjectImportDiagnosis({
+      sourceCoverage: {
+        contentLevel: 'full_text',
+        label: 'Full text',
+        detail: 'Structured source text is available.',
+        hasFullText: true,
+        hasStructuredSections: true
+      },
+      decomposition: {
+        sourceObject: { id: 'source-1', type: 'Paper' },
+        capabilityObjects: [{ id: 'model-1' }],
+        worldObjects: [],
+        evidenceObjects: [{ id: 'claim-1' }],
+        bridgeRelations: [{ type: 'supports', from: 'model-1', to: 'claim-1' }],
+        visualEvidence: [{ id: 'figure-1', caption: 'Figure 1: Evaluation result.' }],
+        extractionIntegrity: {
+          status: 'needs_review',
+          visualEvidenceQuality: {
+            level: 'weak',
+            expectedCount: 1,
+            visualCount: 1,
+            explainedCount: 0,
+            reasons: ['visual evidence lacks source-grounded interpretation']
+          },
+          issues: [{
+            id: 'visual-evidence',
+            severity: 'warning',
+            detail: 'Visual evidence quality is weak: visual evidence lacks source-grounded interpretation.'
+          }]
+        },
+        provenance: { extractionMethod: 'hybrid' }
+      },
+      stored: { entities: 3, relations: 1 }
+    });
+
+    const integrity = diagnosis.find(item => item.key === 'integrity');
+
+    assert.strictEqual(integrity.status, 'limited');
+    assert.ok(integrity.detail.includes('Visual evidence weak'));
+    assert.ok(integrity.detail.includes('0/1 figure/table item(s) explained'));
+  });
+
+  it('should surface weak resource graph quality in extraction integrity diagnosis', () => {
+    const diagnosis = buildProjectImportDiagnosis({
+      sourceCoverage: {
+        contentLevel: 'full_text',
+        label: 'Full text',
+        detail: 'Structured source text is available.',
+        hasFullText: true,
+        hasStructuredSections: true
+      },
+      decomposition: {
+        sourceObject: { id: 'source-1', type: 'Paper' },
+        capabilityObjects: [{ id: 'model-1' }],
+        worldObjects: [],
+        evidenceObjects: [{ id: 'claim-1' }],
+        bridgeRelations: [{ type: 'supports', from: 'model-1', to: 'claim-1' }],
+        resourceGraph: {
+          summary: { resourceCount: 2, linkedResourceCount: 0, reusableResourceCount: 1 }
+        },
+        extractionIntegrity: {
+          status: 'needs_review',
+          resourceGraphQuality: {
+            level: 'weak',
+            resourceCount: 2,
+            linkedResourceCount: 0,
+            reusableResourceCount: 1,
+            reasons: ['resources are not linked to content route or evidence nodes']
+          },
+          issues: [{
+            id: 'resource-graph-quality',
+            severity: 'warning',
+            detail: 'Resource graph quality is weak: resources are not linked to content route or evidence nodes.'
+          }]
+        },
+        provenance: { extractionMethod: 'hybrid' }
+      },
+      stored: { entities: 3, relations: 1 }
+    });
+
+    const integrity = diagnosis.find(item => item.key === 'integrity');
+
+    assert.strictEqual(integrity.status, 'limited');
+    assert.ok(integrity.detail.includes('Resource graph weak'));
+    assert.ok(integrity.detail.includes('0/2 resource(s) linked'));
+  });
+
+  it('should surface weak source brief quality in extraction integrity diagnosis', () => {
+    const diagnosis = buildProjectImportDiagnosis({
+      sourceCoverage: {
+        contentLevel: 'full_text',
+        label: 'Full text',
+        detail: 'Structured source text is available.',
+        hasFullText: true,
+        hasStructuredSections: true
+      },
+      decomposition: {
+        sourceObject: { id: 'source-1', type: 'Paper' },
+        capabilityObjects: [{ id: 'model-1' }],
+        worldObjects: [],
+        evidenceObjects: [{ id: 'claim-1' }],
+        bridgeRelations: [{ type: 'supports', from: 'model-1', to: 'claim-1' }],
+        researchBrief: {
+          keyPoints: [{ id: 'method', label: 'Method', value: 'Model', detail: 'Model.' }]
+        },
+        extractionIntegrity: {
+          status: 'needs_review',
+          briefQuality: {
+            level: 'weak',
+            pointCount: 1,
+            informativePointCount: 0,
+            groundedPointCount: 0,
+            reasons: ['source brief needs at least three key points']
+          },
+          issues: [{
+            id: 'brief-quality',
+            severity: 'warning',
+            detail: 'Source brief quality is weak: source brief needs at least three key points.'
+          }]
+        },
+        provenance: { extractionMethod: 'hybrid' }
+      },
+      stored: { entities: 3, relations: 1 }
+    });
+
+    const integrity = diagnosis.find(item => item.key === 'integrity');
+
+    assert.strictEqual(integrity.status, 'limited');
+    assert.ok(integrity.detail.includes('Source brief weak'));
+    assert.ok(integrity.detail.includes('0/1 point(s) informative'));
+  });
+
   it('should report pipeline state before decomposition exists', () => {
     const pending = buildProjectImportDiagnosis({ status: 'analyzing' });
     assert.strictEqual(pending.length, 1);

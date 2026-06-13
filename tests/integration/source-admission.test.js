@@ -6,6 +6,7 @@ const { assert, describe, it } = require('../setup');
 const { SourceAdmission, PROCESSING_DEPTHS } = require('../../core/admission/SourceAdmission');
 const InformationDensityEvaluator = require('../../core/admission/evaluators/information-density');
 const { SourceRoleEvaluator, SOURCE_ROLES, getActivatedOntology, detectSourceType } = require('../../core/admission/evaluators/source-role');
+const { LLMRoleEvaluator } = require('../../core/admission/evaluators/llm-role-evaluator');
 const { MockLLM, createMockLLM } = require('../helpers/mock-llm');
 
 describe('Information Density Evaluator', () => {
@@ -149,6 +150,67 @@ describe('Source Role Evaluator', () => {
 
     assert.ok(result.roleCount >= 2, `Should detect multiple roles, got ${result.roleCount}`);
     assert.ok(result.detectedRoles.length >= 2, 'Should have multiple detected roles');
+  });
+
+  it('should parse fenced or repaired LLM role JSON without falling back', async () => {
+    const evaluator = new LLMRoleEvaluator({
+      async chat() {
+        return {
+          content: `Here is the role evaluation:\n\n\`\`\`json\n{
+            "roles": {
+              "earth_content": 0.4,
+              "data_capability": 0,
+              "observation_capability": 0,
+              "modeling_capability": 0,
+              "computing_capability": 0,
+              "governance_capability": 0,
+              "socioeconomic_capability": 0,
+              "evidence_assessment": 0.2,
+              "action_capability": 0.4,
+              "event_signal": 0.9,
+            },
+            "primaryRole": "event_signal",
+            "reasons": ["Reports an Earth event with impacts and response context"],
+            "transferPotential": 0.3,
+            "transferReasons": [],
+          }\n\`\`\``
+        };
+      }
+    });
+
+    const result = await evaluator.evaluateRoles({
+      type: 'News',
+      title: 'Severe flooding disrupts transport and power in delta region',
+      description: 'A regional flood event report with location, impacts, response, and recovery context.'
+    });
+
+    assert.strictEqual(result.evaluationMethod, 'llm');
+    assert.strictEqual(result.primaryRole, 'event_signal');
+    assert.ok(result.roles.event_signal >= 0.8);
+  });
+
+  it('should return structured fallback reasons without logging recoverable role parse failures', async () => {
+    const originalError = console.error;
+    const errors = [];
+    console.error = (...args) => errors.push(args);
+    try {
+      const evaluator = new LLMRoleEvaluator({
+        async chat() {
+          return { content: '**Evaluation** This source is event-related but not JSON.' };
+        }
+      });
+
+      const result = await evaluator.evaluateRoles({
+        type: 'News',
+        title: 'Flood event report'
+      });
+
+      assert.strictEqual(result.evaluationMethod, 'type-fallback');
+      assert.ok(result.reasons.some(reason => reason.includes('LLM role evaluation failed')));
+      assert.strictEqual(errors.length, 0, 'Recoverable role fallback should not write to stderr');
+    } finally {
+      console.error = originalError;
+    }
   });
 });
 

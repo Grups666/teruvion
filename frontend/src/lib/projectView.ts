@@ -6,6 +6,7 @@ import type {
   ProjectActionItem,
   ProjectDiagnosisItem,
   ProjectDiagnosisStatus,
+  ProjectRecomposition,
   ProjectReadinessSummary
 } from '../types/api';
 import { getEntityLayer } from '../types/api';
@@ -132,20 +133,31 @@ export function getProjectStats(entities: Entity[]): ProjectStats {
 
 export function getProjectQuality(project: Project, entities: Entity[]): ProjectQuality {
   const decomposition = project.metadata?.decomposition as DecompositionView | undefined;
+  const recomposition = project.metadata?.projectRecomposition as ProjectRecomposition | undefined;
   const sourceCoverage = project.metadata?.sourceCoverage as SourceCoverageView | undefined;
   const admission = project.metadata?.admission;
   const stats = getProjectStats(entities);
+  const aggregateCounts = recomposition?.aggregate?.objectCounts || {};
+  const effectiveStats = {
+    source: Math.max(stats.source, aggregateCounts.source || 0),
+    capability: Math.max(stats.capability, aggregateCounts.capability || 0),
+    world: Math.max(stats.world, aggregateCounts.world || 0),
+    foundation: stats.foundation
+  };
   const confidence = typeof decomposition?.confidence === 'number'
     ? decomposition.confidence
     : null;
   const rawMethod = decomposition?.provenance?.extractionMethod || 'pending';
   const method = formatExtractionMethod(rawMethod);
-  const relations = (decomposition?.bridgeRelations?.length || 0)
-    + Math.max(0, stats.capability + stats.world + stats.foundation - 1);
+  const relations = Math.max(
+    recomposition?.aggregate?.route?.edgeCount || 0,
+    (decomposition?.bridgeRelations?.length || 0)
+      + Math.max(0, effectiveStats.capability + effectiveStats.world + effectiveStats.foundation - 1)
+  );
 
   const notes: ProjectQualityNote[] = [];
 
-  if (!decomposition) {
+  if (!decomposition && !recomposition) {
     return {
       level: 'pending',
       label: project.analysis?.status === 'failed' ? 'Failed' : 'Pending',
@@ -163,7 +175,7 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
 
   const coverage = buildProjectCoverageSummary(sourceCoverage);
 
-  if (decomposition.extractionMetadata?.llmExtraction?.success === false) {
+  if (decomposition?.extractionMetadata?.llmExtraction?.success === false) {
     const llmError = decomposition.extractionMetadata?.llmExtraction?.error;
     notes.push({
       text: llmError
@@ -174,7 +186,7 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
   }
 
   if (rawMethod === 'source-text-fallback') {
-    const fallback = decomposition.extractionMetadata?.textFallbackExtraction;
+    const fallback = decomposition?.extractionMetadata?.textFallbackExtraction;
     const fallbackCount = (fallback?.capabilityCount || 0)
       + (fallback?.worldCount || 0)
       + (fallback?.evidenceCount || 0);
@@ -190,30 +202,134 @@ export function getProjectQuality(project: Project, entities: Entity[]): Project
     notes.push({ text: 'light admission depth', level: 'info' });
   }
 
-  if (stats.world === 0) {
+  if (effectiveStats.world === 0) {
     notes.push({ text: 'no spatial anchor', level: 'info' });
   }
 
-  if (stats.capability === 0) {
+  if (effectiveStats.capability === 0) {
     notes.push({ text: 'no method or resource structure', level: 'warning' });
   }
 
-  if ((decomposition.evidenceObjects?.length || 0) === 0) {
+  if ((decomposition?.evidenceObjects?.length || 0) === 0) {
     notes.push({ text: 'no evidence chain', level: 'info' });
   }
 
   const routeQuality = getRouteQualityLevel(decomposition);
+  const contentFidelity = getContentFidelity(decomposition);
+  const graphTraceability = getGraphTraceability(decomposition);
+  const briefQuality = getBriefQuality(decomposition);
+  const visualEvidenceQuality = getVisualEvidenceQuality(decomposition);
+  const resourceGraphQuality = getResourceGraphQuality(decomposition);
   if (routeQuality === 'limited') {
     notes.push({ text: 'limited content route', level: 'warning' });
   }
+  if (graphTraceability?.level === 'weak') {
+    notes.push({
+      text: graphTraceability.untracedNodeCount
+        ? `weak graph traceability: ${graphTraceability.untracedNodeCount} untraced route nodes`
+        : graphTraceability.weakNodeCount
+          ? `weak graph traceability: ${graphTraceability.weakNodeCount} weakly traced route nodes`
+          : 'weak graph traceability',
+      level: 'warning'
+    });
+  } else if (graphTraceability?.level === 'partial') {
+    notes.push({
+      text: graphTraceability.weakNodeCount
+        ? `partial graph traceability: ${graphTraceability.weakNodeCount} weakly traced route nodes`
+        : 'partial graph traceability',
+      level: 'info'
+    });
+  }
+  if (contentFidelity?.level === 'weak') {
+    const grounding = getContentFidelityGroundingNote(contentFidelity);
+    notes.push({
+      text: grounding
+        ? `low content fidelity: ${grounding}`
+        : contentFidelity.missingFacets?.length
+        ? `low content fidelity: missing ${contentFidelity.missingFacets.join(', ')}`
+        : 'low content fidelity',
+      level: 'warning'
+    });
+  } else if (contentFidelity?.level === 'partial') {
+    const grounding = getContentFidelityGroundingNote(contentFidelity);
+    notes.push({
+      text: grounding
+        ? `partial content fidelity: ${grounding}`
+        : contentFidelity.missingFacets?.length
+        ? `partial content fidelity: missing ${contentFidelity.missingFacets.join(', ')}`
+        : 'partial content fidelity',
+      level: 'info'
+    });
+  }
+  if (briefQuality?.level === 'weak' || briefQuality?.level === 'missing') {
+    const missing = Array.isArray(briefQuality.missingExpected) && briefQuality.missingExpected.length > 0
+      ? `missing ${briefQuality.missingExpected.join(', ')}`
+      : '';
+    notes.push({
+      text: missing
+        ? `weak source brief: ${missing}`
+        : briefQuality.lowInformationPointCount
+          ? `weak source brief: ${briefQuality.lowInformationPointCount} low-information points`
+          : 'weak source brief',
+      level: 'warning'
+    });
+  } else if (briefQuality?.level === 'partial') {
+    notes.push({
+      text: briefQuality.ungroundedPointCount
+        ? `partial source brief: ${briefQuality.ungroundedPointCount} ungrounded points`
+        : 'partial source brief',
+      level: 'info'
+    });
+  }
+  if (visualEvidenceQuality?.level === 'weak' || visualEvidenceQuality?.level === 'missing') {
+    notes.push({
+      text: visualEvidenceQuality.visualCount
+        ? `weak visual evidence: ${visualEvidenceQuality.explainedCount || 0}/${visualEvidenceQuality.visualCount} explained`
+        : 'visual evidence missing',
+      level: 'warning'
+    });
+  } else if (visualEvidenceQuality?.level === 'partial') {
+    notes.push({
+      text: visualEvidenceQuality.visualCount
+        ? `partial visual evidence: ${visualEvidenceQuality.explainedCount || 0}/${visualEvidenceQuality.visualCount} explained`
+        : 'partial visual evidence',
+      level: 'info'
+    });
+  }
+  if (resourceGraphQuality?.level === 'weak') {
+    notes.push({
+      text: resourceGraphQuality.resourceCount
+        ? `weak resource graph: ${resourceGraphQuality.linkedResourceCount || 0}/${resourceGraphQuality.resourceCount} linked`
+        : 'weak resource graph',
+      level: 'warning'
+    });
+  } else if (resourceGraphQuality?.level === 'partial') {
+    notes.push({
+      text: resourceGraphQuality.reusableResourceCount
+        ? `partial resource graph: ${resourceGraphQuality.reusableResourceCount} reusable resources need review`
+        : 'partial resource graph',
+      level: 'info'
+    });
+  }
 
   const breadthScore =
-    (stats.source > 0 ? 1 : 0)
-    + (stats.capability > 0 ? 1 : 0)
-    + (stats.world > 0 ? 1 : 0)
-    + ((decomposition.evidenceObjects?.length || 0) > 0 ? 1 : 0);
+    (effectiveStats.source > 0 ? 1 : 0)
+    + (effectiveStats.capability > 0 ? 1 : 0)
+    + (effectiveStats.world > 0 ? 1 : 0)
+    + ((decomposition?.evidenceObjects?.length || 0) > 0 ? 1 : 0);
 
-  const level = getProjectQualityLevel(confidence, breadthScore, stats, routeQuality, relations > 0);
+  const level = getProjectQualityLevel(
+    confidence,
+    breadthScore,
+    effectiveStats,
+    routeQuality,
+    relations > 0,
+    contentFidelity?.level,
+    graphTraceability?.level,
+    briefQuality?.level,
+    visualEvidenceQuality?.level,
+    resourceGraphQuality?.level
+  );
   const labels: Record<ProjectQualityLevel, string> = {
     excellent: 'Strong Route',
     useful: 'Useful Route',
@@ -266,9 +382,14 @@ export function getProjectProgressSteps(project: Project): ProjectProgressStep[]
 
 export function getSourceCapsule(project: Project, quality: ProjectQuality | null): SourceCapsule {
   const decomposition = project.metadata?.decomposition as DecompositionView | undefined;
+  const recomposition = project.metadata?.projectRecomposition as ProjectRecomposition | undefined;
+  const aggregateBrief = recomposition?.aggregate?.brief;
+  const primarySource = recomposition?.sources?.[0];
   const sourceObject = decomposition?.sourceObject || {};
   const sourceCoverage = project.metadata?.sourceCoverage as SourceCoverageView | undefined;
-  const title = sourceObject.name
+  const title = aggregateBrief?.title
+    || primarySource?.title
+    || sourceObject.name
     || sourceObject.title
     || sourceObject.attributes?.title
     || sourceObject.attributes?.name
@@ -278,7 +399,9 @@ export function getSourceCapsule(project: Project, quality: ProjectQuality | nul
   const confidence = typeof decomposition?.confidence === 'number'
     ? `${Math.round(decomposition.confidence * 100)}%`
     : 'Unknown';
-  const brief = decomposition?.researchBrief?.oneLine
+  const brief = aggregateBrief?.oneLine
+    || primarySource?.brief?.oneLine
+    || decomposition?.researchBrief?.oneLine
     || sourceObject.attributes?.abstract
     || sourceObject.attributes?.description
     || project.description
@@ -287,8 +410,9 @@ export function getSourceCapsule(project: Project, quality: ProjectQuality | nul
 
   return {
     title,
-    type: sourceObject.type || project.metadata?.sourceType || 'Source',
+    type: primarySource?.type || sourceObject.type || project.metadata?.sourceType || 'Source',
     source: selectExternalSourceLink([
+      primarySource?.url,
       sourceObject.attributes?.url,
       sourceObject.attributes?.identifier,
       project.metadata?.source,
@@ -298,7 +422,7 @@ export function getSourceCapsule(project: Project, quality: ProjectQuality | nul
     depth: formatSignalText(project.metadata?.admission?.depth || 'pending'),
     extraction: quality?.method || 'Pending',
     confidence,
-    brief: summarizeSourceCapsuleText(brief, 220),
+    brief: summarizeSourceCapsuleText(brief, 1200),
     reviewState: confidence === 'Unknown'
       ? 'Needs review'
       : `${confidence} extraction confidence`
@@ -308,7 +432,7 @@ export function getSourceCapsule(project: Project, quality: ProjectQuality | nul
 function summarizeSourceCapsuleText(value: unknown, maxLength: number) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}...`;
+  return text.slice(0, maxLength).trim();
 }
 
 function selectExternalSourceLink(candidates: unknown[]): string | null {
@@ -642,8 +766,23 @@ function getProjectQualityLevel(
   breadthScore: number,
   stats: ProjectStats,
   routeQuality: string | null,
-  hasLinks: boolean
+  hasLinks: boolean,
+  contentFidelity?: string | null,
+  graphTraceability?: string | null,
+  briefQuality?: string | null,
+  visualEvidenceQuality?: string | null,
+  resourceGraphQuality?: string | null
 ): ProjectQualityLevel {
+  if (graphTraceability === 'weak') return 'limited';
+  if (contentFidelity === 'weak') return 'limited';
+  if (briefQuality === 'weak' || briefQuality === 'missing') return 'limited';
+  if (visualEvidenceQuality === 'weak' || visualEvidenceQuality === 'missing') return 'limited';
+  if (resourceGraphQuality === 'weak') return 'limited';
+  if (graphTraceability === 'partial' && routeQuality !== 'content') return 'partial';
+  if (contentFidelity === 'partial' && routeQuality !== 'content') return 'partial';
+  if (briefQuality === 'partial' && routeQuality !== 'content') return 'partial';
+  if (visualEvidenceQuality === 'partial' && routeQuality !== 'content') return 'partial';
+  if (resourceGraphQuality === 'partial' && routeQuality !== 'content') return 'partial';
   if (routeQuality === 'content' && (confidence ?? 0) >= 0.75 && breadthScore >= 3) return 'excellent';
   if ((routeQuality === 'content' || routeQuality === 'partial') && (confidence ?? 0) >= 0.55 && stats.capability > 0) return 'useful';
   if (routeQuality === 'partial' || hasLinks || breadthScore >= 2) return 'partial';
@@ -654,6 +793,38 @@ function getRouteQualityLevel(decomposition?: DecompositionView) {
   const provenanceQuality = decomposition?.workflowOutline?.provenance?.routeQuality;
   const extractionQuality = decomposition?.extractionMetadata?.researchRoute;
   return provenanceQuality?.level || extractionQuality?.quality || null;
+}
+
+function getContentFidelity(decomposition?: DecompositionView) {
+  return decomposition?.extractionIntegrity?.contentFidelity || null;
+}
+
+function getGraphTraceability(decomposition?: DecompositionView) {
+  return decomposition?.extractionIntegrity?.graphTraceability || null;
+}
+
+function getBriefQuality(decomposition?: DecompositionView) {
+  return decomposition?.extractionIntegrity?.briefQuality || null;
+}
+
+function getVisualEvidenceQuality(decomposition?: DecompositionView) {
+  return decomposition?.extractionIntegrity?.visualEvidenceQuality || null;
+}
+
+function getResourceGraphQuality(decomposition?: DecompositionView) {
+  return decomposition?.extractionIntegrity?.resourceGraphQuality || null;
+}
+
+function getContentFidelityGroundingNote(contentFidelity?: any) {
+  const ungrounded = Array.isArray(contentFidelity?.grounding?.ungroundedFacets)
+    ? contentFidelity.grounding.ungroundedFacets
+    : [];
+  if (ungrounded.length > 0) return `ungrounded ${ungrounded.join(', ')}`;
+  const weak = Array.isArray(contentFidelity?.grounding?.weaklyGroundedFacets)
+    ? contentFidelity.grounding.weaklyGroundedFacets
+    : [];
+  if (weak.length > 0) return `weak support for ${weak.join(', ')}`;
+  return '';
 }
 
 function formatExtractionMethod(method: string) {

@@ -19,6 +19,8 @@ const ontology = require('../registry/ontology');
 const DynamicOntologyActivation = require('./DynamicOntologyActivation');
 const SectionParser = require('./SectionParser');
 const { validateRelation, getValidRelations, getConfidenceCap, BRIDGE_RELATION_SEMANTICS } = require('../registry/ontology/relation-semantics');
+const { assessSourceObjectGraphQuality } = require('../quality/SourceObjectGraphQuality');
+const { parseLLMJson } = require('../utils/llm-json');
 
 const CAPABILITY_EXTRACTION_PROTOCOL = [
   { category: 'data', method: '_extractDataCapabilities', section: 'data', syncSources: ['metadata'], fullSources: ['metadata', 'text'] },
@@ -127,6 +129,9 @@ const TYPE_RESOLUTION_PROTOCOLS = {
   }
 };
 
+const DEEP_DECOMPOSITION_AGENT_TASK = 'source-to-object-graph-decomposition';
+const DEEP_DECOMPOSITION_SCHEMA_VERSION = 'source-object-graph-v1';
+
 class DigitalEarthDecomposer {
   constructor(llm, options = {}) {
     this.llm = llm;
@@ -135,7 +140,9 @@ class DigitalEarthDecomposer {
       confidenceThreshold: options.confidenceThreshold || 0.6,
       useLLM: options.useLLM !== false, // Default to true
       maxChunkSize: options.maxChunkSize || 8000,
+      maxLLMChunks: options.maxLLMChunks || 6,
       llmTimeout: options.llmTimeout || 45000,
+      deepExtractionTimeout: options.deepExtractionTimeout || Math.max(options.llmTimeout || 0, 300000),
       // Fallback bridge relations are disabled by default
       // LLM-extracted relations are preferred
       allowFallbackBridgeRelations: options.allowFallbackBridgeRelations || false,
@@ -181,6 +188,15 @@ class DigitalEarthDecomposer {
 
       // Bridge relations (Capability ↔ World connections)
       bridgeRelations: [],
+
+      // Claim/figure/resource graph for source-grounded review.
+      evidenceGraph: null,
+
+      // Reusable resource graph for code/data/source investigation.
+      resourceGraph: null,
+
+      // Integrity report for lossy extraction, filtering, and validation issues.
+      extractionIntegrity: null,
 
       // Provenance tracking
       provenance: {
@@ -233,8 +249,9 @@ class DigitalEarthDecomposer {
       };
       if (this.options.useLLM && this.llm && sourceText.length > 100) {
         try {
-          llmResult = await this._extractWithLLM(input, content, normalizedAdmissionResult);
-          if (!this._hasExtractionObjects(llmResult) && !this._hasResearchRoute(llmResult?.researchRoute)) {
+          const rawLLMResult = await this._extractWithLLM(input, content, normalizedAdmissionResult);
+          llmResult = rawLLMResult;
+          if (!this._hasExtractionObjects(rawLLMResult) && !this._hasResearchRoute(rawLLMResult?.researchRoute) && !this._hasLLMInsights(rawLLMResult?.llmInsights)) {
             llmResult = null;
           }
           result.extractionMetadata.llmExtraction = {
@@ -243,6 +260,16 @@ class DigitalEarthDecomposer {
             evidenceCount: llmResult?.evidenceObjects?.length || 0,
             relationCount: llmResult?.bridgeRelations?.length || 0,
             routeNodeCount: llmResult?.researchRoute?.nodes?.length || 0,
+            keyFindingCount: rawLLMResult?.llmInsights?.keyFindings?.length || 0,
+            researchGapCount: rawLLMResult?.llmInsights?.researchGaps?.length || 0,
+            figureAnalysisCount: rawLLMResult?.llmInsights?.figureAnalyses?.length || 0,
+            resourceLinkCount: rawLLMResult?.llmInsights?.resourceLinks?.length || 0,
+            agentTask: rawLLMResult?.agentTask || DEEP_DECOMPOSITION_AGENT_TASK,
+            schemaVersion: rawLLMResult?.schemaVersion || DEEP_DECOMPOSITION_SCHEMA_VERSION,
+            agentProvider: rawLLMResult?.agentRuns?.[0]?.provider || rawLLMResult?.agent?.provider || this.llm?.getAgentStatus?.()?.provider || 'api',
+            agentRuns: rawLLMResult?.agentRuns || [],
+            schemaWarnings: rawLLMResult?.schemaWarnings || [],
+            requestErrors: rawLLMResult?.requestErrors || [],
             success: Boolean(llmResult)
           };
         } catch (llmError) {
@@ -255,10 +282,13 @@ class DigitalEarthDecomposer {
 
       // Step 4: Merge results (LLM takes precedence, metadata as fallback)
       const merged = this._mergeExtractions(metadataResult, llmResult, normalizedAdmissionResult, textFallbackResult);
+      const scopeFiltering = this._filterOutOfScopeExtraction(merged);
       result.capabilityObjects = merged.capabilityObjects;
       result.worldObjects = merged.worldObjects;
       result.evidenceObjects = merged.evidenceObjects;
+      result.llmInsights = merged.llmInsights || this._emptyLLMInsights();
       result.extractionMetadata.mergeStrategy = merged.strategy;
+      result.extractionMetadata.scopeFiltering = scopeFiltering;
       result.extractionMetadata.researchRoute = merged.researchRoute
         ? {
             source: merged.researchRoute.provenance?.method || 'llm-research-route',
@@ -317,9 +347,12 @@ class DigitalEarthDecomposer {
         stageCount: routeQuality.stageCount,
         reasons: routeQuality.reasons
       };
-      result.externalResources = this._extractExternalResources(result, content);
       result.visualEvidence = this._extractVisualEvidence(content, result);
+      result.externalResources = this._extractExternalResources(result, content);
+      result.resourceGraph = this._buildResourceGraph(result, content);
+      result.evidenceGraph = this._buildEvidenceGraph(result, content);
       result.researchBrief = this._buildResearchBrief(result, content, normalizedAdmissionResult);
+      result.extractionIntegrity = this._buildExtractionIntegrity(result, content);
       result.inferredLimitations = this._buildInferredLimitations(result);
       result.inferredLimitations = await this._buildCriticalLimitations(result, content, result.inferredLimitations);
 
@@ -385,7 +418,7 @@ class DigitalEarthDecomposer {
     };
 
     const sourceText = this._getSourceText(content);
-    const sections = content.sections || {};
+    const sections = this._normalizedSectionMap(content, admissionResult.sourceType);
     const metadata = content.metadata || {};
 
     if (!sourceText || sourceText.length < 100) {
@@ -482,6 +515,47 @@ class DigitalEarthDecomposer {
           })
         }));
         result.sections.scopeFallback = { count: 1, section: abstractSection.key };
+      }
+    }
+
+    const evidenceSection = this._findSectionByRole(sections, [
+      'results',
+      'result',
+      'key findings',
+      'findings',
+      'impact details',
+      'impact',
+      'overall performance',
+      'temperature records',
+      'future risks',
+      'current status',
+      'assessment'
+    ]);
+    if (evidenceSection) {
+      const evidenceClaim = this._selectClaimSentence(evidenceSection.text);
+      const alreadyExtracted = evidenceClaim && result.evidenceObjects.some(object => {
+        const statement = object.attributes?.statement || '';
+        return this._textOverlapScore(statement, evidenceClaim) > 0.8;
+      });
+      if (evidenceClaim && !alreadyExtracted) {
+        result.evidenceObjects.push(this._createExtractedObject({
+          type: 'Claim',
+          idPrefix: 'claim',
+          idSeed: evidenceClaim.substring(0, 80),
+          attributes: {
+            statement: evidenceClaim,
+            type: 'source-stated-evidence'
+          },
+          metadata: {
+            sourceDerived: true,
+            confidence: 0.5
+          },
+          provenance: this._createProvenance(evidenceSection.key, evidenceClaim, {
+            evidenceStrength: 'weak',
+            note: 'Source-text fallback evidence. Review before treating as a verified conclusion.'
+          })
+        }));
+        result.sections.evidenceFallback = { count: 1, section: evidenceSection.key };
       }
     }
 
@@ -643,6 +717,160 @@ class DigitalEarthDecomposer {
     return this._extractEvidenceObjectsFromMetadata(metadata);
   }
 
+  _compactAgentSystemPrompt() {
+    return [
+      'You are a source-to-object-graph extraction worker for Teruvion, not a coding assistant.',
+      'Use only the supplied source text and normalized metadata. Do not inspect files, call tools, browse, or modify the repository.',
+      'Extract what the source is actually about: data, variables, methods, models, workflow steps, figures, tables, findings, limitations, resources, and spatial/temporal context.',
+      'The ontology is an organization layer. Do not make user-facing route nodes named Paper, Source, Connected, Global view, Evidence available, Workflow readable, or other internal Teruvion states.',
+      'Preserve provenance and uncertainty. Do not fabricate evidence, citations, resources, metrics, or claims.',
+      'Return JSON only. No markdown, comments, or prose outside JSON.'
+    ].join('\n');
+  }
+
+  _buildCompactAgentExtractionPrompt(admissionResult, content) {
+    const metadata = content?.metadata || {};
+    const sourceSummary = {
+      sourceType: admissionResult.sourceType,
+      depth: admissionResult.depth,
+      primaryRole: admissionResult.primaryRole,
+      activatedCategories: admissionResult.activatedCategories || [],
+      activatedOntologyLayers: admissionResult.activatedOntologyLayers || [],
+      title: content?.title || metadata.title || '',
+      doi: metadata.doi || content?.doi || '',
+      url: metadata.url || content?.url || ''
+    };
+
+    return `Task: build a low-loss, source-grounded object graph for Teruvion.
+
+Source context:
+${JSON.stringify(sourceSummary, null, 2)}
+
+Return JSON matching source-object-graph-v1:
+{
+  "capabilityObjects": [
+    {
+      "id": "stable-id",
+      "type": "DataObject|ModelObject|MethodObject|WorkflowObject|AlgorithmObject|ResourceObject",
+      "name": "Concrete source term",
+      "description": "What the source says",
+      "properties": {},
+      "provenance": { "sourceText": "verbatim supporting text", "section": "section label" },
+      "confidence": 0.0
+    }
+  ],
+  "worldObjects": [
+    {
+      "id": "stable-id",
+      "type": "RegionObject|EventObject|HazardObject|VariableObject|ResourceObject|ActorObject",
+      "name": "Concrete source term",
+      "description": "What the source says",
+      "properties": {},
+      "provenance": { "sourceText": "verbatim supporting text", "section": "section label" },
+      "confidence": 0.0
+    }
+  ],
+  "evidenceObjects": [
+    {
+      "id": "stable-id",
+      "type": "ClaimObject|FindingObject|FigureObject|TableObject|MetricObject|LimitationObject",
+      "name": "Concrete source term",
+      "statement": "Claim, finding, metric, limitation, or visual evidence",
+      "properties": {},
+      "provenance": { "sourceText": "verbatim supporting text", "section": "section label" },
+      "confidence": 0.0
+    }
+  ],
+  "bridgeRelations": [
+    {
+      "from": "object-id",
+      "to": "object-id",
+      "type": "feeds|supports|interprets|evaluates|uses|produces|measures|predicts|models|compares|limited_by|linked_to",
+      "label": "short relation label",
+      "provenance": { "sourceText": "verbatim supporting text", "section": "section label" },
+      "confidence": 0.0
+    }
+  ],
+  "sourceBrief": {
+    "oneLine": "Dense source-grounded summary of what the source actually does",
+    "keyPoints": [
+      {
+        "id": "brief-point-id",
+        "label": "Finding|Method|Input|Gap|Limitation|Resource",
+        "value": "Concrete source content",
+        "detail": "Why it matters and how it connects to the route",
+        "provenance": { "sourceText": "verbatim supporting text", "section": "section" },
+        "support": { "routeNodeId": "node-id", "objectId": "object-id", "resourceUrl": "https://..." }
+      }
+    ]
+  },
+  "researchRoute": {
+    "title": "What this source does",
+    "summary": "One sentence technical/content route",
+    "nodes": [
+      {
+        "id": "stable-id",
+        "label": "Concrete data/method/model/result/resource",
+        "type": "Data|Variable|Method|Model|Workflow|Context|Finding|Limitation|Resource",
+        "stage": "data|method|execution|context|evidence|resource",
+        "summary": "How this node contributes",
+        "provenance": { "sourceText": "verbatim supporting text", "section": "section label" },
+        "support": { "objectId": "object-id", "resourceUrl": "https://...", "evidenceId": "evidence-id" },
+        "children": [
+          { "label": "Specific detail", "value": "Source content", "detail": "Why it matters" }
+        ]
+      }
+    ],
+    "edges": [
+      { "from": "node-id", "to": "node-id", "label": "feeds|supports|evaluates|produces|constrains|links" }
+    ]
+  },
+  "keyFindings": [
+    { "id": "finding-id", "statement": "Source-grounded finding", "provenance": { "sourceText": "verbatim text", "section": "section" }, "confidence": 0.0 }
+  ],
+  "researchGaps": [
+    { "id": "gap-id", "statement": "Source-grounded gap or uncertainty", "provenance": { "sourceText": "verbatim text", "section": "section" }, "confidence": 0.0 }
+  ],
+  "limitations": [
+    { "id": "limitation-id", "statement": "Source-grounded limitation", "provenance": { "sourceText": "verbatim text", "section": "section" }, "confidence": 0.0 }
+  ],
+  "figureAnalyses": [
+    {
+      "figure": "Figure/Table label",
+      "caption": "caption if present",
+      "interpretation": "What the visual shows",
+      "howProduced": "How the visual/result was produced if stated",
+      "supportedClaim": "Which claim or route node it supports",
+      "provenance": { "sourceText": "caption or nearby text", "section": "section" },
+      "confidence": 0.0
+    }
+  ],
+  "resourceLinks": [
+    {
+      "url": "https://...",
+      "resourceType": "code|data|model|documentation|external",
+      "label": "source label",
+      "role": "input data|code implementation|benchmark|supplement|evidence|reproducibility",
+      "targetId": "object-or-route-node-id",
+      "relation": "provides_input|implements|documents|supports|benchmarks|supplements",
+      "provenance": { "sourceText": "verbatim text", "section": "section" },
+      "confidence": 0.0
+    }
+  ]
+}
+
+Extraction quality rules:
+- Prefer concrete source terms over ontology labels.
+- Treat sourceBrief as the user-facing low-loss digest: summarize the real source content, not Teruvion's internal ontology state.
+- For papers, capture inputs, datasets, variables, model/method architecture, evaluation design, metrics, quantitative results, figures/tables, limitations, and reusable resources when present.
+- For repositories, capture architecture, entry points, dependencies, data expectations, runnable workflows, tests, docs, licenses, and limitations when present.
+- For reports/news/datasets, adapt the same contract to actors, events, indicators, resources, methods, evidence, and decisions.
+- Omit fields you cannot support; do not invent missing details.
+- Keep node labels short but meaningful. Put details in summaries, properties, children, or evidence objects.
+- Each researchRoute node should include provenance.sourceText or support to an extracted object/resource/evidence when available.
+- Return only JSON.`;
+  }
+
   /**
    * Phase 2: Extract using LLM with activated ontology
    */
@@ -656,16 +884,27 @@ class DigitalEarthDecomposer {
     // Get activated ontology subset for LLM
     const activatedOntology = this.ontologyActivator.getActivatedOntology(admissionResult);
 
-    // Build extraction prompt
-    const prompt = this.ontologyActivator.generateExtractionPrompt(admissionResult, content);
+    const agentStatus = this.llm?.getAgentStatus?.();
+    const useAgentPrompt = Boolean(agentStatus?.enabled);
+
+    // Build extraction prompt. Claude Code-style harnesses are stronger at
+    // reasoning but slower to start, so keep their contract compact and
+    // task-bound instead of sending the full ontology activation prompt.
+    const prompt = useAgentPrompt
+      ? this._buildCompactAgentExtractionPrompt(admissionResult, content)
+      : this.ontologyActivator.generateExtractionPrompt(admissionResult, content);
 
     // Process chunks (most important sections first)
     const chunks = parsedSections.chunks;
     const allResults = [];
+    const diagnosticResults = [];
+    const requestErrors = [];
     let hadRequestError = false;
 
     // System prompt for LLM
-    const systemPrompt = `You are a Digital Earth knowledge extraction system. Extract structured objects from the source text according to the provided ontology.
+    const systemPrompt = useAgentPrompt
+      ? this._compactAgentSystemPrompt()
+      : `You are a Digital Earth knowledge extraction system. Extract structured objects from the source text according to the provided ontology.
 
 IMPORTANT:
 - Only extract objects explicitly mentioned in the text
@@ -678,6 +917,9 @@ IMPORTANT:
 - researchRoute overview nodes must describe source content: inputs, data, variables, methods, models, processes, context, outputs, findings, limitations, or reusable resources
 - Do not use container/system labels such as Paper, Source, Repository, Connected, Global view, Workflow readable, or Evidence available as overview route nodes
 - researchRoute node children can describe deeper internal structure for in-panel drilldown
+- Preserve content with low information loss: keep concrete data sources, variables, model architecture, parameters, evaluation design, metrics, quantitative findings, limitations, figures/tables, and reusable resources when present
+- Do not extract publisher page modules such as cited-by lists, associated/recommended content, author contribution panels, metrics widgets, legal text, navigation, or advertisements
+- Prefer source-grounded content over ontology labels. Ontology organizes the extraction; it is not itself the paper's content
 - Return valid JSON only`;
 
     // Process each chunk
@@ -691,6 +933,12 @@ If the section exposes how the source actually works, include a researchRoute ob
 - each node may include children for deeper drilldown inside the same graph panel
 - edges should describe how one content unit feeds, supports, interprets, refines, or relates to another
 - if the section does not support a real route, omit researchRoute instead of fabricating one
+- when figures/tables are described, extract claim-like evidence objects and link them through bridgeRelations where source text supports the relation
+- include keyFindings, researchGaps, limitations, figureAnalyses, and resourceLinks when the text supports them; these are UI recomposition hints, not independent evidence
+- figureAnalyses must reference a source figure/table label or caption and explain what the visual shows, how it was produced, and what claim or route step it supports
+- researchGaps and limitations must be source-grounded and include provenance or section; do not invent future work
+- resourceLinks should connect a URL/resource to a route node, evidence object, figure, dataset, code, or reproducibility role when the source states the link
+- use bridge relation vocabulary when possible: covers, observes, measures, simulates, predicts, models, has_variable, represents, mitigates, targets, responds_to, governs, assesses, supports, contradicts, applicable_to, transferable_to, limited_by
 
 ## Source Text (Section: ${chunk.sections.join(', ')})
 ${chunk.text}
@@ -703,9 +951,17 @@ Return JSON for this chunk. Focus on extracting objects mentioned in this sectio
             { role: 'system', content: systemPrompt },
             { role: 'user', content: chunkPrompt }
           ],
+          agentTask: DEEP_DECOMPOSITION_AGENT_TASK,
+          agentSchema: DEEP_DECOMPOSITION_SCHEMA_VERSION,
+          agentContext: {
+            sourceType: admissionResult.sourceType,
+            depth: admissionResult.depth,
+            sections: chunk.sections,
+            chunkIndex: chunk.index
+          },
           temperature: 0.1,
           max_tokens: 4000,
-          timeout: this.options.llmTimeout
+          timeout: this.options.deepExtractionTimeout
         });
 
         // Parse LLM response
@@ -713,12 +969,23 @@ Return JSON for this chunk. Focus on extracting objects mentioned in this sectio
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (!jsonMatch) continue;
 
-        const parsed = JSON.parse(jsonMatch[0]);
+        const parsed = this._coerceLLMExtractionSchema(this._parseLLMJson(jsonMatch[0]));
 
         // Add chunk context to results
-        if (parsed.capabilityObjects || parsed.worldObjects || parsed.evidenceObjects || parsed.researchRoute) {
+        if (this._hasExtractionObjects(parsed) || this._hasResearchRoute(parsed.researchRoute) || this._hasLLMInsights(parsed)) {
           allResults.push({
             ...parsed,
+            agentInfo: response.agent || null,
+            chunkInfo: {
+              sections: chunk.sections,
+              importance: chunk.importance,
+              index: chunk.index
+            }
+          });
+        } else if (parsed.schemaWarnings?.length || response.agent) {
+          diagnosticResults.push({
+            ...parsed,
+            agentInfo: response.agent || null,
             chunkInfo: {
               sections: chunk.sections,
               importance: chunk.importance,
@@ -727,11 +994,17 @@ Return JSON for this chunk. Focus on extracting objects mentioned in this sectio
           });
         }
 
-        // Limit processing to top 3 chunks for efficiency
-        if (allResults.length >= 3) break;
+        // Keep enough high-importance chunks for low-loss extraction while
+        // avoiding runaway agent/API cost on very long sources.
+        if (allResults.length >= this.options.maxLLMChunks) break;
 
       } catch (error) {
         hadRequestError = true;
+        requestErrors.push({
+          chunkIndex: chunk.index,
+          sections: chunk.sections,
+          error: error.message
+        });
         console.error(`LLM extraction failed for chunk ${chunk.index}:`, error.message);
         continue;
       }
@@ -750,6 +1023,11 @@ Return JSON with this structure:
   "worldObjects": [],
   "evidenceObjects": [],
   "bridgeRelations": [],
+  "evidenceGraph": {
+    "claims": [
+      { "id": "claim-id", "statement": "Source-stated finding or limitation", "supports": ["figure-or-resource-id"] }
+    ]
+  },
   "researchRoute": {
     "title": "Research route",
     "summary": "One sentence describing what this source does.",
@@ -778,24 +1056,363 @@ Return JSON with this structure:
             { role: 'system', content: systemPrompt },
             { role: 'user', content: fallbackPrompt }
           ],
+          agentTask: DEEP_DECOMPOSITION_AGENT_TASK,
+          agentSchema: DEEP_DECOMPOSITION_SCHEMA_VERSION,
+          agentContext: {
+            sourceType: admissionResult.sourceType,
+            depth: admissionResult.depth,
+            fallback: true
+          },
           temperature: 0.1,
           max_tokens: 4000,
-          timeout: this.options.llmTimeout
+          timeout: this.options.deepExtractionTimeout
         });
 
         const responseText = response.choices?.[0]?.message?.content || response.content || '';
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          allResults.push(JSON.parse(jsonMatch[0]));
+          const parsed = this._coerceLLMExtractionSchema(this._parseLLMJson(jsonMatch[0]));
+          if (this._hasExtractionObjects(parsed) || this._hasResearchRoute(parsed.researchRoute) || this._hasLLMInsights(parsed)) {
+            allResults.push({
+              ...parsed,
+              agentInfo: response.agent || null
+            });
+          } else if (parsed.schemaWarnings?.length || response.agent) {
+            diagnosticResults.push({
+              ...parsed,
+              agentInfo: response.agent || null
+            });
+          }
         }
       } catch (error) {
+        requestErrors.push({
+          fallback: true,
+          error: error.message
+        });
         console.error('LLM extraction failed (fallback):', error.message);
         throw error;
       }
     }
 
     // Merge all chunk results
-    return this._mergeChunkResults(allResults);
+    const mergedResult = this._mergeChunkResults([...allResults, ...diagnosticResults]);
+    mergedResult.requestErrors = requestErrors;
+    return mergedResult;
+  }
+
+  _parseLLMJson(rawText = '') {
+    return parseLLMJson(rawText);
+  }
+
+  _coerceLLMExtractionSchema(parsed) {
+    const result = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? { ...parsed } : {};
+    const warnings = [];
+
+    const coerceArray = (field) => {
+      if (result[field] === undefined || result[field] === null) {
+        result[field] = [];
+        return;
+      }
+      if (!Array.isArray(result[field])) {
+        warnings.push(`${field} must be an array`);
+        result[field] = [];
+      }
+    };
+
+    coerceArray('capabilityObjects');
+    coerceArray('worldObjects');
+    coerceArray('evidenceObjects');
+    coerceArray('bridgeRelations');
+    coerceArray('keyFindings');
+    coerceArray('researchGaps');
+    coerceArray('limitations');
+    coerceArray('figureAnalyses');
+    coerceArray('resourceLinks');
+    result.sourceBrief = this._coerceSourceBriefSchema(result.sourceBrief, warnings);
+
+    const normalizeObject = (obj, field, index) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if (!obj.attributes || typeof obj.attributes !== 'object' || Array.isArray(obj.attributes)) {
+        obj.attributes = {};
+      }
+      if (obj.name && !obj.attributes.name) obj.attributes.name = obj.name;
+      if (obj.description && !obj.attributes.description) obj.attributes.description = obj.description;
+      if (obj.statement && !obj.attributes.statement) obj.attributes.statement = obj.statement;
+      if (obj.properties && typeof obj.properties === 'object' && !Array.isArray(obj.properties) && !obj.attributes.properties) {
+        obj.attributes.properties = obj.properties;
+      }
+      if (field === 'evidenceObjects' && !obj.attributes.statement) {
+        obj.attributes.statement = obj.name || obj.description || obj.label || '';
+      }
+      if (!this._hasGroundingProvenance(obj.provenance)) {
+        warnings.push(`${field}[${index}] lacks source-grounding provenance`);
+      }
+      return obj;
+    };
+
+    result.capabilityObjects = result.capabilityObjects.filter((obj, index) => {
+      const valid = obj && typeof obj === 'object' && typeof obj.type === 'string';
+      if (!valid) warnings.push(`capabilityObjects[${index}] is missing type`);
+      return valid;
+    }).map((obj, index) => normalizeObject(obj, 'capabilityObjects', index));
+
+    result.worldObjects = result.worldObjects.filter((obj, index) => {
+      const valid = obj && typeof obj === 'object' && typeof obj.type === 'string';
+      if (!valid) warnings.push(`worldObjects[${index}] is missing type`);
+      return valid;
+    }).map((obj, index) => normalizeObject(obj, 'worldObjects', index));
+
+    result.evidenceObjects = result.evidenceObjects.filter((obj, index) => {
+      const valid = obj && typeof obj === 'object' && typeof obj.type === 'string';
+      if (!valid) warnings.push(`evidenceObjects[${index}] is missing type`);
+      return valid;
+    }).map((obj, index) => normalizeObject(obj, 'evidenceObjects', index));
+
+    result.bridgeRelations = result.bridgeRelations.filter((rel, index) => {
+      const valid = rel && typeof rel === 'object' && rel.from && rel.to && rel.type;
+      if (!valid) warnings.push(`bridgeRelations[${index}] is missing from/to/type`);
+      else if (!this._hasGroundingProvenance(rel.provenance)) warnings.push(`bridgeRelations[${index}] lacks source-grounding provenance`);
+      return valid;
+    });
+
+    result.keyFindings = result.keyFindings.filter((item, index) => {
+      const valid = item && typeof item === 'object' && (item.statement || item.label || item.value);
+      if (!valid) warnings.push(`keyFindings[${index}] is missing statement`);
+      else if (!this._hasGroundingProvenance(item.provenance) && !item.section) warnings.push(`keyFindings[${index}] lacks source-grounding provenance`);
+      return valid;
+    });
+
+    result.researchGaps = result.researchGaps.filter((item, index) => {
+      const valid = item && typeof item === 'object' && (item.label || item.statement || item.detail);
+      if (!valid) warnings.push(`researchGaps[${index}] is missing label or detail`);
+      else if (!this._hasGroundingProvenance(item.provenance) && !item.section) warnings.push(`researchGaps[${index}] lacks source-grounding provenance`);
+      return valid;
+    });
+
+    result.limitations = result.limitations.filter((item, index) => {
+      const valid = item && typeof item === 'object' && (item.label || item.statement || item.detail);
+      if (!valid) warnings.push(`limitations[${index}] is missing label or detail`);
+      else if (!this._hasGroundingProvenance(item.provenance) && !item.section) warnings.push(`limitations[${index}] lacks source-grounding provenance`);
+      return valid;
+    });
+
+    result.figureAnalyses = result.figureAnalyses.filter((item, index) => {
+      const valid = item && typeof item === 'object' && (item.figureId || item.label || item.caption || item.title);
+      if (!valid) warnings.push(`figureAnalyses[${index}] is missing figure reference`);
+      else if (!this._hasGroundingProvenance(item.provenance) && !item.caption) warnings.push(`figureAnalyses[${index}] lacks caption or source-grounding provenance`);
+      return valid;
+    });
+
+    result.resourceLinks = result.resourceLinks.filter((item, index) => {
+      const resourceUrl = item && typeof item === 'object' ? this._resourceLinkUrl(item) : '';
+      const valid = item && typeof item === 'object'
+        && (resourceUrl || item.resourceId)
+        && (item.role || item.target || item.targetId || item.routeNodeId || item.evidenceId || item.figureId || item.visualId);
+      if (!valid) warnings.push(`resourceLinks[${index}] is missing resource or target`);
+      else {
+        if ((!item.provenance || typeof item.provenance !== 'object') && item.evidence) {
+          item.provenance = { sourceText: item.evidence };
+        }
+        if (!this._hasGroundingProvenance(item.provenance)) warnings.push(`resourceLinks[${index}] lacks source-grounding provenance`);
+      }
+      return valid;
+    });
+
+    if (result.researchRoute !== undefined && result.researchRoute !== null) {
+      if (!result.researchRoute || typeof result.researchRoute !== 'object' || Array.isArray(result.researchRoute)) {
+        warnings.push('researchRoute must be an object');
+        result.researchRoute = null;
+      } else {
+        const route = { ...result.researchRoute };
+        if (route.nodes !== undefined && !Array.isArray(route.nodes)) {
+          warnings.push('researchRoute.nodes must be an array');
+          route.nodes = [];
+        }
+        if (route.edges !== undefined && !Array.isArray(route.edges)) {
+          warnings.push('researchRoute.edges must be an array');
+          route.edges = [];
+        }
+        route.nodes = (route.nodes || []).filter((node, index) => {
+          const valid = node && typeof node === 'object' && (node.id || node.label);
+          if (!valid) warnings.push(`researchRoute.nodes[${index}] is missing id or label`);
+          else {
+            if (node.label && this._isGenericRouteLabel(node.label)) warnings.push(`researchRoute.nodes[${index}] uses internal or generic label`);
+            if (!node.summary && !node.detail && !Array.isArray(node.children)) warnings.push(`researchRoute.nodes[${index}] lacks summary or drilldown detail`);
+          }
+          return valid;
+        });
+        route.edges = (route.edges || []).filter((edge, index) => {
+          const valid = edge && typeof edge === 'object' && edge.from && edge.to;
+          if (!valid) warnings.push(`researchRoute.edges[${index}] is missing from/to`);
+          return valid;
+        });
+        result.researchRoute = route.nodes.length > 0 ? route : null;
+      }
+    } else {
+      result.researchRoute = null;
+    }
+
+    result.schemaWarnings = [
+      ...(Array.isArray(result.schemaWarnings) ? result.schemaWarnings : []),
+      ...warnings
+    ];
+    result.agentTask = DEEP_DECOMPOSITION_AGENT_TASK;
+    result.schemaVersion = DEEP_DECOMPOSITION_SCHEMA_VERSION;
+
+    return result;
+  }
+
+  _hasLLMInsights(result = {}) {
+    return ['keyFindings', 'researchGaps', 'limitations', 'figureAnalyses', 'resourceLinks']
+      .some(field => Array.isArray(result[field]) && result[field].length > 0)
+      || Boolean(result.sourceBrief?.oneLine || result.sourceBrief?.keyPoints?.length);
+  }
+
+  _emptyLLMInsights() {
+    return {
+      sourceBrief: null,
+      keyFindings: [],
+      researchGaps: [],
+      limitations: [],
+      figureAnalyses: [],
+      resourceLinks: []
+    };
+  }
+
+  _appendLLMInsights(target = {}, source = {}) {
+    target.sourceBrief = this._mergeSourceBriefInsights(target.sourceBrief, source.sourceBrief);
+    const fields = ['keyFindings', 'researchGaps', 'limitations', 'figureAnalyses', 'resourceLinks'];
+    for (const field of fields) {
+      if (!Array.isArray(target[field])) target[field] = [];
+      for (const item of source[field] || []) {
+        const key = this._llmInsightKey(field, item);
+        if (!key) continue;
+        if (!target[field].some(existing => this._llmInsightKey(field, existing) === key)) {
+          target[field].push(item);
+        }
+      }
+    }
+  }
+
+  _coerceSourceBriefSchema(sourceBrief, warnings = []) {
+    if (sourceBrief === undefined || sourceBrief === null) return null;
+    if (!sourceBrief || typeof sourceBrief !== 'object' || Array.isArray(sourceBrief)) {
+      warnings.push('sourceBrief must be an object');
+      return null;
+    }
+
+    const result = {
+      oneLine: this._summarizeText(sourceBrief.oneLine || sourceBrief.summary || sourceBrief.abstract || '', 360),
+      keyPoints: []
+    };
+
+    const rawKeyPoints = Array.isArray(sourceBrief.keyPoints)
+      ? sourceBrief.keyPoints
+      : Array.isArray(sourceBrief.highlights)
+        ? sourceBrief.highlights
+        : [];
+
+    result.keyPoints = rawKeyPoints
+      .map((point, index) => {
+        const normalized = this._normalizeSourceBriefPoint(point, index);
+        if (!normalized) {
+          warnings.push(`sourceBrief.keyPoints[${index}] is missing user-facing content`);
+          return null;
+        }
+        if (!this._hasGroundingProvenance(normalized.provenance) && !normalized.support?.sourceText) {
+          warnings.push(`sourceBrief.keyPoints[${index}] lacks source-grounding provenance`);
+        }
+        return normalized;
+      })
+      .filter(Boolean)
+      .slice(0, 8);
+
+    if (!result.oneLine && result.keyPoints.length === 0) return null;
+    if (!result.oneLine && result.keyPoints[0]) {
+      result.oneLine = this._summarizeText(`${result.keyPoints[0].value}. ${result.keyPoints[0].detail || ''}`, 280);
+    }
+    return result;
+  }
+
+  _normalizeSourceBriefPoint(point = {}, index = 0) {
+    if (typeof point === 'string' || typeof point === 'number') {
+      const value = this._summarizeText(String(point), 120);
+      if (!value || this._isGenericRouteLabel(value)) return null;
+      return {
+        id: `source-brief-${index + 1}`,
+        label: 'Key Point',
+        value,
+        detail: '',
+        source: 'llm-source-brief',
+        support: { sourceText: value }
+      };
+    }
+    if (!point || typeof point !== 'object') return null;
+
+    const value = this._summarizeText(point.value || point.statement || point.summary || point.description || point.title || '', 120);
+    const label = this._summarizeText(point.label || point.kind || point.type || 'Key Point', 60);
+    const detail = this._summarizeText(point.detail || point.reason || point.evidence || point.explanation || point.description || '', 220);
+    const text = `${label} ${value} ${detail}`;
+    if (!value || this._isGenericRouteLabel(value) || this._isInternalRouteChild(label, value) || this._significantTokens(text).size < 3) {
+      return null;
+    }
+
+    return {
+      id: point.id || `source-brief-${index + 1}`,
+      label,
+      value,
+      detail,
+      source: 'llm-source-brief',
+      provenance: point.provenance || point.section ? {
+        ...(point.provenance || {}),
+        section: point.section || point.provenance?.section
+      } : null,
+      support: {
+        ...(point.support || {}),
+        kind: 'llm-source-brief',
+        sourceText: point.provenance?.sourceText || point.evidence || point.statement || point.value || null,
+        routeNodeId: point.routeNodeId || point.support?.routeNodeId || null,
+        objectId: point.objectId || point.support?.objectId || null,
+        resourceUrl: point.resourceUrl || point.support?.resourceUrl || null
+      }
+    };
+  }
+
+  _mergeSourceBriefInsights(target = null, source = null) {
+    const targetBrief = target && typeof target === 'object' ? target : { oneLine: '', keyPoints: [] };
+    if (!source || typeof source !== 'object') return targetBrief.oneLine || targetBrief.keyPoints?.length ? targetBrief : null;
+
+    const result = {
+      oneLine: targetBrief.oneLine || source.oneLine || '',
+      keyPoints: Array.isArray(targetBrief.keyPoints) ? [...targetBrief.keyPoints] : []
+    };
+    const seen = new Set(result.keyPoints.map(point => this._llmInsightKey('sourceBrief', point)).filter(Boolean));
+
+    for (const point of source.keyPoints || []) {
+      const key = this._llmInsightKey('sourceBrief', point);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.keyPoints.push(point);
+      if (result.keyPoints.length >= 8) break;
+    }
+
+    if (!result.oneLine && source.oneLine) result.oneLine = source.oneLine;
+    return result.oneLine || result.keyPoints.length > 0 ? result : null;
+  }
+
+  _llmInsightKey(field, item = {}) {
+    if (!item || typeof item !== 'object') return null;
+    return [
+      field,
+      item.id,
+      item.figureId,
+      item.url,
+      item.label,
+      item.statement,
+      item.value,
+      item.detail,
+      item.caption
+    ].filter(Boolean).join(':').toLowerCase().slice(0, 180);
   }
 
   /**
@@ -808,7 +1425,18 @@ Return JSON with this structure:
       evidenceObjects: [],
       bridgeRelations: [],
       researchRoute: null,
-      sections: { chunks: chunkResults.length }
+      sections: { chunks: chunkResults.length },
+      agentTask: DEEP_DECOMPOSITION_AGENT_TASK,
+      schemaVersion: DEEP_DECOMPOSITION_SCHEMA_VERSION,
+      agentRuns: [],
+      schemaWarnings: [],
+      llmInsights: {
+        keyFindings: [],
+        researchGaps: [],
+        limitations: [],
+        figureAnalyses: [],
+        resourceLinks: []
+      }
     };
 
     const seenCapabilities = new Map();
@@ -818,6 +1446,14 @@ Return JSON with this structure:
     const routeCandidates = [];
 
     for (const chunkResult of chunkResults) {
+      if (chunkResult.agentInfo) {
+        result.agentRuns.push(chunkResult.agentInfo);
+      }
+      if (Array.isArray(chunkResult.schemaWarnings) && chunkResult.schemaWarnings.length > 0) {
+        result.schemaWarnings.push(...chunkResult.schemaWarnings);
+      }
+      this._appendLLMInsights(result.llmInsights, chunkResult);
+
       // Merge capability objects
       for (const obj of chunkResult.capabilityObjects || []) {
         const key = `${obj.type}:${obj.attributes?.name?.toLowerCase()}`;
@@ -898,6 +1534,7 @@ Return JSON with this structure:
       worldObjects: [],
       evidenceObjects: [],
       sections: {},
+      llmInsights: this._emptyLLMInsights(),
       strategy: llmResult ? 'llm-primary' : 'metadata-only'
     };
 
@@ -965,6 +1602,7 @@ Return JSON with this structure:
 
     result.bridgeRelations = llmResult.bridgeRelations || [];
     result.researchRoute = this._normalizeResearchRoute(llmResult.researchRoute);
+    result.llmInsights = llmResult.llmInsights || this._emptyLLMInsights();
 
     // Merge sections
     result.sections = {
@@ -1004,6 +1642,7 @@ Return JSON with this structure:
       worldObjects: mergeObjects(metadataResult.worldObjects, textFallbackResult.worldObjects),
       evidenceObjects: mergeObjects(metadataResult.evidenceObjects, textFallbackResult.evidenceObjects),
       bridgeRelations: textFallbackResult.bridgeRelations || [],
+      llmInsights: this._emptyLLMInsights(),
       sections: {
         ...(metadataResult.sections || {}),
         ...(textFallbackResult.sections || {}),
@@ -1048,7 +1687,7 @@ Return JSON with this structure:
    */
   _createSourceObject(input, content, admissionResult) {
     const sourceType = this._normalizeSourceType(admissionResult.sourceType);
-    const metadata = content.metadata || {};
+    const metadata = this._getNormalizedMetadata(content);
     const text = content.text || '';
 
     // Get name from content (GitHub returns name at top level)
@@ -1133,6 +1772,30 @@ Return JSON with this structure:
     return content.text || content.content || content.fullText || '';
   }
 
+  _getNormalizedMetadata(content = {}) {
+    const metadata = content.metadata || {};
+    return {
+      ...metadata,
+      title: content.title || metadata.title || metadata.display_name,
+      name: content.name || metadata.name || metadata.display_name,
+      abstract: content.abstract || metadata.abstract,
+      authors: content.authors || metadata.authors,
+      year: content.year || metadata.year || metadata.publication_year,
+      publicationYear: content.publicationYear || metadata.publicationYear || metadata.publication_year,
+      venue: content.venue || metadata.venue || metadata.journal || metadata.primary_location?.source?.display_name,
+      journal: content.journal || metadata.journal || metadata.primary_location?.source?.display_name,
+      doi: content.doi || metadata.doi,
+      url: content.url || metadata.url || metadata.doi,
+      resources: content.resources || metadata.resources,
+      figures: content.figures || metadata.figures,
+      tables: content.tables || metadata.tables,
+      spatialCoverage: content.spatialCoverage || metadata.spatialCoverage || metadata.coverage,
+      temporalCoverage: content.temporalCoverage || metadata.temporalCoverage || metadata.temporal,
+      spatialResolution: content.spatialResolution || metadata.spatialResolution || metadata.resolution,
+      temporalResolution: content.temporalResolution || metadata.temporalResolution || metadata.frequency
+    };
+  }
+
   _hasExtractionObjects(result) {
     if (!result) return false;
     return Boolean(
@@ -1147,6 +1810,93 @@ Return JSON with this structure:
     return Boolean(route?.nodes?.length >= 2);
   }
 
+  _filterOutOfScopeExtraction(merged = {}) {
+    const removed = {
+      capabilityObjects: 0,
+      worldObjects: 0,
+      evidenceObjects: 0,
+      bridgeRelations: 0,
+      sections: []
+    };
+
+    const filterObjects = (objects = [], key) => {
+      const kept = [];
+      for (const object of objects) {
+        if (this._isOutOfScopeProvenance(object.provenance)) {
+          removed[key] += 1;
+          const section = this._provenanceSectionText(object.provenance);
+          if (section && !removed.sections.includes(section)) removed.sections.push(section);
+          continue;
+        }
+        kept.push(object);
+      }
+      return kept;
+    };
+
+    merged.capabilityObjects = filterObjects(merged.capabilityObjects, 'capabilityObjects');
+    merged.worldObjects = filterObjects(merged.worldObjects, 'worldObjects');
+    merged.evidenceObjects = filterObjects(merged.evidenceObjects, 'evidenceObjects');
+
+    const validIds = new Set([
+      ...(merged.capabilityObjects || []).map(object => object.id),
+      ...(merged.worldObjects || []).map(object => object.id),
+      ...(merged.evidenceObjects || []).map(object => object.id)
+    ].filter(Boolean));
+
+    const relations = [];
+    for (const relation of merged.bridgeRelations || []) {
+      if (this._isOutOfScopeProvenance(relation.provenance)) {
+        removed.bridgeRelations += 1;
+        continue;
+      }
+      if ((relation.from && !validIds.has(relation.from)) || (relation.to && !validIds.has(relation.to))) {
+        relation.requiresEndpointReview = true;
+      }
+      relations.push(relation);
+    }
+    merged.bridgeRelations = relations;
+
+    return {
+      ...removed,
+      removedTotal: removed.capabilityObjects + removed.worldObjects + removed.evidenceObjects + removed.bridgeRelations
+    };
+  }
+
+  _isOutOfScopeProvenance(provenance = {}) {
+    const sectionText = this._provenanceSectionText(provenance);
+    if (!sectionText) return false;
+
+    const skipFragments = [
+      'this article is cited by',
+      'cited by',
+      'associated content',
+      'related articles',
+      'similar content',
+      'recommended',
+      'author information',
+      'author contributions',
+      'competing interests',
+      'ethics declarations',
+      'additional information',
+      'rights and permissions',
+      'about this article',
+      'metrics',
+      'comments',
+      'references'
+    ];
+
+    return skipFragments.some(fragment => sectionText.includes(fragment));
+  }
+
+  _provenanceSectionText(provenance = {}) {
+    const sections = Array.isArray(provenance.sections) ? provenance.sections.join(' ') : '';
+    return [
+      provenance.section,
+      provenance.sectionTitle,
+      sections
+    ].filter(Boolean).join(' ').toLowerCase().trim();
+  }
+
   _assessResearchRouteQuality(route = {}) {
     const nodes = Array.isArray(route.nodes) ? route.nodes : [];
     const contentNodes = nodes.filter(node => {
@@ -1158,6 +1908,15 @@ Return JSON with this structure:
       ? route.edges.filter(edge => edge?.from && edge?.to && edge.from !== edge.to)
       : [];
     const detailNodeCount = contentNodes.filter(node => Array.isArray(node.children) && node.children.length > 0).length;
+    const informativeNodes = contentNodes.filter(node => this._isInformativeRouteNode(node));
+    const lowInformationNodes = contentNodes.filter(node => !this._isInformativeRouteNode(node));
+    const groundedNodes = contentNodes.filter(node => this._isGroundedRouteNode(node));
+    const informationScore = contentNodes.length > 0
+      ? Math.round((informativeNodes.length / contentNodes.length) * 100)
+      : 0;
+    const groundingScore = contentNodes.length > 0
+      ? Math.round((groundedNodes.length / contentNodes.length) * 100)
+      : 0;
     const reasons = [];
 
     if (contentNodes.length < 2) {
@@ -1172,13 +1931,21 @@ Return JSON with this structure:
     if (detailNodeCount === 0) {
       reasons.push('needs drilldown details');
     }
+    if (lowInformationNodes.length > 0) {
+      reasons.push(`low-information route nodes: ${lowInformationNodes.slice(0, 3).map(node => node.label || node.name || node.id).join(', ')}`);
+    }
+    if (groundingScore < 50 && contentNodes.length > 0) {
+      reasons.push(`weakly grounded route nodes: ${contentNodes.filter(node => !this._isGroundedRouteNode(node)).slice(0, 3).map(node => node.label || node.name || node.id).join(', ')}`);
+    }
 
     let level = 'limited';
     if (contentNodes.length >= 3 && stages.size >= 2 && edges.length > 0) {
-      level = detailNodeCount > 0 ? 'content' : 'partial';
+      level = detailNodeCount > 0 && informationScore >= 75 ? 'content' : 'partial';
     } else if (contentNodes.length >= 2 && edges.length > 0) {
       level = 'partial';
     }
+    if (level === 'content' && informationScore < 100) level = 'partial';
+    if (informationScore < 50 && contentNodes.length > 0) level = 'limited';
 
     return {
       level,
@@ -1186,14 +1953,641 @@ Return JSON with this structure:
       stageCount: stages.size,
       edgeCount: edges.length,
       detailNodeCount,
+      informativeNodeCount: informativeNodes.length,
+      lowInformationNodeCount: lowInformationNodes.length,
+      groundedNodeCount: groundedNodes.length,
+      informationScore,
+      groundingScore,
       reasons
     };
+  }
+
+  _isGroundedRouteNode(node = {}) {
+    if (this._hasGroundingProvenance(node.provenance)) return true;
+    if (node.support?.sourceText) return true;
+    if (node.support?.objectId || node.support?.resourceUrl || node.support?.evidenceId) return true;
+    return false;
+  }
+
+  _isInformativeRouteNode(node = {}) {
+    const label = String(node.label || node.name || node.title || '').trim();
+    const summary = String(node.summary || node.description || '').trim();
+    const children = Array.isArray(node.children) ? node.children : [];
+    const contentChildren = children.filter(child => {
+      const childText = `${child?.label || ''} ${child?.value || ''} ${child?.detail || ''}`.trim();
+      return childText
+        && !this._isInternalRouteChild(child?.label, child?.value)
+        && this._isInformativeRouteDetail(childText);
+    });
+    const labelTokens = this._significantTokens(label);
+    const summaryTokens = this._significantTokens(summary);
+    const summaryGeneric = this._isGenericRouteLabel(summary)
+      || /^source material|^content-level route|^derived from/i.test(summary)
+      || summaryTokens.size < 3;
+
+    if (!label || this._isLowInformationRouteLabel(label)) return false;
+    if (contentChildren.length > 0) return true;
+    if (summaryTokens.size >= 4 && !summaryGeneric) return true;
+    return labelTokens.size >= 3 && summaryTokens.size >= 2 && !summaryGeneric;
+  }
+
+  _isInformativeRouteDetail(value = '') {
+    const normalized = String(value || '').trim();
+    if (!normalized) return false;
+    if (this._isGenericRouteLabel(normalized)) return false;
+    return this._significantTokens(normalized).size >= 3;
+  }
+
+  _assessContentFidelity(result = {}, content = {}) {
+    const expected = this._expectedContentFacets(content, result);
+    const covered = this._coveredContentFacets(result);
+    const missing = expected.filter(facet => !covered.includes(facet));
+    const expectedCount = expected.length;
+    const coveredExpectedCount = expected.filter(facet => covered.includes(facet)).length;
+    const score = expectedCount > 0 ? Math.round((coveredExpectedCount / expectedCount) * 100) : 100;
+    const grounding = this._assessFacetGrounding(result, expected, covered);
+    const routeLabels = (result.workflowOutline?.nodes || [])
+      .filter(node => node.id !== 'source')
+      .map(node => node.label || node.name || node.title || '')
+      .filter(Boolean);
+    const internalRouteLabels = routeLabels.filter(label => this._isGenericRouteLabel(label));
+    const criticalMissing = missing.filter(facet => this._criticalContentFacets(result, content).includes(facet));
+
+    let level = 'content';
+    const reasons = [];
+    if (expectedCount === 0) {
+      level = 'unknown';
+      reasons.push('no durable source facets were available to assess low-loss coverage');
+    } else if (score < 50 || criticalMissing.length > 0) {
+      level = 'weak';
+      if (criticalMissing.length > 0) reasons.push(`missing critical facets: ${criticalMissing.join(', ')}`);
+      if (score < 50) reasons.push('less than half of expected source facets are represented');
+    } else if (score < 80 || missing.length > 0) {
+      level = 'partial';
+      reasons.push(`missing facets: ${missing.join(', ')}`);
+    }
+
+    if (internalRouteLabels.length > 0) {
+      level = level === 'content' ? 'partial' : level;
+      reasons.push(`route still exposes internal labels: ${internalRouteLabels.slice(0, 3).join(', ')}`);
+    }
+    if (grounding.ungroundedFacets.length > 0) {
+      level = level === 'content' ? 'partial' : level;
+      reasons.push(`facets lack provenance or graph support: ${grounding.ungroundedFacets.join(', ')}`);
+    } else if (grounding.weaklyGroundedFacets.length > 0) {
+      level = level === 'content' ? 'partial' : level;
+      reasons.push(`facets need stronger provenance support: ${grounding.weaklyGroundedFacets.join(', ')}`);
+    }
+
+    return {
+      level,
+      score,
+      expectedFacets: expected,
+      coveredFacets: covered.filter(facet => expected.includes(facet)),
+      missingFacets: missing,
+      grounding,
+      internalRouteLabels,
+      reasons
+    };
+  }
+
+  _criticalContentFacets(result = {}, content = {}) {
+    const typeText = [
+      result.sourceType,
+      result.sourceObject?.type,
+      result.sourceObject?.attributes?.type,
+      this._getNormalizedMetadata(content).type,
+      content.type
+    ].join(' ').toLowerCase();
+
+    if (/dataset|data catalog|datacatalog|datasetpage/.test(typeText)) {
+      return ['data', 'context', 'resource'];
+    }
+    if (/repository|github|software|code|package/.test(typeText)) {
+      return ['method', 'resource'];
+    }
+    if (/news|event|press/.test(typeText)) {
+      return ['source', 'context', 'evidence'];
+    }
+    if (/report|policy|assessment/.test(typeText)) {
+      return ['source', 'evidence', 'context'];
+    }
+    return ['data', 'method', 'evidence'];
+  }
+
+  _assessFacetGrounding(result = {}, expected = [], covered = []) {
+    const expectedCovered = expected.filter(facet => covered.includes(facet));
+    const groundedFacets = [];
+    const weaklyGroundedFacets = [];
+    const ungroundedFacets = [];
+    const details = {};
+
+    for (const facet of expectedCovered) {
+      const detail = this._facetGroundingDetail(result, facet);
+      details[facet] = detail;
+      if (detail.level === 'grounded') groundedFacets.push(facet);
+      else if (detail.level === 'weak') weaklyGroundedFacets.push(facet);
+      else ungroundedFacets.push(facet);
+    }
+
+    const denominator = expectedCovered.length;
+    const score = denominator > 0
+      ? Math.round(((groundedFacets.length + weaklyGroundedFacets.length * 0.5) / denominator) * 100)
+      : 100;
+
+    return {
+      score,
+      groundedFacets,
+      weaklyGroundedFacets,
+      ungroundedFacets,
+      details
+    };
+  }
+
+  _facetGroundingDetail(result = {}, facet = '') {
+    const routeNodes = result.workflowOutline?.nodes || [];
+    const routeEdges = result.workflowOutline?.edges || [];
+    const hasRouteStage = (...stages) => routeNodes.some(node => stages.includes(node.stage));
+    const hasRouteEdgeForStage = (...stages) => {
+      const stageIds = new Set(routeNodes.filter(node => stages.includes(node.stage)).map(node => node.id));
+      return routeEdges.some(edge => stageIds.has(edge.from) || stageIds.has(edge.to));
+    };
+    const objects = [
+      ...(result.capabilityObjects || []),
+      ...(result.worldObjects || []),
+      ...(result.evidenceObjects || [])
+    ];
+    const hasObjectProvenance = predicate => objects.some(object => predicate(object) && this._hasGroundingProvenance(object.provenance));
+    const sourceHasProvenance = this._hasGroundingProvenance(result.sourceObject?.provenance);
+
+    if (facet === 'source') {
+      return {
+        level: sourceHasProvenance ? 'grounded' : 'weak',
+        reason: sourceHasProvenance ? 'source object has provenance' : 'source object exists without detailed provenance'
+      };
+    }
+    if (facet === 'data') {
+      const objectGrounded = hasObjectProvenance(object => this._objectLooksLikeFacet(object, 'data'));
+      const linkedResource = (result.resourceGraph?.summary?.linkedResourceCount || 0) > 0
+        && (result.resourceGraph?.summary?.datasetCount || 0) > 0;
+      return this._facetGroundingResult(objectGrounded || linkedResource, hasRouteStage('data'), hasRouteEdgeForStage('data'), 'data object/resource is grounded');
+    }
+    if (facet === 'method') {
+      const objectGrounded = hasObjectProvenance(object => this._objectLooksLikeFacet(object, 'method'));
+      const linkedResource = (result.resourceGraph?.summary?.linkedResourceCount || 0) > 0
+        && (result.resourceGraph?.summary?.repositoryCount || 0) > 0;
+      return this._facetGroundingResult(objectGrounded || linkedResource, hasRouteStage('method', 'execution'), hasRouteEdgeForStage('method', 'execution'), 'method object/resource is grounded');
+    }
+    if (facet === 'evidence') {
+      const objectGrounded = hasObjectProvenance(object => ['Claim', 'Evidence', 'Finding', 'Metric'].includes(object.type));
+      const linkedClaim = (result.evidenceGraph?.summary?.linkedClaimCount || 0) > 0;
+      return this._facetGroundingResult(objectGrounded || linkedClaim, hasRouteStage('evidence'), hasRouteEdgeForStage('evidence'), 'evidence object or linked claim is grounded');
+    }
+    if (facet === 'visual') {
+      const visuals = result.visualEvidence || [];
+      const visualQuality = this._assessVisualEvidenceQuality(result, {});
+      const visualGrounded = visuals.some(visual => visual.caption || visual.sourceUrl || this._hasGroundingProvenance(visual.provenance));
+      const linkedVisual = (result.evidenceGraph?.summary?.visualCount || 0) > 0;
+      const explainedVisual = visualQuality.explainedCount > 0 || visualQuality.supportedClaimCount > 0;
+      return this._facetGroundingResult(
+        (visualGrounded || linkedVisual) && explainedVisual,
+        visuals.length > 0,
+        false,
+        'visual evidence has caption, explanation, and claim support'
+      );
+    }
+    if (facet === 'resource') {
+      const resourceQuality = this._assessResourceGraphQuality(result);
+      const resourceCount = result.resourceGraph?.summary?.resourceCount || 0;
+      const linkedCount = result.resourceGraph?.summary?.linkedResourceCount || 0;
+      return this._facetGroundingResult(
+        linkedCount > 0 && !['missing', 'weak'].includes(resourceQuality.level),
+        resourceCount > 0,
+        false,
+        'resources are typed, reviewable, and linked to route or evidence'
+      );
+    }
+    if (facet === 'context') {
+      const objectGrounded = hasObjectProvenance(object => ['Region', 'Event', 'Hazard', 'Risk', 'Coverage'].includes(object.type));
+      return this._facetGroundingResult(objectGrounded, hasRouteStage('context') || (result.worldObjects || []).length > 0, hasRouteEdgeForStage('context'), 'context object is grounded');
+    }
+    if (facet === 'limitation') {
+      const limitationGrounded = (result.llmInsights?.limitations || []).some(item => this._hasGroundingProvenance(item.provenance) || item.section)
+        || (result.llmInsights?.researchGaps || []).some(item => this._hasGroundingProvenance(item.provenance) || item.section);
+      return this._facetGroundingResult(limitationGrounded, (result.inferredLimitations || []).length > 0, false, 'limitation is source-grounded');
+    }
+
+    return { level: 'weak', reason: 'facet is covered but has no specific grounding protocol' };
+  }
+
+  _facetGroundingResult(grounded, weakSignal, linkedRoute, groundedReason) {
+    if (grounded) return { level: 'grounded', reason: groundedReason };
+    if (linkedRoute) return { level: 'weak', reason: 'route node is linked but lacks direct provenance/resource support' };
+    if (weakSignal) return { level: 'weak', reason: 'facet appears in route or objects but lacks direct provenance/resource support' };
+    return { level: 'ungrounded', reason: 'facet is covered only by derived summary without inspectable support' };
+  }
+
+  _hasGroundingProvenance(provenance = {}) {
+    const section = String(provenance?.section || provenance?.sectionTitle || '').trim().toLowerCase();
+    const sections = Array.isArray(provenance?.sections)
+      ? provenance.sections.map(item => String(item || '').trim().toLowerCase()).filter(Boolean)
+      : [];
+    const hasSpecificSection = Boolean(section && !['unknown', 'content', 'source', 'header'].includes(section))
+      || sections.some(item => !['unknown', 'content', 'source', 'header'].includes(item));
+
+    return Boolean(
+      provenance
+      && (
+        provenance.sourceText
+        || hasSpecificSection
+        || provenance.input
+        || provenance.url
+      )
+    );
+  }
+
+  _expectedContentFacets(content = {}, result = {}) {
+    const metadata = this._getNormalizedMetadata(content);
+    const sections = this._contentSectionNames(content);
+    const text = this._getSourceText(content);
+    const facets = new Set();
+
+    const hasSection = (...needles) => sections.some(section => needles.some(needle => section.includes(needle)));
+    const hasText = (...needles) => {
+      const normalizedText = String(text || '').toLowerCase();
+      return needles.some(needle => normalizedText.includes(needle));
+    };
+
+    if (metadata.title || content.title || result.sourceObject) facets.add('source');
+    if (
+      hasSection('data', 'dataset', 'input', 'availability', 'materials')
+      || hasText('input data', 'data source', 'dataset', 'observations')
+      || metadata.resources?.some?.(resource => /data|dataset|archive/i.test(`${resource.type || ''} ${resource.label || ''} ${resource.url || ''}`))
+    ) {
+      facets.add('data');
+    }
+    if (hasSection('method', 'model', 'algorithm', 'workflow', 'implementation', 'approach') || hasText('method', 'model', 'algorithm', 'workflow')) {
+      facets.add('method');
+    }
+    if (
+      hasSection('result', 'finding', 'key findings', 'evaluation', 'discussion', 'conclusion', 'impact', 'impact details', 'current status', 'assessment')
+      || hasText('result', 'finding', 'evaluat', 'compared', 'affected', 'displaced', 'damage')
+    ) {
+      facets.add('evidence');
+    }
+    if ((content.figures || metadata.figures || []).length > 0 || (content.tables || metadata.tables || []).length > 0) {
+      facets.add('visual');
+    }
+    if (
+      (metadata.resources || []).length > 0
+      || (result.externalResources || []).length > 0
+      || hasSection('code availability', 'data availability', 'software', 'repository')
+    ) {
+      facets.add('resource');
+    }
+    if (hasSection('limitation', 'uncertainty', 'discussion') || hasText('limitation', 'uncertain', 'future work')) {
+      facets.add('limitation');
+    }
+    if (
+      metadata.spatialCoverage
+      || metadata.temporalCoverage
+      || (result.worldObjects || []).length > 0
+      || hasSection('study area', 'spatial', 'temporal', 'region', 'location')
+    ) {
+      facets.add('context');
+    }
+
+    return Array.from(facets);
+  }
+
+  _coveredContentFacets(result = {}) {
+    const facets = new Set();
+    const routeNodes = result.workflowOutline?.nodes || [];
+    const routeStages = new Set(routeNodes.map(node => node.stage).filter(Boolean));
+    const capabilityObjects = result.capabilityObjects || [];
+    const evidenceObjects = result.evidenceObjects || [];
+    const worldObjects = result.worldObjects || [];
+    const insights = result.llmInsights || {};
+
+    if (result.sourceObject || routeNodes.length > 0) facets.add('source');
+    if (routeStages.has('data') || capabilityObjects.some(object => this._objectLooksLikeFacet(object, 'data'))) facets.add('data');
+    if (
+      routeStages.has('method')
+      || routeStages.has('execution')
+      || capabilityObjects.some(object => this._objectLooksLikeFacet(object, 'method'))
+    ) {
+      facets.add('method');
+    }
+    if (routeStages.has('evidence') || evidenceObjects.length > 0 || (insights.keyFindings || []).length > 0) facets.add('evidence');
+    if ((result.visualEvidence || []).length > 0 || result.evidenceGraph?.summary?.figureCount > 0) facets.add('visual');
+    if ((result.externalResources || []).length > 0 || result.resourceGraph?.summary?.resourceCount > 0 || routeStages.has('resource')) facets.add('resource');
+    if ((insights.limitations || []).length > 0 || (insights.researchGaps || []).length > 0 || (result.inferredLimitations || []).length > 0) facets.add('limitation');
+    const sourceAttributes = result.sourceObject?.attributes || {};
+    if (
+      worldObjects.length > 0
+      || routeStages.has('context')
+      || sourceAttributes.coverage
+      || sourceAttributes.spatialCoverage
+      || sourceAttributes.temporalCoverage
+      || sourceAttributes.spatialResolution
+      || sourceAttributes.temporalResolution
+    ) {
+      facets.add('context');
+    }
+
+    return Array.from(facets);
+  }
+
+  _assessVisualEvidenceQuality(result = {}, content = {}) {
+    const metadata = this._getNormalizedMetadata(content);
+    const rawSourceVisuals = [
+      ...(Array.isArray(content.figures) ? content.figures : []),
+      ...(Array.isArray(content.tables) ? content.tables : []),
+      ...(Array.isArray(metadata.figures) ? metadata.figures : []),
+      ...(Array.isArray(metadata.tables) ? metadata.tables : [])
+    ];
+    const seenSourceVisuals = new Set();
+    const sourceVisuals = rawSourceVisuals.filter((visual, index) => {
+      const key = this._visualEvidenceIdentity(visual, index);
+      if (seenSourceVisuals.has(key)) return false;
+      seenSourceVisuals.add(key);
+      return true;
+    });
+    const visuals = Array.isArray(result.visualEvidence) ? result.visualEvidence : [];
+    const expectedCount = sourceVisuals.length;
+    const visualCount = visuals.length;
+    const captionCount = visuals.filter(visual => String(visual.caption || '').trim()).length;
+    const explainedCount = visuals.filter(visual => (
+      String(visual.interpretation || '').trim()
+      || String(visual.howProduced || '').trim()
+      || String(visual.supportedClaim || '').trim()
+    )).length;
+    const producedCount = visuals.filter(visual => String(visual.howProduced || '').trim()).length;
+    const supportedClaimCount = visuals.filter(visual => String(visual.supportedClaim || visual.supports || '').trim()).length;
+    const groundedCount = visuals.filter(visual => (
+      this._hasGroundingProvenance(visual.provenance)
+      || String(visual.caption || '').trim()
+      || String(visual.sourceUrl || '').trim()
+    )).length;
+    const evidenceLinkedCount = result.evidenceGraph?.summary?.linkedClaimCount || 0;
+    const expectedCoverage = expectedCount > 0
+      ? Math.min(100, Math.round((visualCount / expectedCount) * 100))
+      : (visualCount > 0 ? 100 : 100);
+    const explanationCoverage = visualCount > 0
+      ? Math.round((explainedCount / visualCount) * 100)
+      : (expectedCount > 0 ? 0 : 100);
+    const groundingCoverage = visualCount > 0
+      ? Math.round((groundedCount / visualCount) * 100)
+      : (expectedCount > 0 ? 0 : 100);
+
+    let level = 'complete';
+    const reasons = [];
+    if (expectedCount === 0 && visualCount === 0) {
+      level = 'not_applicable';
+    } else if (visualCount === 0) {
+      level = 'missing';
+      reasons.push('source exposes figures or tables but no visual evidence was retained');
+    } else {
+      if (captionCount < visualCount) reasons.push('some visual evidence is missing captions');
+      if (explainedCount === 0) reasons.push('visual evidence lacks source-grounded interpretation');
+      if (producedCount === 0) reasons.push('visual evidence does not explain how figures or tables were produced');
+      if (supportedClaimCount === 0 && evidenceLinkedCount === 0) reasons.push('visual evidence is not connected to claims or route evidence');
+      if (groundingCoverage < 100) reasons.push('some visual evidence lacks provenance or source links');
+
+      if (expectedCount > 0 && expectedCoverage < 50) level = 'weak';
+      else if (explainedCount === 0 || groundingCoverage < 50) level = 'weak';
+      else if (reasons.length > 0 || expectedCoverage < 100 || explanationCoverage < 80) level = 'partial';
+    }
+
+    return {
+      level,
+      expectedCount,
+      visualCount,
+      captionCount,
+      explainedCount,
+      producedCount,
+      supportedClaimCount,
+      evidenceLinkedCount,
+      groundedCount,
+      expectedCoverage,
+      explanationCoverage,
+      groundingCoverage,
+      reasons
+    };
+  }
+
+  _visualEvidenceIdentity(visual = {}, index = 0) {
+    const label = String(visual.number || visual.label || visual.name || visual.title || '').trim().toLowerCase();
+    const caption = String(visual.caption || visual.description || visual.text || '').trim().toLowerCase();
+    const url = String(visual.imageUrl || visual.url || visual.href || '').trim().toLowerCase();
+    return [label, caption.slice(0, 160), url].filter(Boolean).join('|') || `visual-${index}`;
+  }
+
+  _assessResourceGraphQuality(result = {}) {
+    const graph = result.resourceGraph || {};
+    const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+    const edges = Array.isArray(graph.edges) ? graph.edges : [];
+    const resources = nodes.filter(node => node.kind === 'resource');
+    const resourceIds = new Set(resources.map(node => node.id));
+    const reusableTypes = new Set(['repository', 'code', 'dataset', 'supplement']);
+    const reusableResources = resources.filter(resource => reusableTypes.has(String(resource.type || '').toLowerCase()));
+    const meaningfulEdges = edges.filter(edge => {
+      const resourceId = resourceIds.has(edge.from) ? edge.from : resourceIds.has(edge.to) ? edge.to : null;
+      if (!resourceId) return false;
+      const target = resourceIds.has(edge.from) ? edge.to : edge.from;
+      return target !== 'route-source';
+    });
+    const linkedResourceIds = new Set(meaningfulEdges
+      .map(edge => resourceIds.has(edge.from) ? edge.from : edge.to));
+    const llmLinkedCount = meaningfulEdges.filter(edge => edge.provenance?.method === 'llm-resource-link').length;
+    const roleCount = resources.filter(resource => String(resource.role || '').trim()).length;
+    const verificationFocusCount = resources.filter(resource => String(resource.verificationFocus || resource.reviewHint || '').trim()).length;
+    const provenanceLinkedCount = meaningfulEdges.filter(edge => this._hasGroundingProvenance(edge.provenance)).length;
+    const resourceCount = resources.length;
+    const linkedResourceCount = linkedResourceIds.size;
+    const reusableResourceCount = reusableResources.length;
+    const linkCoverage = resourceCount > 0 ? Math.round((linkedResourceCount / resourceCount) * 100) : 100;
+    const reusableLinkCoverage = reusableResourceCount > 0
+      ? Math.round((reusableResources.filter(resource => linkedResourceIds.has(resource.id)).length / reusableResourceCount) * 100)
+      : 100;
+    const reviewCoverage = resourceCount > 0 ? Math.round((verificationFocusCount / resourceCount) * 100) : 100;
+
+    let level = 'complete';
+    const reasons = [];
+    if (resourceCount === 0) {
+      level = 'not_applicable';
+    } else {
+      if (linkedResourceCount === 0) reasons.push('resources are not linked to content route or evidence nodes');
+      if (reusableResourceCount > 0 && reusableLinkCoverage < 50) reasons.push('reusable resources are weakly connected to the research route');
+      if (roleCount < resourceCount) reasons.push('some resources lack role labels');
+      if (verificationFocusCount < resourceCount) reasons.push('some resources lack verification focus or review hints');
+      if (meaningfulEdges.length > 0 && provenanceLinkedCount === 0 && llmLinkedCount === 0) reasons.push('resource links lack source-grounded provenance');
+
+      if (linkedResourceCount === 0 || (reusableResourceCount > 0 && reusableLinkCoverage < 50)) level = 'weak';
+      else if (reusableResourceCount > 0 && provenanceLinkedCount === 0 && llmLinkedCount === 0) level = 'weak';
+      else if (reasons.length > 0 || linkCoverage < 100 || reviewCoverage < 100) level = 'partial';
+    }
+
+    return {
+      level,
+      resourceCount,
+      linkedResourceCount,
+      reusableResourceCount,
+      llmLinkedCount,
+      roleCount,
+      verificationFocusCount,
+      provenanceLinkedCount,
+      linkCoverage,
+      reusableLinkCoverage,
+      reviewCoverage,
+      reasons
+    };
+  }
+
+  _assessSourceBriefQuality(result = {}) {
+    const brief = result.researchBrief || {};
+    const keyPoints = Array.isArray(brief.keyPoints) ? brief.keyPoints : [];
+    const expectedIds = ['route', 'method', 'material', 'evidence'];
+    const presentFacets = new Set(keyPoints.map(point => this._sourceBriefFacet(point)).filter(Boolean));
+    const missingExpected = expectedIds.filter(id => !presentFacets.has(id));
+    const routeNodeIds = new Set((result.workflowOutline?.nodes || []).map(node => node.id));
+    const objectIds = new Set([
+      ...(result.capabilityObjects || []),
+      ...(result.worldObjects || []),
+      ...(result.evidenceObjects || [])
+    ].map(object => object.id).filter(Boolean));
+    const resources = result.externalResources || [];
+
+    const informativePoints = [];
+    const groundedPoints = [];
+    const lowInformationPoints = [];
+    const ungroundedPoints = [];
+
+    for (const point of keyPoints) {
+      const text = `${point.label || ''} ${point.value || ''} ${point.detail || ''}`;
+      const informative = this._isInformativeBriefPoint(point);
+      const grounded = this._isGroundedBriefPoint(point, { routeNodeIds, objectIds, resources });
+      if (informative) informativePoints.push(point);
+      else lowInformationPoints.push(point);
+      if (grounded) groundedPoints.push(point);
+      else ungroundedPoints.push(point);
+      if (this._isGenericRouteLabel(point.value) || this._isGenericRouteLabel(point.detail) || this._significantTokens(text).size < 3) {
+        if (!lowInformationPoints.includes(point)) lowInformationPoints.push(point);
+      }
+    }
+
+    const pointCount = keyPoints.length;
+    const informationScore = pointCount > 0 ? Math.round((informativePoints.length / pointCount) * 100) : 0;
+    const groundingScore = pointCount > 0 ? Math.round((groundedPoints.length / pointCount) * 100) : 0;
+    const reasons = [];
+    if (pointCount < 3) reasons.push('source brief needs at least three key points');
+    if (missingExpected.length > 0) reasons.push(`missing brief facets: ${missingExpected.join(', ')}`);
+    if (lowInformationPoints.length > 0) {
+      reasons.push(`low-information brief points: ${lowInformationPoints.slice(0, 3).map(point => point.label || point.id).join(', ')}`);
+    }
+    if (ungroundedPoints.length > 0) {
+      reasons.push(`brief points lack route/object/resource support: ${ungroundedPoints.slice(0, 3).map(point => point.label || point.id).join(', ')}`);
+    }
+
+    let level = 'complete';
+    if (pointCount === 0) level = 'missing';
+    else if (informationScore < 50 || groundingScore < 50 || missingExpected.length >= 2) level = 'weak';
+    else if (reasons.length > 0 || informationScore < 100 || groundingScore < 100) level = 'partial';
+
+    return {
+      level,
+      pointCount,
+      informativePointCount: informativePoints.length,
+      groundedPointCount: groundedPoints.length,
+      lowInformationPointCount: lowInformationPoints.length,
+      ungroundedPointCount: ungroundedPoints.length,
+      informationScore,
+      groundingScore,
+      missingExpected,
+      reasons
+    };
+  }
+
+  _isInformativeBriefPoint(point = {}) {
+    const value = String(point.value || '').trim();
+    const detail = String(point.detail || '').trim();
+    if (!value || this._isGenericRouteLabel(value) || /^needs\b/i.test(value)) return false;
+    if (/^no .* available/i.test(detail) || /^needs extraction/i.test(detail)) return false;
+    const tokens = this._significantTokens(`${value} ${detail}`);
+    return tokens.size >= 4;
+  }
+
+  _isGroundedBriefPoint(point = {}, context = {}) {
+    if (this._hasGroundingProvenance(point.provenance)) return true;
+    const support = point.support || {};
+    if (support.sourceText) return true;
+    if (support.routeNodeId && context.routeNodeIds?.has?.(support.routeNodeId)) return true;
+    if (Array.isArray(support.routeNodeIds) && support.routeNodeIds.some(id => context.routeNodeIds?.has?.(id))) return true;
+    if (support.objectId && context.objectIds?.has?.(support.objectId)) return true;
+    if (support.resourceUrl && (context.resources || []).some(resource => this._urlsEquivalent(resource.url, support.resourceUrl))) return true;
+    return false;
+  }
+
+  _sourceBriefFacet(point = {}) {
+    const explicit = String(point.facet || point.id || '').trim().toLowerCase();
+    if (['route', 'method', 'material', 'evidence'].includes(explicit)) return explicit;
+
+    const text = [
+      point.label,
+      point.kind,
+      point.type,
+      point.support?.kind,
+      point.value
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    if (/route|workflow|pipeline|process|technical path|core path/.test(text)) return 'route';
+    if (/method|mechanism|model|algorithm|architecture|execution|implementation/.test(text)) return 'method';
+    if (/material|input|context|dataset|data|variable|coverage|region|resource/.test(text)) return 'material';
+    if (/evidence|result|finding|claim|metric|evaluation|benchmark|resource/.test(text)) return 'evidence';
+    return explicit || null;
+  }
+
+  _contentSectionNames(content = {}) {
+    const explicitSections = content.sections;
+    if (Array.isArray(explicitSections)) {
+      return explicitSections
+        .map(section => typeof section === 'string' ? section : section?.title || section?.heading || section?.name)
+        .filter(Boolean)
+        .map(section => String(section).toLowerCase());
+    }
+    if (explicitSections && typeof explicitSections === 'object') {
+      return Object.keys(explicitSections).map(section => String(section).toLowerCase());
+    }
+
+    return Object.keys(this._normalizedSectionMap(content, content.type || content.metadata?.type || 'Source'))
+      .map(section => String(section).toLowerCase());
+  }
+
+  _objectLooksLikeFacet(object = {}, facet = '') {
+    const schema = ontology.getEntitySchema?.(object.type) || {};
+    const text = [
+      object.type,
+      object.name,
+      object.category,
+      object.metadata?.category,
+      schema.category,
+      object.attributes?.name,
+      object.attributes?.type,
+      object.attributes?.role,
+      object.attributes?.description
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    const facetSignals = {
+      data: ['data', 'dataset', 'variable', 'observation', 'input'],
+      method: ['method', 'model', 'algorithm', 'workflow', 'computing', 'software', 'repository']
+    };
+    return (facetSignals[facet] || []).some(signal => text.includes(signal));
   }
 
   _buildResearchBrief(result, content = {}, admissionResult = {}) {
     const source = result.sourceObject || {};
     const attributes = source.attributes || {};
-    const metadata = content.metadata || {};
+    const metadata = this._getNormalizedMetadata(content);
     const abstract = attributes.abstract || metadata.abstract || content.abstract || '';
     const authors = attributes.authors || metadata.authors || [];
     const authorText = Array.isArray(authors)
@@ -1220,15 +2614,45 @@ Return JSON with this structure:
     const externalResources = result.externalResources || [];
     const strongestResource = externalResources.find(resource => ['repository', 'code', 'dataset'].includes(String(resource.type || '').toLowerCase()))
       || externalResources[0];
+    const llmInsights = result.llmInsights || {};
+    const sourceBriefInsight = llmInsights.sourceBrief || {};
+    const sourceBriefKeyPoints = (sourceBriefInsight.keyPoints || [])
+      .map((point, index) => this._normalizeSourceBriefPoint(point, index))
+      .filter(Boolean)
+      .slice(0, 4);
+    const insightKeyPoints = (llmInsights.keyFindings || [])
+      .slice(0, 3)
+      .map((item, index) => ({
+        id: item.id || `llm-finding-${index + 1}`,
+        label: item.label || 'Key Finding',
+        value: this._summarizeText(item.statement || item.value || item.label, 90),
+        detail: this._summarizeText(item.detail || item.evidence || item.provenance?.sourceText || 'Source-grounded finding from deep extraction.', 180),
+        source: 'llm-insight',
+        provenance: item.provenance || item.section ? {
+          ...(item.provenance || {}),
+          section: item.section || item.provenance?.section
+        } : null,
+        support: {
+          kind: 'llm-insight',
+          sourceText: item.provenance?.sourceText || item.evidence || item.statement || null
+        }
+      }));
 
-    const keyPoints = [
+    const keyPoints = this._prioritizeSourceBriefPoints([
+      ...sourceBriefKeyPoints,
+      ...insightKeyPoints,
       {
         id: 'route',
         label: 'Core Route',
         value: this._summarizeText(routeValue, 90),
         detail: routeNodes.length > 0
           ? this._summarizeText(routeSummary || 'Main content route extracted from the source.', 180)
-          : 'The available source material does not yet expose a clear content route.'
+          : 'The available source material does not yet expose a clear content route.',
+        support: {
+          kind: 'research-route',
+          routeNodeIds: routeNodes.map(node => node.id).slice(0, 6),
+          routeQuality: result.workflowOutline?.provenance?.routeQuality?.level || null
+        }
       },
       {
         id: 'method',
@@ -1236,7 +2660,12 @@ Return JSON with this structure:
         value: this._summarizeText(methodNode?.label || result.capabilityObjects?.[0]?.name || result.capabilityObjects?.[0]?.attributes?.name || 'Needs extraction', 70),
         detail: methodNode?.summary
           || result.capabilityObjects?.[0]?.attributes?.description
-          || 'No explicit method, model, code path, or workflow mechanism is available yet.'
+          || 'No explicit method, model, code path, or workflow mechanism is available yet.',
+        support: {
+          kind: 'method',
+          routeNodeId: methodNode?.id || null,
+          objectId: methodNode?.objectId || result.capabilityObjects?.[0]?.id || null
+        }
       },
       {
         id: 'material',
@@ -1244,7 +2673,12 @@ Return JSON with this structure:
         value: this._summarizeText(dataOrContextNode?.label || result.worldObjects?.[0]?.name || result.worldObjects?.[0]?.attributes?.name || 'Needs anchor', 70),
         detail: dataOrContextNode?.summary
           || result.worldObjects?.[0]?.attributes?.description
-          || 'No verified data, resource, spatial, temporal, or Earth-system anchor was extracted yet.'
+          || 'No verified data, resource, spatial, temporal, or Earth-system anchor was extracted yet.',
+        support: {
+          kind: 'material',
+          routeNodeId: dataOrContextNode?.id || null,
+          objectId: dataOrContextNode?.objectId || result.worldObjects?.[0]?.id || null
+        }
       },
       {
         id: 'evidence',
@@ -1253,9 +2687,15 @@ Return JSON with this structure:
         detail: evidenceNode?.summary
           || result.evidenceObjects?.[0]?.attributes?.statement
           || strongestResource?.reviewHint
-          || 'No claim-level evidence chain or linked resource is available yet.'
+          || 'No claim-level evidence chain or linked resource is available yet.',
+        support: {
+          kind: strongestResource ? 'resource-evidence' : 'evidence',
+          routeNodeId: evidenceNode?.id || null,
+          objectId: evidenceNode?.objectId || result.evidenceObjects?.[0]?.id || null,
+          resourceUrl: strongestResource?.url || null
+        }
       }
-    ];
+    ].filter(point => !this._isGenericRouteLabel(point.value) && !this._isInternalRouteChild(point.label, point.value)));
 
     return {
       title,
@@ -1265,7 +2705,7 @@ Return JSON with this structure:
       year: attributes.year || metadata.year || metadata.publicationYear || null,
       venue: attributes.venue || metadata.venue || metadata.journal || null,
       url: attributes.url || attributes.doi || attributes.identifier || result.input || null,
-      oneLine: this._summarizeText(abstract || attributes.description || metadata.description || title, 280),
+      oneLine: this._summarizeText(sourceBriefInsight.oneLine || abstract || attributes.description || metadata.description || title, 280),
       keyPoints,
       confidence: result.confidence,
       provenance: {
@@ -1274,6 +2714,29 @@ Return JSON with this structure:
         admissionDepth: admissionResult.depth || result.depth
       }
     };
+  }
+
+  _prioritizeSourceBriefPoints(points = [], limit = 8) {
+    const validPoints = points.filter(Boolean);
+    const requiredFacets = ['route', 'method', 'material', 'evidence'];
+    const selected = [];
+    const seen = new Set();
+
+    const addPoint = point => {
+      const key = this._llmInsightKey('sourceBrief', point) || `${point.id || ''}:${point.label || ''}:${point.value || ''}`;
+      if (!key || seen.has(key) || selected.length >= limit) return;
+      seen.add(key);
+      selected.push(point);
+    };
+
+    for (const facet of requiredFacets) {
+      const point = validPoints.find(candidate => this._sourceBriefFacet(candidate) === facet);
+      if (point) addPoint(point);
+    }
+
+    for (const point of validPoints) addPoint(point);
+
+    return selected;
   }
 
   _buildWorkflowOutline(result, content = {}) {
@@ -1378,16 +2841,28 @@ Return JSON with this structure:
       const objects = objectsByStage.get(stageKey) || [];
       const primary = objects.find(object => !this._isGenericRouteLabel(object.name || object.attributes?.name || object.type))
         || objects[0];
-      const label = primary
+      let label = primary
         ? this._contentRouteLabel(primary, stageKey)
         : fallback.label;
+      if (fallback.label && this._isLowInformationRouteLabel(label)) {
+        label = fallback.label;
+      }
+
       const stageSummary = fallback.summary || stage.fallbackSummary;
-      const summary = primary
+      let summary = primary
         ? this._objectSummary(primary, stageSummary) || stageSummary
         : stageSummary;
-      const children = primary
+      if (fallback.summary && this._isLowInformationRouteLabel(label)) {
+        summary = fallback.summary;
+      }
+
+      const primaryChildren = primary
         ? this._contentRouteChildren(primary, stageKey)
-        : fallback.children || [];
+        : [];
+      const children = [
+        ...primaryChildren,
+        ...(fallback.children || [])
+      ].slice(0, 8);
 
       if (!label || this._isGenericRouteLabel(label)) return;
 
@@ -1407,8 +2882,10 @@ Return JSON with this structure:
 
     addStageNode('data');
     addStageNode('method');
+    addStageNode('execution');
     addStageNode('context');
     addStageNode('evidence');
+    addStageNode('resource');
 
     nodes.sort((a, b) => (a.stageOrder - b.stageOrder) || a.label.localeCompare(b.label));
 
@@ -1435,7 +2912,8 @@ Return JSON with this structure:
   }
 
   _buildRouteFallbacksFromMetadata(content = {}) {
-    const metadata = content.metadata || {};
+    const metadata = this._getNormalizedMetadata(content);
+    const sections = this._normalizedSectionMap(content, metadata.type || content.type || 'Source');
     const source = {
       ...metadata,
       datasets: metadata.datasets || content.datasets,
@@ -1459,11 +2937,51 @@ Return JSON with this structure:
       conclusions: metadata.conclusions || content.conclusions
     };
 
+    const sectionFallbacks = {
+      data: this._routeFallbackFromSections('data', sections, ['input data', 'target and evaluation data', 'data availability', 'data', 'dataset', 'observations']),
+      method: this._routeFallbackFromSections('method', sections, ['model', 'method', 'algorithm', 'approach']),
+      execution: this._routeFallbackFromSections('execution', sections, ['experiment', 'evaluation', 'validation', 'forecast lead time', 'return periods', 'workflow', 'training']),
+      context: this._routeFallbackFromSections('context', sections, ['main', 'study area', 'continent', 'region', 'basin', 'watershed', 'hazard', 'risk']),
+      evidence: this._routeFallbackFromSections('evidence', sections, ['result', 'finding', 'conclusion', 'discussion', 'improves', 'reliability', 'figures', 'tables']),
+      resource: this._routeFallbackFromSections('resource', sections, ['code availability', 'data availability', 'supplementary'])
+    };
+
     return {
-      data: this._routeFallbackFromFields('data', source, ['datasets', 'dataSources', 'variables', 'inputs', 'observations']),
-      method: this._routeFallbackFromFields('method', source, ['models', 'methods', 'algorithms', 'workflows']),
-      context: this._routeFallbackFromFields('context', source, ['regions', 'studyRegions', 'locations', 'hazards', 'risks']),
-      evidence: this._routeFallbackFromFields('evidence', source, ['results', 'findings', 'claims', 'outputs', 'conclusions'])
+      data: this._mergeRouteFallbacks(
+        this._routeFallbackFromFields('data', source, ['datasets', 'dataSources', 'variables', 'inputs', 'observations']),
+        sectionFallbacks.data
+      ),
+      method: this._mergeRouteFallbacks(
+        this._routeFallbackFromFields('method', source, ['models', 'methods', 'algorithms', 'workflows']),
+        sectionFallbacks.method
+      ),
+      execution: sectionFallbacks.execution,
+      context: this._mergeRouteFallbacks(
+        this._routeFallbackFromFields('context', source, ['regions', 'studyRegions', 'locations', 'hazards', 'risks']),
+        sectionFallbacks.context
+      ),
+      evidence: this._mergeRouteFallbacks(
+        this._routeFallbackFromFields('evidence', source, ['results', 'findings', 'claims', 'outputs', 'conclusions']),
+        sectionFallbacks.evidence
+      ),
+      resource: sectionFallbacks.resource
+    };
+  }
+
+  _mergeRouteFallbacks(primary = {}, secondary = {}) {
+    const children = [
+      ...(primary.children || []),
+      ...(secondary.children || [])
+    ];
+    const labels = [
+      primary.label,
+      secondary.label
+    ].filter(value => value && !this._isGenericRouteLabel(value));
+
+    return {
+      label: labels[0] || null,
+      summary: primary.summary || secondary.summary || '',
+      children: children.slice(0, 8)
     };
   }
 
@@ -1486,6 +3004,43 @@ Return JSON with this structure:
         ? `${WORKFLOW_STAGE_DEFINITIONS[stageKey].label} route includes ${labels.slice(0, 4).join(', ')}.`
         : '',
       children: children.slice(0, 6)
+    };
+  }
+
+  _routeFallbackFromSections(stageKey, sections = {}, roleHints = []) {
+    const entries = Object.entries(sections)
+      .map(([key, text]) => ({ key, text: typeof text === 'string' ? text.trim() : '' }))
+      .filter(entry => entry.key && entry.text.length > 80);
+    const matched = [];
+    const seen = new Set();
+
+    for (const hint of roleHints) {
+      const normalizedHint = String(hint || '').toLowerCase();
+      for (const entry of entries) {
+        const normalizedKey = entry.key.toLowerCase();
+        if (seen.has(normalizedKey)) continue;
+        if (normalizedKey === normalizedHint || normalizedKey.includes(normalizedHint)) {
+          seen.add(normalizedKey);
+          matched.push(entry);
+          break;
+        }
+      }
+      if (matched.length >= 4) break;
+    }
+
+    const children = matched.map(entry => ({
+      label: 'Section',
+      value: this._humanizeSectionTitle(entry.key, entry.key),
+      detail: this._summarizeText(this._firstSentence(entry.text) || entry.text, 220)
+    }));
+    const labels = children.map(child => child.value).filter(value => !this._isGenericRouteLabel(value));
+
+    return {
+      label: labels.length > 0 ? labels.slice(0, 2).join(' + ') : null,
+      summary: matched.length > 0
+        ? this._summarizeText(this._firstSentence(matched[0].text) || matched[0].text, 260)
+        : '',
+      children
     };
   }
 
@@ -1587,8 +3142,17 @@ Return JSON with this structure:
   _isGenericRouteLabel(value) {
     const normalized = String(value || '').toLowerCase().trim();
     return !normalized
-      || ['paper', 'source', 'repository', 'connected', 'global view', 'workflow readable', 'evidence available', 'method', 'dataset', 'workflow', 'claim'].includes(normalized)
-      || normalized.endsWith(' workflow');
+      || /^https?:\/\//i.test(normalized)
+      || ['paper', 'source', 'repository', 'connected', 'global view', 'workflow readable', 'evidence available', 'method', 'methods', 'dataset', 'workflow', 'claim', 'main', 'results'].includes(normalized);
+  }
+
+  _isLowInformationRouteLabel(value) {
+    const normalized = String(value || '').toLowerCase().trim();
+    return this._isGenericRouteLabel(normalized)
+      || /^https?:\/\//i.test(normalized)
+      || ['data', 'resource', 'context', 'evidence', 'output', 'outputs'].includes(normalized)
+      || (normalized.length > 70 && normalized.split(/\s+/).length > 7)
+      || normalized.length < 4;
   }
 
   _classifyWorkflowStage(object, layer) {
@@ -1733,7 +3297,12 @@ Return JSON with this structure:
     const stage = this._normalizeWorkflowStage(node.stage || node.type || node.category);
     const definition = WORKFLOW_STAGE_DEFINITIONS[stage];
     const summary = this._summarizeText(
-      node.summary || node.description || node.detail || definition.fallbackSummary,
+      node.summary
+        || node.description
+        || node.detail
+        || node.provenance?.sourceText
+        || node.support?.sourceText
+        || definition.fallbackSummary,
       240
     );
 
@@ -1746,6 +3315,20 @@ Return JSON with this structure:
       stageOrder: definition.order,
       objectType: node.objectType || node.type || definition.label,
       summary,
+      provenance: node.provenance && typeof node.provenance === 'object' ? node.provenance : null,
+      support: node.support && typeof node.support === 'object'
+        ? {
+            objectId: node.support.objectId || node.objectId || null,
+            resourceUrl: node.support.resourceUrl || node.resourceUrl || null,
+            evidenceId: node.support.evidenceId || node.evidenceId || null,
+            sourceText: node.support.sourceText || node.provenance?.sourceText || null
+          }
+        : {
+            objectId: node.objectId || null,
+            resourceUrl: node.resourceUrl || null,
+            evidenceId: node.evidenceId || null,
+            sourceText: node.provenance?.sourceText || null
+          },
       status: this._normalizeRouteStatus(node.status),
       children: this._normalizeResearchRouteChildren(node.children || node.details || node.innerRoute)
     };
@@ -1823,6 +3406,12 @@ Return JSON with this structure:
         type,
         role: candidate.role || this._resourceRole(type),
         source: candidate.source || 'metadata',
+        provenance: candidate.provenance || {
+          method: candidate.source || 'metadata',
+          section: candidate.section || candidate.source || 'metadata',
+          sourceText: candidate.sourceText || (candidate.source === 'sourceText' ? normalizedUrl : null),
+          url: normalizedUrl
+        },
         investigationLabel: candidate.investigationLabel || this._resourceInvestigationLabel(type),
         routeRelevance: candidate.routeRelevance || this._resourceRouteRelevance(type, candidate.source),
         verificationFocus: candidate.verificationFocus || this._resourceVerificationFocus(type),
@@ -1932,7 +3521,165 @@ Return JSON with this structure:
       .slice(0, 8)
       .forEach((table, index) => addVisual(table, 'table', index));
 
-    return visuals;
+    this._applyFigureAnalyses(visuals, result.llmInsights?.figureAnalyses || [], { sourceUrl, metadata, provenance });
+
+    return this._dedupeVisualEvidence(visuals);
+  }
+
+  _applyFigureAnalyses(visuals = [], analyses = [], context = {}) {
+    for (const [index, analysis] of (analyses || []).entries()) {
+      let visual = this._matchVisualAnalysis(visuals, analysis);
+      if (!visual) {
+        visual = this._visualEvidenceFromAnalysis(analysis, index, context);
+        if (!visual) continue;
+        visuals.push(visual);
+      }
+
+      const interpretation = this._summarizeText(
+        analysis.interpretation
+        || analysis.explanation
+        || analysis.statement
+        || analysis.detail
+        || '',
+        360
+      );
+      const generation = this._summarizeText(
+        analysis.howProduced
+        || analysis.method
+        || analysis.generatedFrom
+        || '',
+        260
+      );
+      const supportedClaim = this._summarizeText(
+        analysis.supports
+        || analysis.supportedClaim
+        || analysis.claim
+        || '',
+        260
+      );
+
+      visual.interpretation = interpretation || visual.interpretation;
+      visual.howProduced = generation || visual.howProduced;
+      visual.supportedClaim = supportedClaim || visual.supportedClaim;
+      visual.routeNodeId = analysis.routeNodeId || analysis.targetId || visual.routeNodeId || null;
+      visual.readHint = interpretation
+        ? `${visual.readHint} ${interpretation}`
+        : visual.readHint;
+      visual.provenance = {
+        ...(visual.provenance || {}),
+        analysis: 'llm-insight',
+        section: analysis.section || analysis.provenance?.section || visual.provenance?.section
+      };
+    }
+  }
+
+  _visualEvidenceFromAnalysis(analysis = {}, index = 0, context = {}) {
+    if (!analysis || typeof analysis !== 'object') return null;
+    const label = analysis.figureId || analysis.figure || analysis.label || analysis.title || `Figure ${index + 1}`;
+    const caption = this._summarizeText(
+      analysis.caption
+      || analysis.provenance?.sourceText
+      || analysis.interpretation
+      || analysis.statement
+      || '',
+      520
+    );
+    if (!caption) return null;
+
+    const kind = String(analysis.kind || analysis.type || label || '').toLowerCase().includes('table') ? 'table' : 'figure';
+    const role = this._visualEvidenceRole(`${caption} ${analysis.interpretation || ''} ${analysis.supportedClaim || ''}`, kind);
+    const id = `${kind}-${this._slugifyRouteId(label)}-${index + 1}`;
+    return {
+      id,
+      kind,
+      label: this._summarizeText(label, 90),
+      title: this._summarizeText(label, 90),
+      caption,
+      imageUrl: analysis.imageUrl || analysis.url || null,
+      sourceUrl: analysis.sourceUrl || context.sourceUrl || null,
+      source: 'llm-figure-analysis',
+      routeRole: role,
+      supports: this._visualEvidenceSupport(caption, role),
+      readHint: this._visualEvidenceReadHint(role, kind),
+      routeNodeId: analysis.routeNodeId || analysis.targetId || null,
+      provenance: {
+        doi: context.provenance?.doi || context.metadata?.doi || null,
+        retrievedAt: context.provenance?.retrievedAt || null,
+        extraction: 'llm-figure-analysis',
+        section: analysis.section || analysis.provenance?.section || null,
+        sourceText: analysis.provenance?.sourceText || analysis.caption || null
+      }
+    };
+  }
+
+  _matchVisualAnalysis(visuals = [], analysis = {}) {
+    const candidates = [
+      analysis.figureId,
+      analysis.figure,
+      analysis.label,
+      analysis.title,
+      analysis.caption,
+      analysis.provenance?.sourceText
+    ].filter(Boolean).map(value => String(value).toLowerCase());
+
+    const exact = visuals.find(visual => {
+      const haystack = `${visual.id} ${visual.label} ${visual.title} ${visual.caption}`.toLowerCase();
+      return candidates.some(candidate => candidate && haystack.includes(candidate));
+    });
+    if (exact) return exact;
+
+    const analysisText = [
+      analysis.figureId,
+      analysis.figure,
+      analysis.label,
+      analysis.title,
+      analysis.caption,
+      analysis.interpretation,
+      analysis.supportedClaim,
+      analysis.provenance?.sourceText
+    ].filter(Boolean).join(' ');
+
+    let best = null;
+    let bestScore = 0;
+    for (const visual of visuals) {
+      const visualText = [visual.label, visual.title, visual.caption].filter(Boolean).join(' ');
+      const score = this._textOverlapScore(analysisText, visualText);
+      if (score > bestScore) {
+        best = visual;
+        bestScore = score;
+      }
+    }
+
+    return bestScore >= 0.18 ? best : null;
+  }
+
+  _dedupeVisualEvidence(visuals = []) {
+    const deduped = [];
+    for (const visual of visuals) {
+      const match = deduped.find(existing => {
+        if (existing.id && visual.id && existing.id === visual.id) return true;
+        const labelMatch = String(existing.label || '').toLowerCase() === String(visual.label || '').toLowerCase();
+        const captionOverlap = this._textOverlapScore(existing.caption || '', visual.caption || '');
+        return labelMatch || captionOverlap >= 0.65;
+      });
+      if (!match) {
+        deduped.push(visual);
+        continue;
+      }
+
+      match.interpretation = match.interpretation || visual.interpretation || null;
+      match.howProduced = match.howProduced || visual.howProduced || null;
+      match.supportedClaim = match.supportedClaim || visual.supportedClaim || null;
+      match.routeNodeId = match.routeNodeId || visual.routeNodeId || null;
+      match.imageUrl = match.imageUrl || visual.imageUrl || null;
+      match.sourceUrl = match.sourceUrl || visual.sourceUrl || null;
+      match.provenance = {
+        ...(match.provenance || {}),
+        ...(visual.provenance || {}),
+        mergedFromDuplicate: true
+      };
+    }
+    return deduped;
   }
 
   _visualEvidenceRole(caption = '', kind = 'figure') {
@@ -1971,8 +3718,747 @@ Return JSON with this structure:
     return `Use this ${objectName} as direct source evidence; verify axes, caption, context, and the claim it supports.`;
   }
 
+  _buildResourceGraph(result = {}, content = {}) {
+    const nodes = [];
+    const edges = [];
+    const nodeIds = new Set();
+    const addNode = (node) => {
+      if (!node?.id || nodeIds.has(node.id)) return;
+      nodeIds.add(node.id);
+      nodes.push(node);
+    };
+
+    const resources = result.externalResources || [];
+    for (const resource of resources) {
+      const id = this._resourceGraphNodeId(resource);
+      addNode({
+        id,
+        kind: 'resource',
+        label: this._summarizeText(resource.label || resource.url || 'Resource', 90),
+        type: resource.type || 'external',
+        role: resource.role || this._resourceRole(resource.type),
+        url: resource.url,
+        routeRelevance: resource.routeRelevance || '',
+        verificationFocus: resource.verificationFocus || '',
+        reviewHint: resource.reviewHint || '',
+        reproducibilityGrade: resource.reproducibilityGrade || resource.enrichment?.grade || null,
+        source: resource.source || 'resource',
+        provenance: resource.provenance || null
+      });
+    }
+
+    for (const routeNode of result.workflowOutline?.nodes || []) {
+      addNode({
+        id: `route-${routeNode.id}`,
+        kind: 'route-node',
+        label: routeNode.label,
+        type: routeNode.stage || 'route',
+        summary: routeNode.summary || '',
+        routeNodeId: routeNode.id
+      });
+    }
+
+    for (const evidence of result.evidenceObjects || []) {
+      addNode({
+        id: `evidence-${evidence.id}`,
+        kind: 'evidence',
+        label: this._summarizeText(evidence.attributes?.statement || evidence.attributes?.name || evidence.name || evidence.type, 90),
+        summary: this._summarizeText(evidence.attributes?.statement || evidence.provenance?.sourceText || '', 220)
+      });
+    }
+
+    for (const visual of result.visualEvidence || []) {
+      addNode({
+        id: visual.id,
+        kind: visual.kind || 'figure',
+        label: this._summarizeText(visual.label || visual.title || 'Visual evidence', 90),
+        type: visual.kind || 'figure',
+        summary: this._summarizeText(visual.interpretation || visual.caption || visual.supports || '', 260),
+        routeNodeId: visual.routeNodeId || null,
+        sourceUrl: visual.sourceUrl || null
+      });
+    }
+
+    for (const resource of resources) {
+      const resourceId = this._resourceGraphNodeId(resource);
+      const resourceText = [
+        resource.label,
+        resource.type,
+        resource.role,
+        resource.routeRelevance,
+        resource.verificationFocus,
+        resource.reviewHint
+      ].filter(Boolean).join(' ');
+
+      for (const routeNode of result.workflowOutline?.nodes || []) {
+        const stageMatch = this._resourceMatchesRouteStage(resource, routeNode.stage);
+        const overlap = this._textOverlapScore(resourceText, `${routeNode.label} ${routeNode.summary}`);
+        if (stageMatch || overlap >= 0.12) {
+          edges.push({
+            from: resourceId,
+            to: `route-${routeNode.id}`,
+            label: stageMatch ? this._resourceRouteEdgeLabel(resource, routeNode.stage) : 'relates_to',
+            confidence: stageMatch ? 0.65 : 0.5,
+            provenance: {
+              method: stageMatch ? 'resource-role' : 'text-overlap',
+              overlap,
+              sourceText: resource.provenance?.sourceText || null,
+              section: resource.provenance?.section || null,
+              url: resource.provenance?.url || resource.url || null
+            }
+          });
+        }
+      }
+
+      for (const evidence of result.evidenceObjects || []) {
+        const overlap = this._textOverlapScore(resourceText, [
+          evidence.attributes?.statement,
+          evidence.attributes?.description,
+          evidence.provenance?.sourceText
+        ].filter(Boolean).join(' '));
+        if (overlap >= 0.14) {
+          edges.push({
+            from: resourceId,
+            to: `evidence-${evidence.id}`,
+            label: 'grounds',
+            confidence: 0.55,
+            provenance: {
+              method: 'text-overlap',
+              overlap,
+              sourceText: resource.provenance?.sourceText || null,
+              section: resource.provenance?.section || null,
+              url: resource.provenance?.url || resource.url || null
+            }
+          });
+        }
+      }
+    }
+
+    for (const link of result.llmInsights?.resourceLinks || []) {
+      const resourceId = this._resolveResourceLinkResourceId(link, resources);
+      const targetId = this._resolveResourceLinkTargetId(link, result);
+      if (!resourceId || !targetId) continue;
+
+      edges.push({
+        from: resourceId,
+        to: targetId,
+        label: this._summarizeText(link.relation || link.role || link.label || 'supports', 40),
+        confidence: typeof link.confidence === 'number' ? Math.min(Math.max(link.confidence, 0), 1) : 0.72,
+        provenance: {
+          method: 'llm-resource-link',
+          role: link.role || null,
+          relation: link.relation || null,
+          section: link.section || link.provenance?.section || null,
+          sourceText: link.provenance?.sourceText || link.evidence || null
+        }
+      });
+    }
+
+    const edgeByKey = new Map();
+    for (const edge of edges) {
+      if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to) || edge.from === edge.to) continue;
+      const key = `${edge.from}:${edge.to}:${edge.label}`;
+      const existing = edgeByKey.get(key);
+      if (!existing || edge.provenance?.method === 'llm-resource-link') {
+        edgeByKey.set(key, edge);
+      }
+    }
+    const uniqueEdges = Array.from(edgeByKey.values());
+
+    return {
+      nodes,
+      edges: uniqueEdges,
+      summary: {
+        resourceCount: resources.length,
+        repositoryCount: resources.filter(resource => String(resource.type || '').toLowerCase() === 'repository').length,
+        datasetCount: resources.filter(resource => String(resource.type || '').toLowerCase() === 'dataset').length,
+        linkedResourceCount: new Set(uniqueEdges.map(edge => edge.from).filter(id => id.startsWith('resource-'))).size,
+        reusableResourceCount: resources.filter(resource => ['repository', 'code', 'dataset', 'supplement'].includes(String(resource.type || '').toLowerCase())).length
+      },
+      provenance: {
+        method: 'protocol-derived',
+        warning: resources.length > 0 && uniqueEdges.length === 0
+          ? 'Resources were found but could not be linked to route or evidence nodes.'
+          : undefined
+      }
+    };
+  }
+
+  _resourceGraphNodeId(resource = {}) {
+    return `resource-${this._slugifyRouteId(resource.url || resource.label || resource.type || 'resource')}`;
+  }
+
+  _resolveResourceLinkResourceId(link = {}, resources = []) {
+    if (link.resourceId && String(link.resourceId).startsWith('resource-')) return link.resourceId;
+    const url = this._normalizeExtractedUrl(this._resourceLinkUrl(link));
+    const match = resources.find(resource => {
+      if (url && this._urlsEquivalent(resource.url, url)) return true;
+      if (link.resourceId && this._resourceGraphNodeId(resource) === link.resourceId) return true;
+      const label = String(link.label || link.resourceLabel || link.resource?.label || link.resource || '').toLowerCase();
+      if (label && String(resource.label || '').toLowerCase() === label) return true;
+      return false;
+    });
+    return match ? this._resourceGraphNodeId(match) : null;
+  }
+
+  _resourceLinkUrl(link = {}) {
+    if (typeof link.resource === 'string') return link.url || link.resourceUrl || link.href || link.resource;
+    return link.url
+      || link.resourceUrl
+      || link.href
+      || link.resource?.url
+      || link.resource?.href
+      || '';
+  }
+
+  _urlsEquivalent(a, b) {
+    const normalize = value => String(value || '').trim().replace(/\/+$/, '').toLowerCase();
+    const left = normalize(a);
+    const right = normalize(b);
+    return Boolean(left && right && (left === right || left.startsWith(right) || right.startsWith(left)));
+  }
+
+  _resolveResourceLinkTargetId(link = {}, result = {}) {
+    const routeTarget = link.routeNodeId || link.target || link.targetId;
+    if (routeTarget) {
+      const normalized = String(routeTarget);
+      const direct = normalized.startsWith('route-') ? normalized : `route-${normalized}`;
+      if ((result.workflowOutline?.nodes || []).some(node => `route-${node.id}` === direct)) {
+        return direct;
+      }
+
+      const byLabel = (result.workflowOutline?.nodes || []).find(node => {
+        const target = normalized.toLowerCase();
+        return String(node.label || '').toLowerCase() === target
+          || String(node.stage || '').toLowerCase() === target;
+      });
+      if (byLabel) return `route-${byLabel.id}`;
+    }
+
+    const evidenceTarget = link.evidenceId || link.claimId;
+    if (evidenceTarget) {
+      const direct = String(evidenceTarget).startsWith('evidence-') ? String(evidenceTarget) : `evidence-${evidenceTarget}`;
+      if ((result.evidenceObjects || []).some(object => `evidence-${object.id}` === direct)) {
+        return direct;
+      }
+    }
+
+    const visualTarget = link.figureId || link.visualId || link.tableId;
+    if (visualTarget) {
+      const normalized = String(visualTarget).toLowerCase();
+      const visual = (result.visualEvidence || []).find(item => {
+        return String(item.id || '').toLowerCase() === normalized
+          || String(item.label || '').toLowerCase() === normalized
+          || String(item.title || '').toLowerCase() === normalized;
+      });
+      if (visual) return visual.id;
+    }
+
+    return null;
+  }
+
+  _resourceMatchesRouteStage(resource = {}, stage = '') {
+    const type = String(resource.type || '').toLowerCase();
+    const role = String(resource.role || '').toLowerCase();
+    if (stage === 'data') return ['dataset', 'data'].includes(type) || role.includes('data');
+    if (stage === 'method' || stage === 'execution') return ['repository', 'code', 'software'].includes(type) || role.includes('code') || role.includes('software');
+    if (stage === 'evidence') return ['source', 'paper', 'doi', 'supplement'].includes(type) || role.includes('evidence') || role.includes('source');
+    return false;
+  }
+
+  _resourceRouteEdgeLabel(resource = {}, stage = '') {
+    const type = String(resource.type || '').toLowerCase();
+    if (stage === 'data') return 'provides_input';
+    if (stage === 'method' || stage === 'execution') return type === 'repository' ? 'may_implement' : 'supports_method';
+    if (stage === 'evidence') return 'supports_evidence';
+    return 'relates_to';
+  }
+
+  _buildEvidenceGraph(result = {}, content = {}) {
+    const nodes = [];
+    const edges = [];
+    const nodeIds = new Set();
+
+    const addNode = (node) => {
+      if (!node?.id || nodeIds.has(node.id)) return;
+      nodeIds.add(node.id);
+      nodes.push(node);
+    };
+
+    for (const object of result.evidenceObjects || []) {
+      const attributes = object.attributes || {};
+      addNode({
+        id: object.id,
+        kind: 'claim',
+        label: this._summarizeText(attributes.statement || attributes.name || object.name || object.type || 'Evidence', 90),
+        summary: this._summarizeText(attributes.statement || attributes.description || object.provenance?.sourceText || '', 260),
+        provenance: object.provenance || null,
+        confidence: object.metadata?.confidence ?? object.confidence ?? null
+      });
+    }
+
+    for (const visual of result.visualEvidence || []) {
+      addNode({
+        id: visual.id,
+        kind: visual.kind || 'figure',
+        label: this._summarizeText(visual.label || visual.title || 'Visual evidence', 90),
+        summary: this._summarizeText(visual.caption || visual.supports || '', 360),
+        sourceUrl: visual.sourceUrl,
+        imageUrl: visual.imageUrl || null,
+        role: visual.routeRole || visual.role || 'Visual evidence',
+        provenance: visual.provenance || null
+      });
+    }
+
+    for (const resource of result.externalResources || []) {
+      const id = this._resourceGraphNodeId(resource);
+      addNode({
+        id,
+        kind: 'resource',
+        label: this._summarizeText(resource.label || resource.url || 'Resource', 90),
+        summary: this._summarizeText(resource.reviewHint || resource.routeRelevance || resource.role || '', 260),
+        sourceUrl: resource.url,
+        role: resource.role || resource.type || 'resource'
+      });
+    }
+
+    for (const node of result.workflowOutline?.nodes || []) {
+      if (node.stage !== 'evidence') continue;
+      addNode({
+        id: `route-${node.id}`,
+        kind: 'route-evidence',
+        label: node.label,
+        summary: node.summary,
+        routeNodeId: node.id
+      });
+    }
+
+    const evidenceObjects = result.evidenceObjects || [];
+    const visuals = result.visualEvidence || [];
+    const resources = result.externalResources || [];
+
+    for (const evidence of evidenceObjects) {
+      const evidenceText = [
+        evidence.attributes?.statement,
+        evidence.attributes?.description,
+        evidence.provenance?.sourceText
+      ].filter(Boolean).join(' ');
+
+      for (const visual of visuals) {
+        const overlap = this._textOverlapScore(evidenceText, visual.caption || visual.supports || '');
+        const roleMatch = /evaluation|result|evidence/i.test(visual.routeRole || visual.role || '');
+        if (overlap >= 0.16 || roleMatch) {
+          edges.push({
+            from: evidence.id,
+            to: visual.id,
+            label: 'supported_by',
+            confidence: overlap >= 0.16 ? 0.7 : 0.45,
+            provenance: {
+              method: overlap >= 0.16 ? 'text-overlap' : 'visual-role',
+              overlap
+            }
+          });
+        }
+      }
+
+      for (const resource of resources) {
+        const resourceId = this._resourceGraphNodeId(resource);
+        const overlap = this._textOverlapScore(evidenceText, `${resource.label || ''} ${resource.role || ''} ${resource.routeRelevance || ''}`);
+        if (overlap >= 0.14) {
+          edges.push({
+            from: evidence.id,
+            to: resourceId,
+            label: 'grounded_in',
+            confidence: 0.6,
+            provenance: { method: 'text-overlap', overlap }
+          });
+        }
+      }
+    }
+
+    for (const routeNode of result.workflowOutline?.nodes || []) {
+      if (routeNode.stage !== 'evidence') continue;
+      for (const visual of visuals) {
+        const overlap = this._textOverlapScore(`${routeNode.label} ${routeNode.summary}`, visual.caption || '');
+        if (overlap >= 0.12 || /evaluation|result/i.test(visual.routeRole || '')) {
+          edges.push({
+            from: `route-${routeNode.id}`,
+            to: visual.id,
+            label: 'review_with',
+            confidence: overlap >= 0.12 ? 0.65 : 0.45,
+            provenance: { method: overlap >= 0.12 ? 'text-overlap' : 'visual-role', overlap }
+          });
+        }
+      }
+    }
+
+    const seenEdges = new Set();
+    const uniqueEdges = edges.filter(edge => {
+      if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to) || edge.from === edge.to) return false;
+      const key = `${edge.from}:${edge.to}:${edge.label}`;
+      if (seenEdges.has(key)) return false;
+      seenEdges.add(key);
+      return true;
+    });
+
+    return {
+      nodes,
+      edges: uniqueEdges,
+      summary: {
+        claimCount: nodes.filter(node => node.kind === 'claim').length,
+        visualCount: nodes.filter(node => ['figure', 'table'].includes(node.kind)).length,
+        resourceCount: nodes.filter(node => node.kind === 'resource').length,
+        linkedClaimCount: new Set(uniqueEdges.map(edge => edge.from).filter(id => evidenceObjects.some(object => object.id === id))).size
+      },
+      provenance: {
+        method: 'protocol-derived',
+        warning: uniqueEdges.length === 0 ? 'No claim-level evidence links could be established from extracted objects.' : undefined
+      }
+    };
+  }
+
+  _textOverlapScore(left = '', right = '') {
+    const leftTokens = this._significantTokens(left);
+    const rightTokens = this._significantTokens(right);
+    if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+    let intersection = 0;
+    for (const token of leftTokens) {
+      if (rightTokens.has(token)) intersection += 1;
+    }
+    return intersection / Math.min(leftTokens.size, rightTokens.size);
+  }
+
+  _significantTokens(value = '') {
+    const stop = new Set([
+      'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'were',
+      'have', 'has', 'had', 'into', 'over', 'under', 'between', 'using', 'used',
+      'source', 'section', 'figure', 'table', 'data', 'model'
+    ]);
+
+    const tokens = String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(/\s+/)
+      .filter(token => token.length >= 4 && !stop.has(token));
+
+    return new Set(tokens.slice(0, 80));
+  }
+
+  _assessGraphTraceability(result = {}) {
+    const routeNodes = (result.workflowOutline?.nodes || [])
+      .filter(node => node?.id && node.id !== 'source' && !this._isGenericRouteLabel(node.label || node.name || node.title || ''));
+    const routeEdges = Array.isArray(result.workflowOutline?.edges) ? result.workflowOutline.edges : [];
+    const objects = [
+      ...(result.capabilityObjects || []),
+      ...(result.worldObjects || []),
+      ...(result.evidenceObjects || [])
+    ];
+    const resourceEdges = result.resourceGraph?.edges || [];
+    const evidenceEdges = result.evidenceGraph?.edges || [];
+    const details = [];
+
+    for (const node of routeNodes) {
+      const routeId = `route-${node.id}`;
+      const resourceTrace = this._routeNodeResourceTrace(routeId, result.resourceGraph || {});
+      const linkedEvidence = evidenceEdges.some(edge => edge.from === routeId || edge.to === routeId);
+      const linkedRoute = routeEdges.some(edge => edge.from === node.id || edge.to === node.id);
+      const objectMatch = this._findTraceableObjectForRouteNode(node, objects);
+      const groundedObject = objectMatch && this._hasGroundingProvenance(objectMatch.provenance);
+      const groundedRouteNode = this._isGroundedRouteNode(node);
+
+      let level = 'untraced';
+      let reason = 'route node has no object, resource, evidence, or route support';
+      if (groundedRouteNode || groundedObject || resourceTrace.level === 'strong' || linkedEvidence) {
+        level = 'traceable';
+        reason = groundedRouteNode
+          ? 'route node has source-grounded provenance or support'
+          : groundedObject
+            ? 'route node maps to a source-grounded object'
+            : resourceTrace.level === 'strong'
+              ? 'route node is linked to a resource'
+              : 'route node is linked to evidence';
+      } else if (objectMatch || resourceTrace.level === 'weak' || linkedRoute) {
+        level = 'weak';
+        reason = objectMatch
+          ? 'route node maps to an object without strong provenance'
+          : resourceTrace.level === 'weak'
+            ? resourceTrace.reason
+            : 'route node is only connected inside the route outline';
+      }
+
+      details.push({
+        id: node.id,
+        label: node.label,
+        stage: node.stage,
+        level,
+        reason,
+        objectId: objectMatch?.id || node.objectId || null
+      });
+    }
+
+    const total = details.length;
+    const traceable = details.filter(item => item.level === 'traceable');
+    const weak = details.filter(item => item.level === 'weak');
+    const untraced = details.filter(item => item.level === 'untraced');
+    const score = total > 0
+      ? Math.round(((traceable.length + weak.length * 0.5) / total) * 100)
+      : 100;
+
+    let level = 'traceable';
+    const reasons = [];
+    if (total === 0) {
+      level = 'unknown';
+      reasons.push('no content-level route nodes were available for traceability assessment');
+    } else if (traceable.length === 0 || score < 50 || untraced.length > 0) {
+      level = 'weak';
+      if (traceable.length === 0) reasons.push('no route node is strongly linked to source-grounded objects, evidence, or reusable resources');
+      if (untraced.length > 0) reasons.push(`untraced route nodes: ${untraced.slice(0, 4).map(item => item.label).join(', ')}`);
+      if (score < 50) reasons.push('less than half of route nodes have object/resource/evidence support');
+    } else if (score < 80 || weak.length > 0) {
+      level = 'partial';
+      reasons.push(`weakly traced route nodes: ${weak.slice(0, 4).map(item => item.label).join(', ')}`);
+    }
+
+    return {
+      level,
+      score,
+      routeNodeCount: total,
+      traceableNodeCount: traceable.length,
+      weakNodeCount: weak.length,
+      untracedNodeCount: untraced.length,
+      details,
+      reasons
+    };
+  }
+
+  _routeNodeResourceTrace(routeId, resourceGraph = {}) {
+    const edges = resourceGraph.edges || [];
+    const nodes = resourceGraph.nodes || [];
+    const resourceById = new Map(nodes.filter(node => node.kind === 'resource').map(node => [node.id, node]));
+    let weakReason = '';
+
+    for (const edge of edges) {
+      if (edge.from !== routeId && edge.to !== routeId) continue;
+      const resourceId = edge.from === routeId ? edge.to : edge.from;
+      const resource = resourceById.get(resourceId);
+      if (!resource) continue;
+      const type = String(resource.type || '').toLowerCase();
+      const method = String(edge.provenance?.method || '').toLowerCase();
+      const reusable = ['dataset', 'repository', 'code', 'software', 'supplement', 'model', 'documentation'].includes(type);
+      if (method === 'llm-resource-link' || reusable) {
+        return { level: 'strong', reason: 'route node is linked to a reusable or agent-grounded resource' };
+      }
+      weakReason = 'route node is only linked to a generic source/resource';
+    }
+
+    return weakReason ? { level: 'weak', reason: weakReason } : { level: 'none', reason: '' };
+  }
+
+  _findTraceableObjectForRouteNode(node = {}, objects = []) {
+    const directId = node.objectId || node.id;
+    const direct = objects.find(object => object.id === directId || object.attributes?.id === directId);
+    if (direct) return direct;
+
+    const nodeText = [
+      node.label,
+      node.summary,
+      node.type,
+      node.stage,
+      ...(node.children || []).map(child => `${child.label || ''} ${child.value || ''} ${child.detail || ''}`)
+    ].filter(Boolean).join(' ');
+
+    let best = null;
+    let bestScore = 0;
+    for (const object of objects) {
+      const objectText = [
+        object.id,
+        object.type,
+        object.attributes?.name,
+        object.attributes?.description,
+        object.attributes?.statement,
+        object.provenance?.sourceText
+      ].filter(Boolean).join(' ');
+      const score = this._textOverlapScore(nodeText, objectText);
+      if (score > bestScore) {
+        best = object;
+        bestScore = score;
+      }
+    }
+
+    return bestScore >= 0.18 ? best : null;
+  }
+
+  _buildExtractionIntegrity(result = {}, content = {}) {
+    const routeQuality = this._assessResearchRouteQuality(result.workflowOutline || {});
+    const contentFidelity = this._assessContentFidelity(result, content);
+    const graphTraceability = this._assessGraphTraceability(result);
+    const visualEvidenceQuality = this._assessVisualEvidenceQuality(result, content);
+    const resourceGraphQuality = this._assessResourceGraphQuality(result);
+    const briefQuality = this._assessSourceBriefQuality(result);
+    const productReadiness = assessSourceObjectGraphQuality({
+      ...result,
+      extractionIntegrity: {
+        routeQuality,
+        graphTraceability,
+        contentFidelity,
+        visualEvidenceQuality,
+        resourceGraphQuality,
+        briefQuality
+      }
+    }, { sourceCoverage: content.sourceCoverage || content.coverage || {} });
+    const unknownRelations = (result.bridgeRelations || []).filter(relation => relation.isUnknownType);
+    const endpointReviewRelations = (result.bridgeRelations || []).filter(relation => relation.requiresEndpointReview);
+    const schemaWarnings = Array.isArray(result.extractionMetadata?.llmExtraction?.schemaWarnings)
+      ? result.extractionMetadata.llmExtraction.schemaWarnings
+      : [];
+    const metadata = this._getNormalizedMetadata(content);
+    const missingBibliographicFields = [];
+    if (result.sourceType === 'Paper') {
+      if (!metadata.authors?.length && !result.sourceObject?.attributes?.authors?.length) missingBibliographicFields.push('authors');
+      if (!metadata.year && !metadata.publicationYear && !result.sourceObject?.attributes?.year) missingBibliographicFields.push('year');
+      if (!metadata.venue && !metadata.journal && !result.sourceObject?.attributes?.venue) missingBibliographicFields.push('venue');
+    }
+
+    const issues = [];
+    const scopeFiltering = result.extractionMetadata?.scopeFiltering || {};
+    if (scopeFiltering.removedTotal > 0) {
+      issues.push({
+        id: 'scope-filtered',
+        severity: 'warning',
+        detail: `${scopeFiltering.removedTotal} out-of-scope extracted item(s) were removed before graph construction.`
+      });
+    }
+    if (schemaWarnings.length > 0) {
+      issues.push({
+        id: 'schema-quality',
+        severity: schemaWarnings.some(item => String(item).includes('must be') || String(item).includes('missing')) ? 'warning' : 'info',
+        detail: `${schemaWarnings.length} LLM/agent schema quality warning(s): ${schemaWarnings.slice(0, 3).join('; ')}.`
+      });
+    }
+    if (routeQuality.level !== 'content') {
+      issues.push({
+        id: 'route-quality',
+        severity: 'warning',
+        detail: `Research route quality is ${routeQuality.level}: ${routeQuality.reasons.join(', ') || 'review required'}.`
+      });
+    }
+    if (graphTraceability.level === 'weak' || graphTraceability.level === 'partial') {
+      issues.push({
+        id: 'graph-traceability',
+        severity: graphTraceability.level === 'weak' ? 'warning' : 'info',
+        detail: `Research graph traceability is ${graphTraceability.level} (${graphTraceability.score}%): ${graphTraceability.reasons.join(', ') || 'review route-to-evidence links.'}`
+      });
+    }
+    if (contentFidelity.level === 'weak' || contentFidelity.level === 'partial') {
+      issues.push({
+        id: 'content-fidelity',
+        severity: contentFidelity.level === 'weak' ? 'warning' : 'info',
+        detail: `Content fidelity is ${contentFidelity.level} (${contentFidelity.score}%): ${contentFidelity.reasons.join(', ') || 'review source coverage.'}`
+      });
+    }
+    if (
+      contentFidelity.grounding?.ungroundedFacets?.length > 0
+      || contentFidelity.grounding?.weaklyGroundedFacets?.length > 0
+    ) {
+      const weakFacets = [
+        ...(contentFidelity.grounding.ungroundedFacets || []),
+        ...(contentFidelity.grounding.weaklyGroundedFacets || [])
+      ];
+      issues.push({
+        id: 'facet-grounding',
+        severity: contentFidelity.grounding.ungroundedFacets?.length > 0 ? 'warning' : 'info',
+        detail: `Covered facets need stronger provenance or graph links: ${weakFacets.join(', ')}.`
+      });
+    }
+    if (visualEvidenceQuality.level === 'missing' || visualEvidenceQuality.level === 'weak' || visualEvidenceQuality.level === 'partial') {
+      issues.push({
+        id: 'visual-evidence',
+        severity: visualEvidenceQuality.level === 'partial' ? 'info' : 'warning',
+        detail: `Visual evidence quality is ${visualEvidenceQuality.level}: ${visualEvidenceQuality.reasons.join(', ') || 'review figure/table extraction.'}`
+      });
+    }
+    if (resourceGraphQuality.level === 'weak' || resourceGraphQuality.level === 'partial') {
+      issues.push({
+        id: 'resource-graph-quality',
+        severity: resourceGraphQuality.level === 'partial' ? 'info' : 'warning',
+        detail: `Resource graph quality is ${resourceGraphQuality.level}: ${resourceGraphQuality.reasons.join(', ') || 'review resource-to-route links.'}`
+      });
+    }
+    if (briefQuality.level === 'missing' || briefQuality.level === 'weak' || briefQuality.level === 'partial') {
+      issues.push({
+        id: 'brief-quality',
+        severity: briefQuality.level === 'partial' ? 'info' : 'warning',
+        detail: `Source brief quality is ${briefQuality.level}: ${briefQuality.reasons.join(', ') || 'review brief grounding and information density.'}`
+      });
+    }
+    if (productReadiness.level === 'weak') {
+      issues.push({
+        id: 'product-readiness',
+        severity: 'warning',
+        detail: `Source-to-object graph product readiness is weak (${productReadiness.score}%): ${productReadiness.reasons.join(', ') || 'review source brief, route, evidence, and resources.'}`
+      });
+    }
+    if (unknownRelations.length > 0) {
+      issues.push({
+        id: 'unknown-relations',
+        severity: 'warning',
+        detail: `${unknownRelations.length} relation(s) use vocabulary outside the ontology.`
+      });
+    }
+    if (endpointReviewRelations.length > 0) {
+      issues.push({
+        id: 'relation-endpoints',
+        severity: 'warning',
+        detail: `${endpointReviewRelations.length} relation endpoint(s) could not be resolved to extracted object ids.`
+      });
+    }
+    if (missingBibliographicFields.length > 0) {
+      issues.push({
+        id: 'metadata-coverage',
+        severity: 'info',
+        detail: `Missing bibliographic fields: ${missingBibliographicFields.join(', ')}.`
+      });
+    }
+    if ((result.evidenceGraph?.summary?.linkedClaimCount || 0) === 0 && (result.evidenceObjects?.length || 0) > 0) {
+      issues.push({
+        id: 'evidence-links',
+        severity: 'warning',
+        detail: 'Evidence objects are present but are not linked to visual/resource evidence.'
+      });
+    }
+    if (
+      (result.resourceGraph?.summary?.resourceCount || 0) > 0
+      && (result.resourceGraph?.summary?.linkedResourceCount || 0) === 0
+    ) {
+      issues.push({
+        id: 'resource-links',
+        severity: 'warning',
+        detail: 'Resources are present but are not linked to route or evidence nodes.'
+      });
+    }
+
+    return {
+      status: issues.some(issue => issue.severity === 'warning') ? 'needs_review' : 'ready',
+      routeQuality,
+      graphTraceability,
+      contentFidelity,
+      visualEvidenceQuality,
+      resourceGraphQuality,
+      briefQuality,
+      productReadiness,
+      missingBibliographicFields,
+      schemaWarningCount: schemaWarnings.length,
+      unknownRelationCount: unknownRelations.length,
+      endpointReviewRelationCount: endpointReviewRelations.length,
+      scopeFilteredCount: scopeFiltering.removedTotal || 0,
+      evidenceGraph: result.evidenceGraph?.summary || null,
+      resourceGraph: result.resourceGraph?.summary || null,
+      issues
+    };
+  }
+
   _buildInferredLimitations(result) {
-    const limitations = [];
+    const limitations = this._normalizeInsightLimitations(result.llmInsights);
     if ((result.worldObjects?.length || 0) === 0) {
       limitations.push({
         id: 'spatial-context',
@@ -2021,6 +4507,25 @@ Return JSON with this structure:
     return limitations;
   }
 
+  _normalizeInsightLimitations(llmInsights = {}) {
+    const items = [
+      ...(llmInsights.researchGaps || []),
+      ...(llmInsights.limitations || [])
+    ];
+
+    return items.slice(0, 6).map((item, index) => ({
+      id: item.id || `llm-gap-${index + 1}`,
+      label: this._summarizeText(item.label || item.statement || 'Source-grounded limitation', 80),
+      severity: item.severity || 'info',
+      detail: this._summarizeText(item.detail || item.statement || item.evidence || item.provenance?.sourceText || '', 260),
+      source: 'llm-extraction',
+      provenance: item.provenance || item.section ? {
+        ...(item.provenance || {}),
+        section: item.section || item.provenance?.section
+      } : undefined
+    })).filter(item => item.label && item.detail);
+  }
+
   async _buildCriticalLimitations(result, content = {}, fallbackLimitations = []) {
     const sourceText = this._getSourceText(content);
     if (!this.options.useLLM || !this.llm || sourceText.length < 100) {
@@ -2053,7 +4558,7 @@ Return JSON with this structure:
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return fallbackLimitations;
 
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed = this._parseLLMJson(jsonMatch[0]);
       const llmLimitations = this._normalizeCriticalLimitations(parsed.limitations || parsed.inferredLimitations || []);
       if (llmLimitations.length === 0) return fallbackLimitations;
 
@@ -2248,7 +4753,13 @@ Return JSON with this structure:
 
   _extractUrlsFromText(text) {
     const matches = String(text || '').match(/https?:\/\/[^\s)>\]},"']+/gi) || [];
-    return [...new Set(matches.map(url => url.replace(/[.;,]+$/, '')))];
+    return [...new Set(matches.map(url => this._normalizeExtractedUrl(url)))].filter(Boolean);
+  }
+
+  _normalizeExtractedUrl(url) {
+    let normalized = String(url || '').trim().replace(/[.;,]+$/, '');
+    normalized = normalized.replace(/\.([A-Z][A-Za-z]{5,})$/, '');
+    return normalized || null;
   }
 
   _classifyResourceUrl(url) {
@@ -2409,6 +4920,40 @@ Return JSON with this structure:
     }
 
     return null;
+  }
+
+  _normalizedSectionMap(content = {}, sourceType = 'Source') {
+    const existing = content.sections;
+    if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+      return existing;
+    }
+
+    const sourceText = this._getSourceText(content);
+    if (!sourceText) return {};
+
+    const parsed = this.sectionParser.parse(sourceText, this._normalizeSourceType(sourceType));
+    const sectionMap = {};
+
+    for (const section of parsed.sections || []) {
+      const text = String(section.text || '').trim();
+      if (text.length < 20) continue;
+
+      const keys = [
+        section.type,
+        section.title
+      ]
+        .filter(Boolean)
+        .map(key => String(key).replace(/^#+\s*/, '').trim().toLowerCase())
+        .filter(Boolean);
+
+      for (const key of keys) {
+        if (!sectionMap[key]) {
+          sectionMap[key] = text;
+        }
+      }
+    }
+
+    return sectionMap;
   }
 
   _humanizeSectionTitle(sectionKey, fallback) {
@@ -3309,6 +5854,13 @@ Return JSON with this structure:
       return null;
     }
 
+    const originalType = rel.type;
+    rel.type = this._canonicalRelationType(rel.type);
+    if (rel.type !== originalType) {
+      rel.originalType = originalType;
+      rel.normalizedType = rel.type;
+    }
+
     // Get relation semantics
     const semantics = BRIDGE_RELATION_SEMANTICS[rel.type];
 
@@ -3373,6 +5925,62 @@ Return JSON with this structure:
     }
 
     return rel;
+  }
+
+  _canonicalRelationType(type) {
+    const normalized = String(type || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[\s_]+/g, '-');
+
+    if (!normalized) return type;
+    if (BRIDGE_RELATION_SEMANTICS[normalized]) return normalized;
+
+    const aliases = {
+      'covers': 'covers',
+      'covered-by': 'covers',
+      'observes': 'observes',
+      'observed-by': 'observes',
+      'measures': 'measures',
+      'measured-by': 'measures',
+      'simulates': 'simulates',
+      'simulate': 'simulates',
+      'predicts': 'predicts',
+      'predict': 'predicts',
+      'forecasts': 'predicts',
+      'forecast': 'predicts',
+      'models': 'models',
+      'model': 'models',
+      'has-variable': 'has_variable',
+      'contains-variable': 'has_variable',
+      'uses-variable': 'has_variable',
+      'represents': 'represents',
+      'mitigates': 'mitigates',
+      'targets': 'targets',
+      'responds-to': 'responds_to',
+      'responds': 'responds_to',
+      'governs': 'governs',
+      'assesses': 'assesses',
+      'evaluates': 'assesses',
+      'validates': 'assesses',
+      'calibrates': 'assesses',
+      'compares-to': 'assesses',
+      'compares': 'assesses',
+      'supports': 'supports',
+      'feeds': 'supports',
+      'uses': 'supports',
+      'uses-data': 'supports',
+      'trains': 'supports',
+      'input-to': 'supports',
+      'contradicts': 'contradicts',
+      'applicable-to': 'applicable_to',
+      'applies-to': 'applicable_to',
+      'transferable-to': 'transferable_to',
+      'limited-by': 'limited_by',
+      'constrained-by': 'limited_by'
+    };
+
+    return aliases[normalized] || normalized;
   }
 
   /**
@@ -3540,10 +6148,10 @@ Return JSON with this structure:
   _calculateConfidence(result) {
     const counts = {
       source: result.sourceObject ? 1 : 0,
-      capabilities: result.capabilityObjects.length,
-      world: result.worldObjects.length,
-      evidence: result.evidenceObjects.length,
-      relations: result.bridgeRelations.length
+      capabilities: (result.capabilityObjects || []).length,
+      world: (result.worldObjects || []).length,
+      evidence: (result.evidenceObjects || []).length,
+      relations: (result.bridgeRelations || []).length
     };
 
     if (counts.source === 0) return 0;

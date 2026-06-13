@@ -105,6 +105,72 @@ describe('DigitalEarthImporter', () => {
     assert.strictEqual(project.metadata.importActions[0].id, 'fix-import-failure');
   });
 
+  it('should write project-level recomposition metadata after import decomposition', () => {
+    const importer = new DigitalEarthImporter(null, null, null, null);
+    const project = new Project('Importing...', 'Recomposition test', {
+      id: 'project-recomposition'
+    });
+    const decomposition = {
+      input: '10.5555/recomposition',
+      sourceType: 'Paper',
+      sourceObject: {
+        id: 'paper-source',
+        type: 'Paper',
+        name: 'Recomposition paper',
+        attributes: { title: 'Recomposition paper' }
+      },
+      researchBrief: {
+        title: 'Recomposition paper',
+        oneLine: 'A source is decomposed into a route and visual evidence.'
+      },
+      workflowOutline: {
+        nodes: [{
+          id: 'route-node',
+          label: 'Source decomposition route',
+          stage: 'method',
+          summary: 'Route node for recomposition.'
+        }],
+        edges: []
+      },
+      capabilityObjects: [{ id: 'method-1' }],
+      worldObjects: [],
+      evidenceObjects: [],
+      bridgeRelations: [],
+      visualEvidence: [],
+      externalResources: [],
+      extractionIntegrity: {
+        status: 'ready',
+        routeQuality: { level: 'partial' },
+        issues: []
+      },
+      provenance: { extractionMethod: 'hybrid' },
+      confidence: 0.7
+    };
+    const sourceCoverage = {
+      contentLevel: 'full_text',
+      label: 'Full text',
+      detail: 'Source content available.'
+    };
+
+    project.metadata.decomposition = decomposition;
+    project.metadata.sourceCoverage = sourceCoverage;
+    project.metadata.projectRecomposition = require('../../core/project/ProjectRecomposer')
+      .buildProjectRecomposition({ decomposition, sourceCoverage });
+    importer._updateProjectImportProtocol(project, {
+      status: 'completed',
+      sourceCoverage,
+      decomposition,
+      projectRecomposition: project.metadata.projectRecomposition,
+      stored: { entities: 2, relations: 1 }
+    });
+
+    assert.strictEqual(project.metadata.projectRecomposition.schemaVersion, 'project-recomposition-v1');
+    assert.strictEqual(project.metadata.projectRecomposition.sourceCount, 1);
+    assert.strictEqual(project.metadata.projectRecomposition.sources[0].title, 'Recomposition paper');
+    assert.strictEqual(project.metadata.projectRecomposition.aggregate.route.nodeCount, 1);
+    assert.strictEqual(project.metadata.importReadiness.status, 'review');
+  });
+
   it('should cancel active imports and persist cancelled protocol metadata', () => {
     const project = new Project('Importing...', 'Cancel test', {
       id: 'project-cancel'

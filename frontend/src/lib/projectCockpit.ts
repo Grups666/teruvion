@@ -1,4 +1,4 @@
-import type { Entity, Project } from '../types/api';
+import type { Entity, Project, ProjectRecomposition } from '../types/api';
 import {
   getDisplayLayer,
   getProjectDiagnosis,
@@ -149,8 +149,9 @@ export function getCockpitSignals(input: {
   const spatialDiagnosis = diagnosisByKey.get('spatial');
   const evidenceDiagnosis = diagnosisByKey.get('evidence');
   const capabilityDiagnosis = diagnosisByKey.get('capability');
+  const integrityDiagnosis = diagnosisByKey.get('integrity');
   const isProcessing = input.project.analysis?.status === 'importing' || input.project.analysis?.status === 'analyzing';
-  const workflowSignals = getWorkflowOutlineSignals(input.project);
+  const workflowSignals = getProjectRouteSignals(input.project);
 
   if (workflowSignals.length > 0) {
     return workflowSignals;
@@ -169,8 +170,12 @@ export function getCockpitSignals(input: {
     {
       key: 'route-gap',
       label: 'Route Gap',
-      value: capabilityDiagnosis?.status === 'ready' ? 'Needs linking' : 'Need method-data extraction',
-      detail: capabilityDiagnosis?.detail || 'A useful research graph should expose inputs, variables, methods, workflow steps, outputs, and findings. This import has not exposed enough of that route yet.',
+      value: integrityDiagnosis?.status !== 'ready'
+        ? 'Needs trace review'
+        : capabilityDiagnosis?.status === 'ready'
+          ? 'Needs linking'
+          : 'Need method-data extraction',
+      detail: integrityDiagnosis?.detail || capabilityDiagnosis?.detail || 'A useful research graph should expose inputs, variables, methods, workflow steps, outputs, and findings. This import has not exposed enough of that route yet.',
       status: isProcessing ? 'pending' : 'review',
       targetId: input.entities.find(entity => getDisplayLayer(entity) === 'capability')?.id || firstEntityId,
       edges: [{ to: 'evidence-check', label: 'review' }]
@@ -222,7 +227,7 @@ export function getCockpitFocusItems(input: {
   const evidenceLens = lensByName.get('evidence');
   const workflowLens = lensByName.get('workflow');
   const comparisonLens = lensByName.get('comparison');
-  const workflowNode = getWorkflowOutlineNode(input.project, input.signal.key);
+  const workflowNode = getProjectRouteNode(input.project, input.signal.key);
 
   if (workflowNode) {
     const children = workflowNode.children || [];
@@ -369,15 +374,17 @@ export function getProjectBrief(input: {
 }): ProjectBriefItem[] {
   const isProcessing = input.project.analysis?.status === 'importing' || input.project.analysis?.status === 'analyzing';
   const protocolBrief = input.project.metadata?.decomposition?.researchBrief;
+  const integrityBrief = buildIntegrityBriefItem(input.diagnosis, isProcessing);
 
   if (protocolBrief?.keyPoints?.length) {
-    return protocolBrief.keyPoints.slice(0, 4).map((item, index) => ({
+    const keyPointItems = protocolBrief.keyPoints.slice(0, integrityBrief ? 3 : 4).map((item, index) => ({
       key: item.id || `brief-${index + 1}`,
       label: item.label,
       value: item.value,
       detail: item.detail,
       status: isProcessing ? 'pending' : mapProtocolBriefStatus(item.value, protocolBrief.confidence)
     }));
+    return integrityBrief ? [integrityBrief, ...keyPointItems].slice(0, 4) : keyPointItems;
   }
 
   const primaryGap = input.diagnosis.find(item => item.status === 'missing')
@@ -423,6 +430,28 @@ export function getProjectBrief(input: {
   ];
 }
 
+function buildIntegrityBriefItem(
+  diagnosis: ReturnType<typeof getProjectDiagnosis>,
+  isProcessing: boolean
+): ProjectBriefItem | null {
+  const integrity = diagnosis.find(item => item.key === 'integrity');
+  if (!integrity || integrity.status === 'ready') return null;
+
+  const normalizedDetail = String(integrity.detail || '');
+  let value = 'Needs review';
+  if (/graph traceability/i.test(normalizedDetail)) value = 'Trace review';
+  else if (/content fidelity/i.test(normalizedDetail)) value = 'Fidelity review';
+  else if (/schema/i.test(normalizedDetail)) value = 'Schema review';
+
+  return {
+    key: 'integrity-review',
+    label: 'Review Before Relying',
+    value,
+    detail: normalizedDetail || 'Review extraction integrity before relying on this project.',
+    status: isProcessing ? 'pending' : 'review'
+  };
+}
+
 function mapBriefStatus(
   readinessStatus?: string,
   diagnosisStatus?: string
@@ -433,11 +462,69 @@ function mapBriefStatus(
   return 'review';
 }
 
+function getProjectRouteSignals(project: Project): CockpitSignal[] {
+  const recomposedSignals = getRecompositionRouteSignals(project);
+  if (recomposedSignals.length > 0) return recomposedSignals;
+  return getWorkflowOutlineSignals(project);
+}
+
+function getRecompositionRouteSignals(project: Project): CockpitSignal[] {
+  const recomposition = project.metadata?.projectRecomposition as ProjectRecomposition | undefined;
+  const route = recomposition?.aggregate?.route;
+  const nodes = route?.nodes || [];
+  if (nodes.length === 0) return [];
+
+  const visibleNodes = nodes
+    .map(node => normalizeRecompositionRouteNode(node))
+    .filter((node): node is NonNullable<ReturnType<typeof normalizeRecompositionRouteNode>> => Boolean(node))
+    .slice(0, 8);
+  if (visibleNodes.length === 0) return [];
+
+  const visibleIds = new Set(visibleNodes.map(node => node.id));
+  const edgesBySource = new Map<string, Array<{ to: string; label?: string }>>();
+  for (const edge of route?.edges || []) {
+    if (!visibleIds.has(edge.from) || !visibleIds.has(edge.to)) continue;
+    const list = edgesBySource.get(edge.from) || [];
+    list.push({ to: edge.to, label: edge.label });
+    edgesBySource.set(edge.from, list);
+  }
+
+  return visibleNodes.map(node => ({
+    key: node.id,
+    label: node.displayType,
+    value: node.label,
+    detail: node.summary || 'Source-grounded route step from the project-level recomposition.',
+    status: node.provenance || node.support ? 'ready' : 'review',
+    targetId: null,
+    edges: (edgesBySource.get(node.id) || []).filter(edge => visibleIds.has(edge.to))
+  }));
+}
+
+type RecompositionRouteNode = NonNullable<NonNullable<ProjectRecomposition['aggregate']['route']>['nodes']>[number];
+
+function normalizeRecompositionRouteNode(node: RecompositionRouteNode) {
+  if (!node) return null;
+  const label = String(node.label || '').trim();
+  const summary = String(node.summary || '').trim();
+  if (!label || isInternalRouteValue(label)) return null;
+  const stage = String(node.stage || '').toLowerCase();
+  return {
+    ...node,
+    displayType: getRouteDisplayType(stage, '', 'Route'),
+    label: summarizeRouteText(label, 72),
+    summary: cleanRouteSummary(summary, stage)
+  };
+}
+
 function getWorkflowOutlineSignals(project: Project): CockpitSignal[] {
   const outline = project.metadata?.decomposition?.workflowOutline;
   const decomposition = project.metadata?.decomposition as any;
   const routeQuality = outline?.provenance?.routeQuality || decomposition?.extractionMetadata?.researchRoute;
+  const graphTraceability = decomposition?.extractionIntegrity?.graphTraceability;
   if (routeQuality?.quality === 'limited' || routeQuality?.level === 'limited') {
+    return [];
+  }
+  if (graphTraceability?.level === 'weak') {
     return [];
   }
   const nodes = outline?.nodes || [];
@@ -457,20 +544,57 @@ function getWorkflowOutlineSignals(project: Project): CockpitSignal[] {
 
   if (visibleNodes.length === 0) return [];
 
-  return visibleNodes.map(node => ({
-    key: node.id,
-    label: node.displayType || node.type || 'Route',
-    value: node.label,
-    detail: node.summary || 'Extracted from available source material.',
-    status: mapWorkflowNodeStatus(node.status),
-    targetId: node.objectId || null,
-    edges: (edgesBySource.get(node.id) || []).filter(edge => visibleNodes.some(target => target.id === edge.to))
-  }));
+  return visibleNodes.map(node => {
+    const status = graphTraceability?.level === 'partial'
+      ? 'review'
+      : mapWorkflowNodeStatus(node.status);
+    const traceNote = graphTraceability?.level === 'partial'
+      ? 'Traceability is partial; inspect supporting objects, evidence, or resources before relying on this route. '
+      : '';
+    return {
+      key: node.id,
+      label: node.displayType || node.type || 'Route',
+      value: node.label,
+      detail: `${traceNote}${node.summary || 'Extracted from available source material.'}`,
+      status,
+      targetId: node.objectId || null,
+      edges: (edgesBySource.get(node.id) || []).filter(edge => visibleNodes.some(target => target.id === edge.to))
+    };
+  });
 }
 
 function getWorkflowOutlineNode(project: Project, key: string) {
   const node = (project.metadata?.decomposition?.workflowOutline?.nodes || []).find(item => item.id === key) || null;
   return node ? normalizeRouteNode(node, project) : null;
+}
+
+function getProjectRouteNode(project: Project, key: string) {
+  const recomposition = project.metadata?.projectRecomposition as ProjectRecomposition | undefined;
+  const node = recomposition?.aggregate?.route?.nodes?.find(item => item.id === key);
+  if (node) {
+    const normalized = normalizeRecompositionRouteNode(node);
+    if (!normalized) return null;
+    return {
+      id: normalized.id,
+      type: normalized.displayType,
+      label: normalized.label,
+      summary: normalized.summary,
+      children: [
+        normalized.provenance ? {
+          label: 'Provenance',
+          value: formatRouteProvenance(normalized.provenance),
+          detail: 'This route step has source-grounding metadata.'
+        } : null,
+        normalized.support ? {
+          label: 'Support',
+          value: formatRouteProvenance(normalized.support),
+          detail: 'Support attached by the decomposition contract.'
+        } : null
+      ].filter(Boolean)
+    };
+  }
+
+  return getWorkflowOutlineNode(project, key);
 }
 
 function normalizeRouteNode(node: any, project: Project) {
@@ -582,6 +706,20 @@ function summarizeRouteText(value: string, limit: number) {
   const normalized = String(value || '').replace(/\s+/g, ' ').trim();
   if (normalized.length <= limit) return normalized;
   return `${normalized.slice(0, Math.max(0, limit - 3)).trim()}...`;
+}
+
+function formatRouteProvenance(value: Record<string, any> | null | undefined) {
+  if (!value) return 'Recorded';
+  const candidates = [
+    value.section,
+    value.sourceText,
+    value.evidence,
+    value.provider,
+    value.method,
+    value.source
+  ];
+  const text = candidates.find(item => typeof item === 'string' && item.trim());
+  return summarizeRouteText(text || 'Recorded', 96);
 }
 
 function mapWorkflowNodeStatus(status?: string): CockpitSignal['status'] {

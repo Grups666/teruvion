@@ -81,6 +81,13 @@ async function initializeCoreEngine() {
 initializeCoreEngine();
 
 function getAccessSecret(req) {
+  const authorization = Array.isArray(req.headers.authorization)
+    ? req.headers.authorization[0]
+    : req.headers.authorization;
+  if (authorization && /^Bearer\s+/i.test(authorization)) {
+    return authorization.replace(/^Bearer\s+/i, '').trim();
+  }
+
   const accessHeader = Array.isArray(req.headers['x-teruvion-access'])
     ? req.headers['x-teruvion-access'][0]
     : req.headers['x-teruvion-access'];
@@ -97,21 +104,24 @@ function isPublicAlphaPath(pathname) {
     || pathname === '/alpha/memberships/activate';
 }
 
-function requireAppAccess(req, res, next) {
-  if (isPublicAlphaPath(req.path)) {
-    return next();
-  }
+async function requireAppAccess(req, res, next) {
+  try {
+    if (isPublicAlphaPath(req.path)) {
+      return next();
+    }
 
-  if (!llm.getAdminSecret()) {
-    console.error('[Access] ADMIN_SECRET or local adminSecret is not configured');
+    await initializeAlphaStores();
+
+    const credential = getAccessSecret(req);
+    if (isAdminSecret(credential) || isActiveMembershipSession(credential)) {
+      return next();
+    }
+
     return res.status(401).json({ error: 'Unauthorized' });
+  } catch (err) {
+    console.error('[Access] Authorization error:', err);
+    return res.status(500).json({ error: 'Authorization failed' });
   }
-
-  if (!isAdminSecret(getAccessSecret(req))) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  return next();
 }
 
 router.use(requireAppAccess);
@@ -799,19 +809,67 @@ function isAdminSecret(secret) {
     && crypto.timingSafeEqual(secretBuffer, expectedBuffer);
 }
 
+function isActiveMembershipSession(token) {
+  if (!membershipStore) return false;
+  return Boolean(membershipStore.findBySessionToken(token));
+}
+
+async function createMembershipSession(membership) {
+  const session = membershipStore.createSession(membership.id);
+  if (!session) {
+    throw new Error('Unable to create access session');
+  }
+
+  await membershipStore.save();
+
+  return {
+    accessToken: session.token,
+    accessTokenExpiresAt: session.expiresAt,
+    membership: session.membership
+  };
+}
+
 // POST /api/alpha/access/verify - Gate main app access without exposing local secrets
 router.post('/alpha/access/verify', async (req, res) => {
   try {
+    await initializeAlphaStores();
+
     const code = String(req.body?.code || '').trim();
     if (!code) {
       return res.status(400).json({ valid: false, error: 'Missing access code' });
     }
 
     if (isAdminSecret(code)) {
-      return res.json({ valid: true, role: 'admin' });
+      return res.json({ valid: true, role: 'admin', accessToken: code });
     }
 
-    return res.json({ valid: false, error: 'Invalid access code' });
+    const invite = inviteStore.findByCode(code);
+    if (!invite) {
+      return res.json({ valid: false, error: 'Invalid access code' });
+    }
+
+    const membership = membershipStore.findByEmail(invite.email);
+    if (!membership) {
+      if (invite.status === 'active' && !inviteStore.isExpired(invite)) {
+        return res.json({
+          valid: false,
+          activationRequired: true,
+          error: 'Invite code must be activated before login'
+        });
+      }
+
+      return res.json({ valid: false, error: 'Invite code is not linked to an active membership' });
+    }
+
+    const session = await createMembershipSession(membership);
+
+    return res.json({
+      valid: true,
+      role: membership.role || 'alpha_user',
+      email: membership.email,
+      accessToken: session.accessToken,
+      accessTokenExpiresAt: session.accessTokenExpiresAt
+    });
   } catch (err) {
     console.error('[Alpha] Access verify error:', err);
     res.status(500).json({ error: err.message });
@@ -1041,6 +1099,10 @@ router.post('/alpha/memberships/activate', async (req, res) => {
 
     // Create membership
     const membership = membershipStore.create(normalizedEmail, name || email.split('@')[0]);
+    const session = membershipStore.createSession(membership.id);
+    if (!session) {
+      throw new Error('Unable to create access session');
+    }
 
     await inviteStore.save();
     await membershipStore.save();
@@ -1049,7 +1111,9 @@ router.post('/alpha/memberships/activate', async (req, res) => {
 
     res.json({
       success: true,
-      membershipId: membership.id
+      membershipId: membership.id,
+      accessToken: session.token,
+      accessTokenExpiresAt: session.expiresAt
     });
   } catch (err) {
     console.error('[Alpha] Activate error:', err);

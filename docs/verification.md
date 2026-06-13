@@ -19,6 +19,79 @@ Expected result:
 - `npm test` reports all registered test files passing.
 - `npm run build` completes a production Next.js build.
 
+## Decomposition Quality Evaluation
+
+Run a deterministic fixture without an LLM:
+
+```bash
+node scripts/evaluate-decomposition-quality.js --provider none --json
+```
+
+Expected result:
+
+- `decomposition.productReadiness` is present with a score and level.
+- `recomposition.projectQuality` is present with a score and level.
+- Weak components and reasons are visible when the route, brief, evidence, or resources are not product-ready.
+- No-LLM output is allowed to be weak. The important check is that weak components are visible and not mislabeled as deep extraction.
+
+Run the multi-source deterministic baseline:
+
+```bash
+node scripts/evaluate-decomposition-quality.js --fixture all --provider none --json
+```
+
+This covers paper, repository, dataset, report, and news source contracts without relying on source-specific branches.
+
+Run a real connector-backed source through the same quality gate:
+
+```bash
+node scripts/evaluate-decomposition-quality.js \
+  --input "https://www.nature.com/articles/s41586-024-07145-1" \
+  --provider none \
+  --json
+```
+
+For a real GitHub repository:
+
+```bash
+node scripts/evaluate-decomposition-quality.js \
+  --input "https://github.com/Grups666/teruvion" \
+  --provider none \
+  --json
+```
+
+Real-source runs use the connector registry first, then the same admission, decomposition, quality, and recomposition contracts as fixtures.
+
+To exercise the configured direct LLM API:
+
+```bash
+node scripts/evaluate-decomposition-quality.js --provider api --json
+```
+
+To exercise the Claude Code-compatible harness:
+
+```bash
+TERUVION_AGENT_PROVIDER=claude-code \
+TERUVION_AGENT_COMMAND=claude \
+TERUVION_AGENT_ARGS="-p --dangerously-skip-permissions" \
+TERUVION_AGENT_TIMEOUT=600000 \
+node scripts/evaluate-decomposition-quality.js --provider claude-code --json
+```
+
+For the full multi-source Claude Code benchmark:
+
+```bash
+TERUVION_AGENT_PROVIDER=claude-code \
+TERUVION_AGENT_COMMAND=claude \
+TERUVION_AGENT_ARGS="-p --dangerously-skip-permissions" \
+TERUVION_AGENT_TIMEOUT=600000 \
+node scripts/evaluate-decomposition-quality.js --fixture all --provider claude-code --json
+```
+
+Claude Code prompt delivery defaults to stdin so long source contracts are not placed on the command line. Provider verification disables direct API fallback by default; add `--fallback` only when explicitly testing fallback behavior. Long paper and multi-source runs may need the longer timeout because each source can trigger admission and decomposition agent calls.
+
+Provider runs must still pass the same schema, provenance, resource-linking, visual-evidence, and product-readiness checks. Agent output is a candidate extraction, not evidence.
+
 ## Local Service Smoke Test
 
 Start the API:

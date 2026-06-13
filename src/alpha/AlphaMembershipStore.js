@@ -13,6 +13,8 @@ const DEFAULT_QUOTA = {
   maxSourcesPerJob: 5
 };
 
+const SESSION_TTL_DAYS = 30;
+
 class AlphaMembershipStore {
   constructor(storagePath = null) {
     this.memberships = new Map(); // id -> membership
@@ -34,6 +36,7 @@ class AlphaMembershipStore {
       role: 'alpha_user',
       plan: 'alpha_preview',
       quota: { ...DEFAULT_QUOTA },
+      session: null,
       createdAt: now
     };
 
@@ -91,6 +94,63 @@ class AlphaMembershipStore {
   }
 
   /**
+   * Rotate the active session token for a membership.
+   *
+   * Only the latest token remains valid, so one membership can only have one
+   * active device/session at a time.
+   */
+  createSession(id) {
+    const membership = this.memberships.get(id);
+    if (!membership) {
+      return null;
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+    membership.session = {
+      tokenHash: this._hashToken(rawToken),
+      issuedAt: now.toISOString(),
+      expiresAt
+    };
+
+    return {
+      token: rawToken,
+      expiresAt,
+      membership
+    };
+  }
+
+  /**
+   * Find an active membership by its current session token.
+   */
+  findBySessionToken(token) {
+    const rawToken = String(token || '').trim();
+    if (!rawToken) return null;
+
+    const tokenHash = this._hashToken(rawToken);
+    const now = Date.now();
+
+    for (const membership of this.memberships.values()) {
+      const session = membership.session;
+      if (!session || !session.tokenHash || !session.expiresAt) {
+        continue;
+      }
+
+      if (new Date(session.expiresAt).getTime() <= now) {
+        continue;
+      }
+
+      if (this._safeEqual(session.tokenHash, tokenHash)) {
+        return membership;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Save to disk
    */
   async save() {
@@ -143,6 +203,17 @@ class AlphaMembershipStore {
   _sanitize(str) {
     if (!str) return '';
     return String(str).trim().slice(0, 500);
+  }
+
+  _hashToken(token) {
+    return crypto.createHash('sha256').update(String(token)).digest('hex');
+  }
+
+  _safeEqual(left, right) {
+    const leftBuffer = Buffer.from(String(left || ''));
+    const rightBuffer = Buffer.from(String(right || ''));
+    return leftBuffer.length === rightBuffer.length
+      && crypto.timingSafeEqual(leftBuffer, rightBuffer);
   }
 }
 

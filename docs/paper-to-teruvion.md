@@ -143,7 +143,7 @@ Configuration:
 - `TERUVION_AGENT_COMMAND`
 - `TERUVION_AGENT_ARGS`
 - `TERUVION_AGENT_PROMPT_MODE`
-- `TERUVION_AGENT_TIMEOUT`
+- `TERUVION_AGENT_TIMEOUT` (defaults to `600000` ms for Claude Code-compatible long extraction jobs)
 - `TERUVION_AGENT_FALLBACK_TO_API`
 
 Agent provider options:

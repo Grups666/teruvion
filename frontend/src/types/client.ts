@@ -188,14 +188,26 @@ class APIClient {
     });
   }
 
-  async verifyAccessCode(code: string): Promise<{ valid: boolean; role?: string; email?: string; error?: string }> {
+  async verifyAccessCode(code: string): Promise<{
+    valid: boolean;
+    role?: string;
+    email?: string;
+    accessToken?: string;
+    accessTokenExpiresAt?: string;
+    activationRequired?: boolean;
+    error?: string;
+  }> {
     return this.request('/alpha/access/verify', {
       method: 'POST',
       body: JSON.stringify({ code }),
     });
   }
 
-  async activateMembership(code: string, email: string, name?: string): Promise<{ success: boolean; membershipId: string }> {
+  async activateMembership(
+    code: string,
+    email: string,
+    name?: string
+  ): Promise<{ success: boolean; membershipId: string; accessToken?: string; accessTokenExpiresAt?: string }> {
     return this.request('/alpha/memberships/activate', {
       method: 'POST',
       body: JSON.stringify({ code, email, name }),

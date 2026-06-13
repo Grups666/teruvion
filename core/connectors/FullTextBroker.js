@@ -272,17 +272,25 @@ class FullTextBroker {
       '.section-title'
     ];
 
+    const sectionRoot = this._articleSectionRoot($);
+
     // Extract abstract from common scholarly HTML metadata or containers.
     const abstract = this._cleanText(
-      $('abstract, .abstract, #abstract, [data-test="abstract"], [role="doc-abstract"]').first().text()
+      sectionRoot.find('abstract, .abstract, #abstract, [data-test="abstract"], [role="doc-abstract"]').first().text()
     );
     if (abstract) {
       sections.abstract = abstract;
     }
 
-    // Extract sections based on heading text
-    $('h1, h2, h3').each((i, el) => {
+    // Extract sections based on heading text. Publisher pages often mix article
+    // body headings with page modules such as recommendations, cited-by lists,
+    // author contribution panels, metrics, and legal/footer material. Keep the
+    // parser generic, but do not pass those modules into downstream extraction.
+    sectionRoot.find('h1, h2, h3').each((i, el) => {
       const heading = this._normalizeSectionName($(el).text());
+      if (this._shouldSkipSectionHeading(heading)) return;
+      if (this._isInsideNonArticleModule($, el)) return;
+
       let content = this._cleanText($(el).nextUntil('h1, h2, h3').text());
 
       if (content.length < 100) {
@@ -297,17 +305,31 @@ class FullTextBroker {
       const minSectionLength = heading === 'abstract' ? 20 : 100;
 
       // Detect section type from heading (LLM will classify later)
-      if (heading && content.length > minSectionLength && !sections[heading]) {
+      if (
+        heading
+        && content.length > minSectionLength
+        && !sections[heading]
+        && !this._looksLikeNonArticleModule(content)
+      ) {
         // Store with original heading as key
         sections[heading] = content.substring(0, 10000); // Limit per section
       }
     });
 
-    // Extract figures
+    // Extract figures. Some publisher pages style tables as figure-like blocks;
+    // preserve them, but route table captions into the table channel.
     $('figure, .figure').each((i, el) => {
       const caption = $(el).find('figcaption, .caption').text().trim();
       const label = $(el).find('label, .label').text().trim();
       if (caption) {
+        if (this._looksLikeTableCaption(caption) && !this._extractFigureImageUrl($, el, baseUrl)) {
+          tables.push({
+            number: label || `Table ${tables.length + 1}`,
+            caption
+          });
+          return;
+        }
+
         figures.push({
           number: label || `Figure ${i + 1}`,
           caption: caption,
@@ -340,11 +362,133 @@ class FullTextBroker {
     };
   }
 
+  _articleSectionRoot($) {
+    const candidates = [
+      'article',
+      '[role="main"]',
+      'main',
+      '[data-test="article-body"]',
+      '[data-article-body]',
+      '.article',
+      '.article-body'
+    ];
+
+    for (const selector of candidates) {
+      const candidate = $(selector).first();
+      if (candidate.length && this._cleanText(candidate.text()).length > 1000) {
+        return candidate;
+      }
+    }
+
+    return $.root();
+  }
+
   _normalizeSectionName(text) {
     return this._cleanText(text)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, ' ')
       .trim();
+  }
+
+  _shouldSkipSectionHeading(heading = '') {
+    const normalized = String(heading || '').toLowerCase().trim();
+    if (!normalized) return true;
+
+    const exactSkip = new Set([
+      'references',
+      'acknowledgements',
+      'acknowledgments',
+      'author information',
+      'authors and affiliations',
+      'author contributions',
+      'contributions',
+      'corresponding author',
+      'competing interests',
+      'ethics declarations',
+      'additional information',
+      'rights and permissions',
+      'about this article',
+      'metrics',
+      'comments',
+      'supplementary information',
+      'peer review',
+      'peer review information',
+      'data availability statement',
+      'about the journal',
+      'search',
+      'author researcher services'
+    ]);
+    if (exactSkip.has(normalized)) return true;
+
+    const skipFragments = [
+      'this article is cited by',
+      'cited by',
+      'associated content',
+      'related articles',
+      'similar content',
+      'recommended',
+      'more from',
+      'browse articles',
+      'journal information',
+      'advertisement',
+      'subscribe',
+      'sign up',
+      'download pdf'
+    ];
+
+    return skipFragments.some(fragment => normalized.includes(fragment));
+  }
+
+  _isInsideNonArticleModule($, el) {
+    let current = $(el);
+    for (let depth = 0; depth < 8 && current.length; depth += 1) {
+      const attrs = current.attr() || {};
+      const haystack = [
+        current[0]?.tagName,
+        attrs.id,
+        attrs.class,
+        attrs.role,
+        ...Object.entries(attrs)
+          .filter(([key]) => key.startsWith('data-'))
+          .map(([key, value]) => `${key}=${value}`)
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      if (/\b(supplementary|figure|figures|table|tables)\b/.test(haystack)) {
+        return false;
+      }
+
+      if (/(further[-_\s]?reading|related[-_\s]?article|recommended|recommendation|cited[-_\s]?by|citation[-_\s]?list|ref[-_\s]?item|article[-_\s]?title|associated[-_\s]?content)/i.test(haystack)) {
+        return true;
+      }
+
+      current = current.parent();
+    }
+
+    return false;
+  }
+
+  _looksLikeNonArticleModule(text = '') {
+    const normalized = String(text || '').toLowerCase();
+    if (!normalized) return true;
+
+    const navigationSignals = [
+      'sign up for alerts',
+      'subscribe to journal',
+      'rights and permissions',
+      'reprints and permissions',
+      'springer nature',
+      'privacy policy',
+      'terms and conditions',
+      'cookie',
+      'article metrics'
+    ];
+
+    return navigationSignals.some(signal => normalized.includes(signal))
+      && normalized.length < 2500;
+  }
+
+  _looksLikeTableCaption(caption = '') {
+    return /^\s*(extended\s+data\s+)?table\s+\d+/i.test(String(caption || ''));
   }
 
   _cleanText(text) {
@@ -544,8 +688,14 @@ class FullTextBroker {
     const trimmed = url.trim();
     if (!trimmed || trimmed.startsWith('#') || /^mailto:/i.test(trimmed) || /^javascript:/i.test(trimmed)) return null;
     if (/^10\.\d{4,9}\//i.test(trimmed)) return `https://doi.org/${trimmed}`;
-    if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/[.;,]+$/, '');
+    if (/^https?:\/\//i.test(trimmed)) return this._trimResourceURLPunctuation(trimmed);
     return null;
+  }
+
+  _trimResourceURLPunctuation(url) {
+    let normalized = String(url || '').replace(/[.;,]+$/, '');
+    normalized = normalized.replace(/\.([A-Z][A-Za-z]{5,})$/, '');
+    return normalized;
   }
 
   _classifyResource(url, label = '', context = '') {

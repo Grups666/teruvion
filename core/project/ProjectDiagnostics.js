@@ -53,6 +53,7 @@ function buildProjectImportDiagnosis({
   const counts = getObjectCounts(decomposition);
   const relationCount = getRelationCount(decomposition, stored);
   const sourceSignal = getSourceSignal(sourceCoverage, decomposition);
+  const integritySignal = getIntegritySignal(decomposition);
 
   return [
     sourceSignal,
@@ -91,8 +92,9 @@ function buildProjectImportDiagnosis({
       detail: relationCount > 0
         ? 'Objects are linked enough to support graph inspection and comparison.'
         : 'Objects are not connected enough yet; relation extraction or manual review is needed.'
-    }
-  ];
+    },
+    integritySignal
+  ].filter(Boolean);
 }
 
 function buildProjectReadinessSummary(diagnosis = []) {
@@ -212,6 +214,7 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
   const capability = byKey.get('capability');
   const evidence = byKey.get('evidence');
   const graph = byKey.get('graph');
+  const integrity = byKey.get('integrity');
 
   if (source && source.status !== 'ready') {
     actions.push({
@@ -270,6 +273,18 @@ function buildProjectActionPlan(diagnosis = [], readiness = null) {
       targetLayer: 'source',
       fallbackLayer: 'capability',
       priority: graph.status === 'missing' ? 'high' : 'normal'
+    });
+  }
+
+  if (integrity && integrity.status !== 'ready') {
+    actions.push({
+      id: 'review-extraction-integrity',
+      label: 'Review extraction integrity',
+      reason: integrity.detail,
+      operation: 'inspect',
+      targetLayer: 'foundation',
+      fallbackLayer: 'source',
+      priority: integrity.status === 'missing' ? 'high' : 'normal'
     });
   }
 
@@ -361,6 +376,85 @@ function getSourceSignal(sourceCoverage, decomposition) {
     value: sourceCoverage?.label || normalizeMethod(method),
     detail: sourceCoverage?.detail || 'Source coverage is sufficient for object extraction.'
   };
+}
+
+function getIntegritySignal(decomposition = {}) {
+  const integrity = decomposition.extractionIntegrity;
+  if (!integrity) return null;
+
+  const issues = Array.isArray(integrity.issues) ? integrity.issues : [];
+  const warningCount = issues.filter(issue => issue.severity === 'warning').length;
+  const infoCount = issues.filter(issue => issue.severity === 'info').length;
+  const fidelity = integrity.contentFidelity;
+  const brief = integrity.briefQuality;
+  const traceability = integrity.graphTraceability;
+  const visualEvidence = integrity.visualEvidenceQuality;
+  const resourceGraph = integrity.resourceGraphQuality;
+  const productReadiness = integrity.productReadiness;
+  const fidelityIssue = issues.find(issue => issue.id === 'content-fidelity');
+  const briefIssue = issues.find(issue => issue.id === 'brief-quality');
+  const groundingIssue = issues.find(issue => issue.id === 'facet-grounding');
+  const traceabilityIssue = issues.find(issue => issue.id === 'graph-traceability');
+  const visualIssue = issues.find(issue => issue.id === 'visual-evidence');
+  const resourceIssue = issues.find(issue => issue.id === 'resource-graph-quality');
+  const productIssue = issues.find(issue => issue.id === 'product-readiness');
+  const issueSummary = issues
+    .map(issue => issue.detail)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' ');
+
+  if (integrity.status === 'ready' && warningCount === 0) {
+    return {
+      key: 'integrity',
+      label: 'Extraction Integrity',
+      status: 'ready',
+      value: 'Checked',
+      detail: infoCount > 0
+        ? `Extraction integrity passed with ${infoCount} informational note(s).`
+        : `Route quality, graph traceability${traceability?.score !== undefined ? ` (${traceability.score}%)` : ''}, content fidelity${fidelity?.score !== undefined ? ` (${fidelity.score}%)` : ''}, product readiness${productReadiness?.score !== undefined ? ` (${productReadiness.score}%)` : ''}, relation vocabulary, scope filtering, and evidence links passed protocol checks.`
+    };
+  }
+
+  const fidelityDetail = fidelityIssue && fidelity
+    ? `Content fidelity ${fidelity.score}%${fidelity.missingFacets?.length ? `; missing ${fidelity.missingFacets.join(', ')}` : ''}.`
+    : '';
+  const briefDetail = briefIssue && brief
+    ? `Source brief ${brief.level}; ${brief.informativePointCount || 0}/${brief.pointCount || 0} point(s) informative and ${brief.groundedPointCount || 0}/${brief.pointCount || 0} grounded.`
+    : '';
+  const groundingDetail = groundingIssue && fidelity?.grounding
+    ? formatGroundingDetail(fidelity.grounding)
+    : '';
+  const traceabilityDetail = traceabilityIssue && traceability
+    ? `Graph traceability ${traceability.score}%${traceability.untracedNodeCount ? `; ${traceability.untracedNodeCount} untraced route node(s)` : traceability.weakNodeCount ? `; ${traceability.weakNodeCount} weakly traced route node(s)` : ''}.`
+    : '';
+  const visualDetail = visualIssue && visualEvidence
+    ? `Visual evidence ${visualEvidence.level}; ${visualEvidence.explainedCount || 0}/${visualEvidence.visualCount || 0} figure/table item(s) explained.`
+    : '';
+  const resourceDetail = resourceIssue && resourceGraph
+    ? `Resource graph ${resourceGraph.level}; ${resourceGraph.linkedResourceCount || 0}/${resourceGraph.resourceCount || 0} resource(s) linked.`
+    : '';
+  const productDetail = productIssue && productReadiness
+    ? `Product readiness ${productReadiness.score}% (${productReadiness.level}); weak components: ${(productReadiness.weakComponents || []).join(', ') || 'review required'}.`
+    : '';
+
+  return {
+    key: 'integrity',
+    label: 'Extraction Integrity',
+    status: warningCount > 0 ? 'limited' : 'ready',
+    value: warningCount > 0 ? `${warningCount} warning${warningCount === 1 ? '' : 's'}` : 'Checked',
+    detail: [productDetail, traceabilityDetail, fidelityDetail, groundingDetail, briefDetail, visualDetail, resourceDetail, issueSummary || 'Review extraction integrity before relying on this project.']
+      .filter(Boolean)
+      .join(' ')
+  };
+}
+
+function formatGroundingDetail(grounding) {
+  const ungrounded = Array.isArray(grounding.ungroundedFacets) ? grounding.ungroundedFacets : [];
+  const weak = Array.isArray(grounding.weaklyGroundedFacets) ? grounding.weaklyGroundedFacets : [];
+  if (ungrounded.length > 0) return `Ungrounded facets: ${ungrounded.join(', ')}.`;
+  if (weak.length > 0) return `Weakly grounded facets: ${weak.join(', ')}.`;
+  return '';
 }
 
 function formatCount(count, singular) {

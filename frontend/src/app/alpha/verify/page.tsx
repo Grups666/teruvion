@@ -48,6 +48,13 @@ function VerifyContent() {
     try {
       const result = await api.activateMembership(code, email, name);
       if (result.success) {
+        if (result.accessToken) {
+          api.setAccessCode(result.accessToken);
+          sessionStorage.setItem('teruvionAccessToken', result.accessToken);
+        }
+        if (result.accessTokenExpiresAt) {
+          sessionStorage.setItem('teruvionAccessTokenExpiresAt', result.accessTokenExpiresAt);
+        }
         setStatus('activated');
       }
     } catch (err: any) {
@@ -63,7 +70,7 @@ function VerifyContent() {
           <div className="text-4xl mb-6">✓</div>
           <h1 className="text-2xl font-semibold mb-4">Welcome to Teruvion Alpha</h1>
           <p className="text-gray-600 mb-6">
-            Your account has been activated. You can now start exploring Digital Earth Intelligence.
+            Your account has been activated on this browser. You can now start exploring Digital Earth Intelligence.
           </p>
           <a
             href="/"

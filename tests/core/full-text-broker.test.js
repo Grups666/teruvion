@@ -97,4 +97,76 @@ describe('FullTextBroker', () => {
     assert.ok(structured.resources.some(resource => resource.type === 'dataset'), 'Should expose dataset archive');
     assert.ok(!structured.resources.some(resource => resource.url.includes('privacy')), 'Should skip navigation links');
   });
+
+  it('should trim section-title text accidentally attached to resource URLs', () => {
+    const broker = new FullTextBroker();
+
+    assert.strictEqual(
+      broker._normalizeResourceURL('https://g.co/floodhub.Extended'),
+      'https://g.co/floodhub',
+      'Should remove attached title-like URL suffixes'
+    );
+  });
+
+  it('should exclude publisher page modules from article body sections', () => {
+    const broker = new FullTextBroker();
+    const methodText = 'The study transforms input observations through a reusable model and evaluates outputs. '.repeat(80);
+    const relatedText = 'A later study on a different mountain glacier is shown because this article is cited by another paper. '.repeat(40);
+    const html = `
+      <article>
+        <section>
+          <h2>Methods</h2>
+          <p>${methodText}</p>
+        </section>
+        <section>
+          <h2>This article is cited by</h2>
+          <p>${relatedText}</p>
+        </section>
+        <section>
+          <h2>Author information</h2>
+          <p>Author contribution and affiliation text should not become a research object.</p>
+        </section>
+      </article>
+    `;
+
+    const structured = broker._parseHTMLStructure(html, 'https://publisher.example/articles/example');
+
+    assert.ok(structured.sections.methods, 'Should keep article method content');
+    assert.ok(!structured.sections['this article is cited by'], 'Should drop cited-by page modules');
+    assert.ok(!structured.sections['author information'], 'Should drop author-info page modules');
+    assert.ok(!Object.values(structured.sections).join(' ').includes('mountain glacier'), 'Should not leak related content into extraction text');
+  });
+
+  it('should prefer article body headings over page-level recommendation headings', () => {
+    const broker = new FullTextBroker();
+    const methodText = 'The source method trains a reusable model from input observations and evaluates forecast outputs. '.repeat(80);
+    const relatedText = 'A different recommended article about an unrelated glacier catchment should stay outside the article source contract. '.repeat(40);
+    const html = `
+      <html>
+        <body>
+          <main>
+            <article>
+              <section>
+                <h2>Methods</h2>
+                <p>${methodText}</p>
+              </section>
+            </article>
+            <aside class="c-article-further-reading">
+              <h2>More articles</h2>
+              <p>${relatedText}</p>
+              <h3 class="c-article-further-reading__title" data-test="article-title">Unrelated glacier catchment case study</h3>
+              <p>${relatedText}</p>
+            </aside>
+          </main>
+        </body>
+      </html>
+    `;
+
+    const structured = broker._parseHTMLStructure(html, 'https://publisher.example/articles/example');
+
+    assert.ok(structured.sections.methods, 'Should keep the article body method section');
+    assert.ok(!structured.sections['more articles'], 'Should drop recommendation module headings');
+    assert.ok(!structured.sections['unrelated glacier catchment case study'], 'Should not parse page-level recommendation titles as article sections');
+    assert.ok(!Object.values(structured.sections).join(' ').includes('unrelated glacier'), 'Should not leak recommendation text into source sections');
+  });
 });

@@ -15,6 +15,7 @@ const testFiles = [
   'core/layered-ontology.test.js',
   'core/triple-store.test.js',
   'core/source-coverage.test.js',
+  'core/source-object-graph-quality.test.js',
   'core/project-diagnostics.test.js',
   'core/agent-runtime.test.js',
   'core/github-connector.test.js',
