@@ -903,7 +903,16 @@ export default function Home() {
                         <span aria-hidden="true">‹</span>
                       </button>
                       {isTableVisual(activeVisualEvidence) ? (
-                        <div className="visual-preview visual-table-preview">
+                        <div
+                          className="visual-preview visual-table-preview"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setExpandedVisualIndex(activeVisualIndex)}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter' || event.key === ' ') setExpandedVisualIndex(activeVisualIndex);
+                          }}
+                          aria-label="Open table preview"
+                        >
                           <VisualTable visual={activeVisualEvidence} />
                         </div>
                       ) : (
@@ -1363,6 +1372,15 @@ function VisualTable({ visual }: { visual: ProjectVisualEvidence }) {
   const headers = Array.isArray(visual.tableData?.headers) ? visual.tableData?.headers || [] : [];
   const rows = Array.isArray(visual.tableData?.rows) ? visual.tableData?.rows || [] : [];
   const maxColumns = Math.max(headers.length, ...rows.map(row => row.length), 0);
+
+  if (rows.length === 0 && visual.imageUrl) {
+    return (
+      <div className="visual-table-image">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={visual.imageUrl} alt={visual.label || 'Source table'} loading="lazy" />
+      </div>
+    );
+  }
 
   if (rows.length === 0) {
     return (

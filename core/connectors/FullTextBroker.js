@@ -322,10 +322,12 @@ class FullTextBroker {
       const caption = $(el).find('figcaption, .caption').text().trim();
       const label = $(el).find('label, .label').text().trim();
       if (caption) {
-        if (this._looksLikeTableCaption(caption) && !this._extractFigureImageUrl($, el, baseUrl)) {
+        if (this._looksLikeTableCaption(caption)) {
           tables.push({
             number: label || `Table ${tables.length + 1}`,
-            caption
+            caption,
+            imageUrl: this._extractFigureImageUrl($, el, baseUrl),
+            ...this._extractTableData($, el)
           });
           return;
         }
@@ -345,6 +347,7 @@ class FullTextBroker {
       tables.push({
         number: `Table ${i + 1}`,
         caption: caption,
+        imageUrl: this._extractFigureImageUrl($, el, baseUrl),
         ...tableData
       });
     });
