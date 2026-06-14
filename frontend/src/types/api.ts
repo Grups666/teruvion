@@ -38,6 +38,7 @@ export interface Project {
   metadata?: {
     decomposition?: Decomposition;
     projectRecomposition?: ProjectRecomposition;
+    mapRecomposition?: ProjectMapRecomposition;
     admission?: AdmissionResult;
     importDiagnosis?: ProjectDiagnosisItem[];
     importReadiness?: ProjectReadinessSummary;
@@ -182,6 +183,53 @@ export interface ProjectRecomposition {
       weakSourceIds?: string[];
     };
     productQuality?: SourceObjectGraphQuality;
+  };
+}
+
+export interface ProjectMapRecomposition {
+  schemaVersion: 'map-recomposition-v1' | string;
+  generatedAt?: string;
+  sourceCount: number;
+  sources: Array<{
+    id: string;
+    title: string;
+    type: string;
+    coverage?: {
+      level?: string | null;
+      label?: string | null;
+    } | null;
+    admission?: {
+      depth?: string | null;
+      primaryRole?: string | null;
+    } | null;
+  }>;
+  map: {
+    primaryMode?: string;
+    anchors?: Array<Record<string, any>>;
+    layers?: Array<{
+      id: string;
+      displayPrimitive: string;
+      label: string;
+      anchorCount?: number;
+      resultCount?: number;
+      anchorIds?: string[];
+      resultIds?: string[];
+      evidenceRequired?: boolean;
+    }>;
+    attachments?: Array<Record<string, any>>;
+    results?: Array<Record<string, any>>;
+    diagnostics?: {
+      status?: string;
+      anchorCount?: number;
+      renderableAnchorCount?: number;
+      unlocatedAnchorCount?: number;
+      resultCount?: number;
+      renderableResultCount?: number;
+      attachedResultCount?: number;
+      attachmentCount?: number;
+      sourceFigureOnlyCount?: number;
+      warnings?: string[];
+    };
   };
 }
 

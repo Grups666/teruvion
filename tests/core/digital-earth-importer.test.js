@@ -133,10 +133,23 @@ describe('DigitalEarthImporter', () => {
         edges: []
       },
       capabilityObjects: [{ id: 'method-1' }],
-      worldObjects: [],
+      worldObjects: [{
+        id: 'region-1',
+        type: 'Region',
+        name: 'Example region',
+        attributes: {
+          bbox: [100, 20, 110, 30]
+        }
+      }],
       evidenceObjects: [],
       bridgeRelations: [],
-      visualEvidence: [],
+      visualEvidence: [{
+        id: 'figure-1',
+        kind: 'figure',
+        label: 'Figure 1',
+        caption: 'Map of the study region.',
+        imageUrl: 'https://example.com/figure-1.png'
+      }],
       externalResources: [],
       extractionIntegrity: {
         status: 'ready',
@@ -156,18 +169,24 @@ describe('DigitalEarthImporter', () => {
     project.metadata.sourceCoverage = sourceCoverage;
     project.metadata.projectRecomposition = require('../../core/project/ProjectRecomposer')
       .buildProjectRecomposition({ decomposition, sourceCoverage });
+    project.metadata.mapRecomposition = require('../../core/project/MapRecomposer')
+      .buildMapRecomposition({ decomposition, sourceCoverage });
     importer._updateProjectImportProtocol(project, {
       status: 'completed',
       sourceCoverage,
       decomposition,
       projectRecomposition: project.metadata.projectRecomposition,
+      mapRecomposition: project.metadata.mapRecomposition,
       stored: { entities: 2, relations: 1 }
     });
 
     assert.strictEqual(project.metadata.projectRecomposition.schemaVersion, 'project-recomposition-v1');
+    assert.strictEqual(project.metadata.mapRecomposition.schemaVersion, 'map-recomposition-v1');
     assert.strictEqual(project.metadata.projectRecomposition.sourceCount, 1);
     assert.strictEqual(project.metadata.projectRecomposition.sources[0].title, 'Recomposition paper');
     assert.strictEqual(project.metadata.projectRecomposition.aggregate.route.nodeCount, 1);
+    assert.ok(project.metadata.mapRecomposition.map.anchors.length >= 1);
+    assert.strictEqual(project.metadata.projectRecomposition.map, undefined);
     assert.strictEqual(project.metadata.importReadiness.status, 'review');
   });
 

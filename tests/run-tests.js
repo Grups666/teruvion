@@ -17,6 +17,7 @@ const testFiles = [
   'core/source-coverage.test.js',
   'core/source-object-graph-quality.test.js',
   'core/project-diagnostics.test.js',
+  'core/map-recomposer.test.js',
   'core/agent-runtime.test.js',
   'core/github-connector.test.js',
   'core/repository-file-classifier.test.js',

@@ -32,6 +32,8 @@ The current runtime accepts DOI, paper title, paper URL, generic URL, and GitHub
 - `core/project/Project.js`: import project state.
 - `core/events/EventLog.js`: import event history.
 - `core/lenses`: recomposed graph views such as map, evidence, workflow, timeline, and comparison.
+- `core/project/ProjectRecomposer.js`: source-grounded project detail recomposition.
+- `core/project/MapRecomposer.js`: source-grounded map visualization recomposition.
 - `core/presentation`: API-facing serialization helpers.
 - `frontend`: interactive project, map, object, and alpha admin UI.
 
@@ -101,6 +103,7 @@ Claude Code should be treated as a deep-analysis harness, not as a trusted sourc
 
 - **Object-centric**: sources become typed objects and relations.
 - **Evidence-first**: preserve source, provenance, confidence, coverage, and verification state.
+- **Single decomposition, multiple recompositions**: source decomposition is the shared base. Project detail views, map visualizations, lenses, and future panels should be independent recomposition modules over the same ontology-grounded objects rather than separate extraction paths.
 - **Small core**: keep the foundation generic; push domain-specific behavior into ontology extensions, connectors, lenses, or future modules.
 - **Multi-source by design**: project views and extraction protocols should support paper plus repository, paper plus dataset, report plus policy resource, news plus event context, and multiple comparable sources without special-case rewrites.
 - **Normalized source contracts**: source-specific retrieval belongs in connectors; downstream code should consume normalized metadata, sections, figures, tables, resources, provenance, and coverage.

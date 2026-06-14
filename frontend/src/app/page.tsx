@@ -38,7 +38,7 @@ import {
 } from '../lib/projectCockpit';
 import ResearchRouteGraph from '../components/ResearchRouteGraph';
 
-const MapComponent = dynamic(() => import('../components/Map'), { ssr: false });
+const MapComponent = dynamic(() => import('../components/GlobalMap'), { ssr: false });
 
 const EXAMPLE_SOURCES = [
   {
@@ -727,6 +727,7 @@ export default function Home() {
       <main className="map-container">
         <MapComponent
           entities={mapEntities}
+          mapRecomposition={selectedProject?.metadata?.mapRecomposition || null}
           selectedEntityId={selectedEntityId}
           onSelectEntity={setSelectedEntityId}
         />
