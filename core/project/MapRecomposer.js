@@ -13,6 +13,15 @@
  */
 
 const ontology = require('../registry/ontology');
+const {
+  DISPLAY_PRIMITIVES,
+  normalizeDisplayPrimitive,
+  labelForDisplayPrimitive,
+  primitiveFromGeometry,
+  geometryKind,
+  inferFormatFromUrl,
+  primitiveFromFormat
+} = require('./RecompositionSemantics');
 
 const SPATIAL_FIELDS = [
   'geometry',
@@ -258,7 +267,6 @@ function buildAttachments(input) {
   const visuals = input.decomposition.visualEvidence || [];
   const resources = input.decomposition.externalResources || [];
   const attachments = [];
-  const defaultAnchor = input.anchors[0] || null;
 
   for (const [index, visual] of visuals.entries()) {
     const kind = String(visual.kind || 'figure').toLowerCase();
@@ -272,7 +280,7 @@ function buildAttachments(input) {
       id: visual.id || stableId('visual', input.sourceId, index + 1),
       sourceId: input.sourceId,
       sourceTitle: input.sourceTitle,
-      anchorId: defaultAnchor?.id || null,
+      anchorId: explicitAnchorIdForAttachment(visual, input.anchors),
       resultId: explicitResultIdForAttachment(visual, input.results),
       label: visual.label || visual.title || `Visual ${index + 1}`,
       kind,
@@ -296,7 +304,7 @@ function buildAttachments(input) {
       id: resource.id || stableId('resource', input.sourceId, resource.url || resource.label || index + 1),
       sourceId: input.sourceId,
       sourceTitle: input.sourceTitle,
-      anchorId: defaultAnchor?.id || null,
+      anchorId: explicitAnchorIdForAttachment(resource, input.anchors),
       resultId: null,
       label: resource.label || resource.url || `Resource ${index + 1}`,
       kind: String(resource.type || 'resource').toLowerCase(),
@@ -320,11 +328,11 @@ function buildLayers(anchors, results) {
   const layers = [];
 
   for (const primitive of [
-    'region-layer',
-    'point-layer',
-    'route-or-flow-layer',
-    'raster-layer',
-    'classified-area-layer'
+    DISPLAY_PRIMITIVES.REGION_LAYER,
+    DISPLAY_PRIMITIVES.POINT_LAYER,
+    DISPLAY_PRIMITIVES.ROUTE_OR_FLOW_LAYER,
+    DISPLAY_PRIMITIVES.RASTER_LAYER,
+    DISPLAY_PRIMITIVES.CLASSIFIED_AREA_LAYER
   ]) {
     const layerAnchors = renderableAnchors.filter(anchor => anchor.displayPrimitive === primitive);
     const layerResults = directResults.filter(result => result.displayPrimitive === primitive);
@@ -345,9 +353,9 @@ function buildLayers(anchors, results) {
   const attached = results.filter(result => result.displayPrimitive.startsWith('attached-'));
   if (attached.length > 0) {
     layers.push({
-      id: 'attached-results',
-      displayPrimitive: 'attached-results',
-      label: 'Attached Results',
+      id: DISPLAY_PRIMITIVES.ATTACHED_RESULTS,
+      displayPrimitive: DISPLAY_PRIMITIVES.ATTACHED_RESULTS,
+      label: labelForDisplayPrimitive(DISPLAY_PRIMITIVES.ATTACHED_RESULTS),
       anchorCount: anchors.length,
       resultCount: attached.length,
       anchorIds: anchors.map(anchor => anchor.id),
@@ -489,10 +497,10 @@ function readConfidence(object) {
 
 function chooseAnchorPrimitive(spatial, category) {
   if (spatial.geometry) return primitiveFromGeometry(spatial.geometry);
-  if (spatial.bbox) return 'region-layer';
-  if (spatial.point) return 'point-layer';
-  if (category === 'earth-variable' || category === 'model-output') return 'attached-result';
-  return 'spatial-anchor';
+  if (spatial.bbox) return DISPLAY_PRIMITIVES.REGION_LAYER;
+  if (spatial.point) return DISPLAY_PRIMITIVES.POINT_LAYER;
+  if (category === 'earth-variable' || category === 'model-output') return DISPLAY_PRIMITIVES.ATTACHED_CHART_OR_VALUE;
+  return DISPLAY_PRIMITIVES.SPATIAL_ANCHOR;
 }
 
 function chooseResultPrimitive(object, spatial, category) {
@@ -501,14 +509,14 @@ function chooseResultPrimitive(object, spatial, category) {
   if (displayHint.primitive) return displayHint.primitive;
 
   if (hasRasterSignal(attrs)) {
-    return 'raster-layer';
+    return DISPLAY_PRIMITIVES.RASTER_LAYER;
   }
-  if (attrs.classification || attrs.classes || attrs.riskMap) return 'classified-area-layer';
-  if (spatial.geometry || spatial.bbox) return 'region-layer';
-  if (spatial.point) return 'point-layer';
-  if (readTemporalBinding(object)) return 'attached-time-series';
-  if (readResultValue(object)) return 'attached-chart-or-value';
-  return 'evidence-chain-view';
+  if (attrs.classification || attrs.classes || attrs.riskMap) return DISPLAY_PRIMITIVES.CLASSIFIED_AREA_LAYER;
+  if (spatial.geometry || spatial.bbox) return DISPLAY_PRIMITIVES.REGION_LAYER;
+  if (spatial.point) return DISPLAY_PRIMITIVES.POINT_LAYER;
+  if (readTemporalBinding(object)) return DISPLAY_PRIMITIVES.ATTACHED_TIME_SERIES;
+  if (readResultValue(object)) return DISPLAY_PRIMITIVES.ATTACHED_CHART_OR_VALUE;
+  return DISPLAY_PRIMITIVES.EVIDENCE_CHAIN_VIEW;
 }
 
 function chooseResultRenderability(object, spatial) {
@@ -522,11 +530,11 @@ function chooseResultRenderability(object, spatial) {
 }
 
 function choosePrimaryMode(layers, anchors, attachments) {
-  if (layers.some(layer => layer.displayPrimitive === 'classified-area-layer')) return 'classified-map';
-  if (layers.some(layer => layer.displayPrimitive === 'raster-layer')) return 'raster-map';
-  if (layers.some(layer => layer.displayPrimitive === 'route-or-flow-layer')) return 'route-map';
-  if (layers.some(layer => layer.displayPrimitive === 'region-layer')) return 'regional-map';
-  if (layers.some(layer => layer.displayPrimitive === 'point-layer')) return 'point-map';
+  if (layers.some(layer => layer.displayPrimitive === DISPLAY_PRIMITIVES.CLASSIFIED_AREA_LAYER)) return 'classified-map';
+  if (layers.some(layer => layer.displayPrimitive === DISPLAY_PRIMITIVES.RASTER_LAYER)) return 'raster-map';
+  if (layers.some(layer => layer.displayPrimitive === DISPLAY_PRIMITIVES.ROUTE_OR_FLOW_LAYER)) return 'route-map';
+  if (layers.some(layer => layer.displayPrimitive === DISPLAY_PRIMITIVES.REGION_LAYER)) return 'regional-map';
+  if (layers.some(layer => layer.displayPrimitive === DISPLAY_PRIMITIVES.POINT_LAYER)) return 'point-map';
   if (attachments.length > 0 && anchors.length > 0) return 'map-with-attachments';
   if (anchors.length > 0) return 'spatial-overview';
   return 'global-source-overview';
@@ -539,19 +547,22 @@ function resourcePrimitive(resource = {}) {
   const format = String(resource.format || resource.dataFormat || resource.mediaType || '').toLowerCase();
   const urlFormat = inferFormatFromUrl(resource.url);
   const normalizedFormat = format || urlFormat;
-  if (['geojson', 'shapefile', 'gpkg', 'kml'].includes(normalizedFormat)) return 'region-layer';
-  if (['geotiff', 'netcdf', 'zarr', 'raster'].includes(normalizedFormat)) return 'raster-layer';
-  if (['csv', 'tsv', 'xlsx', 'table'].includes(normalizedFormat)) return 'attached-table';
-  if (String(resource.type || '').toLowerCase() === 'repository') return 'workflow-resource';
-  return 'evidence-resource';
+  const primitive = primitiveFromFormat(normalizedFormat);
+  if (primitive) return primitive;
+  if (String(resource.type || '').toLowerCase() === 'repository') return DISPLAY_PRIMITIVES.WORKFLOW_RESOURCE;
+  return DISPLAY_PRIMITIVES.EVIDENCE_RESOURCE;
 }
 
 function resourceRenderability(resource, primitive) {
   if (!resource?.url) return 'not-renderable';
-  if (primitive === 'raster-layer' || primitive === 'region-layer' || primitive === 'attached-table') {
+  if (
+    primitive === DISPLAY_PRIMITIVES.RASTER_LAYER ||
+    primitive === DISPLAY_PRIMITIVES.REGION_LAYER ||
+    primitive === DISPLAY_PRIMITIVES.ATTACHED_TABLE
+  ) {
     return 'renderable-with-light-processing';
   }
-  if (primitive === 'workflow-resource') return 'requires-code-execution';
+  if (primitive === DISPLAY_PRIMITIVES.WORKFLOW_RESOURCE) return 'requires-code-execution';
   return 'source-figure-only';
 }
 
@@ -583,6 +594,32 @@ function explicitResultIdForAttachment(visual, results) {
   return candidates.find(candidate => ids.has(candidate)) || null;
 }
 
+function explicitAnchorIdForAttachment(item, anchors) {
+  const ids = new Set(anchors.flatMap(anchor => [
+    anchor.id,
+    anchor.objectId
+  ].filter(Boolean).map(String)));
+  const attrs = item.attributes || {};
+  const candidates = [
+    item.anchorId,
+    item.spatialAnchorId,
+    item.targetAnchorId,
+    item.regionId,
+    item.locationId,
+    item.objectId,
+    item.targetObjectId,
+    attrs.anchorId,
+    attrs.spatialAnchorId,
+    attrs.targetAnchorId,
+    attrs.regionId,
+    attrs.locationId,
+    attrs.objectId,
+    attrs.targetObjectId
+  ].filter(Boolean).map(String);
+
+  return candidates.find(candidate => ids.has(candidate)) || null;
+}
+
 function attributesOf(object = {}) {
   return {
     ...(object.attributes || {}),
@@ -607,26 +644,6 @@ function readDisplayHint(object = {}) {
   };
 }
 
-function normalizeDisplayPrimitive(value) {
-  const normalized = String(value || '').trim();
-  const allowed = new Set([
-    'region-layer',
-    'point-layer',
-    'raster-layer',
-    'classified-area-layer',
-    'route-or-flow-layer',
-    'source-figure-overlay',
-    'attached-table',
-    'attached-chart-or-figure',
-    'attached-time-series',
-    'attached-chart-or-value',
-    'evidence-chain-view',
-    'workflow-resource',
-    'evidence-resource'
-  ]);
-  return allowed.has(normalized) ? normalized : '';
-}
-
 function hasRasterSignal(attrs = {}) {
   const format = firstString([
     attrs.format,
@@ -637,21 +654,6 @@ function hasRasterSignal(attrs = {}) {
   ]).toLowerCase();
   return ['geotiff', 'netcdf', 'zarr', 'raster', 'gridded'].includes(format)
     || Boolean(attrs.grid || attrs.raster || attrs.rasterLayer);
-}
-
-function inferFormatFromUrl(url) {
-  if (typeof url !== 'string') return '';
-  const pathname = url.split('?')[0].toLowerCase();
-  if (pathname.endsWith('.geojson')) return 'geojson';
-  if (pathname.endsWith('.shp') || pathname.endsWith('.zip')) return 'shapefile';
-  if (pathname.endsWith('.gpkg')) return 'gpkg';
-  if (pathname.endsWith('.kml')) return 'kml';
-  if (pathname.endsWith('.tif') || pathname.endsWith('.tiff')) return 'geotiff';
-  if (pathname.endsWith('.nc')) return 'netcdf';
-  if (pathname.endsWith('.csv')) return 'csv';
-  if (pathname.endsWith('.tsv')) return 'tsv';
-  if (pathname.endsWith('.xlsx')) return 'xlsx';
-  return '';
 }
 
 function firstString(values) {
@@ -684,22 +686,6 @@ function normalizePoint(value) {
   if (!coordinates || coordinates.length < 2) return null;
   const point = coordinates.slice(0, 2).map(Number);
   return point.every(Number.isFinite) ? point : null;
-}
-
-function geometryKind(geometry) {
-  if (!geometry || typeof geometry !== 'object') return 'none';
-  if (geometry.type === 'Point') return 'point';
-  if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') return 'region';
-  if (geometry.type === 'LineString' || geometry.type === 'MultiLineString') return 'line';
-  return 'geometry';
-}
-
-function primitiveFromGeometry(geometry) {
-  const kind = geometryKind(geometry);
-  if (kind === 'point') return 'point-layer';
-  if (kind === 'region') return 'region-layer';
-  if (kind === 'line') return 'route-or-flow-layer';
-  return 'region-layer';
 }
 
 function titleForObject(object = {}, fallback) {
@@ -738,15 +724,15 @@ function stableId(prefix, ...parts) {
 }
 
 function anchorKey(anchor) {
-  return `${anchor.objectId || anchor.label}:${anchor.displayPrimitive}:${JSON.stringify(anchor.spatial || {})}`;
+  return `${anchor.sourceId}:${anchor.objectId || anchor.label}:${anchor.displayPrimitive}:${JSON.stringify(anchor.spatial || {})}`;
 }
 
 function resultKey(result) {
-  return `${result.objectId || result.label}:${result.variable || ''}:${result.value || ''}`;
+  return `${result.sourceId}:${result.objectId || result.label}:${result.variable || ''}:${result.value || ''}`;
 }
 
 function attachmentKey(attachment) {
-  return `${attachment.kind}:${attachment.label}:${attachment.evidence?.imageUrl || attachment.evidence?.url || ''}`;
+  return `${attachment.sourceId}:${attachment.kind}:${attachment.label}:${attachment.evidence?.imageUrl || attachment.evidence?.url || ''}`;
 }
 
 function dedupeByKey(items, keyFn) {
@@ -762,15 +748,7 @@ function dedupeByKey(items, keyFn) {
 }
 
 function layerLabel(primitive) {
-  const labels = {
-    'region-layer': 'Regions',
-    'point-layer': 'Points',
-    'route-or-flow-layer': 'Routes And Flows',
-    'raster-layer': 'Raster Surfaces',
-    'classified-area-layer': 'Classified Areas',
-    'attached-results': 'Attached Results'
-  };
-  return labels[primitive] || primitive;
+  return labelForDisplayPrimitive(primitive);
 }
 
 module.exports = {

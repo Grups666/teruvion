@@ -19,6 +19,7 @@ const testFiles = [
   'core/project-diagnostics.test.js',
   'core/map-recomposer.test.js',
   'core/agent-runtime.test.js',
+  'core/geojson-connector.test.js',
   'core/github-connector.test.js',
   'core/repository-file-classifier.test.js',
   'core/object-review-actions.test.js',

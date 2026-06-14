@@ -173,6 +173,52 @@ describe('MapRecomposer', () => {
     const attachment = recomposition.map.attachments.find(item => item.id === 'figure-1');
     assert.ok(attachment, 'Should keep visual evidence as an attachment');
     assert.strictEqual(attachment.resultId, null);
+    assert.strictEqual(attachment.anchorId, null);
+  });
+
+  it('keeps same-looking sources separate across multi-source map recomposition', () => {
+    const recomposition = buildMapRecomposition({
+      decompositions: [
+        {
+          sourceObject: { id: 'source-a', type: 'Dataset', name: 'Daily point feed A' },
+          worldObjects: [{
+            id: 'feature-a',
+            type: 'Region',
+            name: 'Shared label',
+            attributes: {
+              geometry: { type: 'Point', coordinates: [10, 20] }
+            }
+          }],
+          visualEvidence: [{
+            id: 'figure-a',
+            kind: 'figure',
+            label: 'Overview',
+            imageUrl: 'https://example.test/overview.png'
+          }]
+        },
+        {
+          sourceObject: { id: 'source-b', type: 'Dataset', name: 'Daily point feed B' },
+          worldObjects: [{
+            id: 'feature-b',
+            type: 'Region',
+            name: 'Shared label',
+            attributes: {
+              geometry: { type: 'Point', coordinates: [10, 20] }
+            }
+          }],
+          visualEvidence: [{
+            id: 'figure-b',
+            kind: 'figure',
+            label: 'Overview',
+            imageUrl: 'https://example.test/overview.png'
+          }]
+        }
+      ]
+    });
+
+    assert.strictEqual(recomposition.sourceCount, 2);
+    assert.strictEqual(recomposition.map.anchors.filter(anchor => anchor.label === 'Shared label').length, 2);
+    assert.strictEqual(recomposition.map.attachments.filter(item => item.label === 'Overview').length, 2);
   });
 
   it('supports point, region, and trajectory-like public data shapes without source-specific code', () => {

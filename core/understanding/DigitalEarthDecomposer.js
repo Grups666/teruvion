@@ -393,6 +393,13 @@ class DigitalEarthDecomposer {
       result.sections.worldObjects = worldObjects.sections;
     }
 
+    if (Array.isArray(metadata.geoFeatures) && metadata.geoFeatures.length > 0 && result.worldObjects.length === 0) {
+      result.worldObjects = this._extractEarthObjects({ geoFeatures: metadata.geoFeatures });
+      result.sections.worldObjects = {
+        explicitGeoFeatures: 'Connector-provided GeoJSON features preserved as spatial objects.'
+      };
+    }
+
     // Extract evidence from metadata
     if (admissionResult.depth === 'deep' || admissionResult.depth === 'structured') {
       const evidence = this._extractEvidenceSync(metadata, admissionResult);
@@ -5625,7 +5632,11 @@ Return JSON for the whole source packet.`;
    */
   _extractEarthObjects(metadata) {
     const objects = [];
-    const regions = metadata.regions || metadata.studyAreas || [];
+    const regions = [
+      ...(metadata.regions || []),
+      ...(metadata.studyAreas || []),
+      ...(metadata.geoFeatures || [])
+    ];
 
     for (const region of regions) {
       const regionType = region.type || 'Region';
@@ -5639,13 +5650,19 @@ Return JSON for the whole source packet.`;
           name: region.name || region,
           bbox: region.bbox,
           geometry: region.geometry,
+          coordinates: region.coordinates,
+          displayPrimitive: region.displayPrimitive,
+          geometryKind: region.geometryKind,
           area: region.area,
-          type: regionType
+          type: regionType,
+          sourceUrl: region.sourceUrl,
+          properties: region.properties
         },
         confidence: region.confidence || 0.8,
         provenance: {
           section: 'spatial',
-          sourceText: region.originalText
+          sourceText: region.originalText,
+          sourceUrl: region.sourceUrl
         }
       }));
     }

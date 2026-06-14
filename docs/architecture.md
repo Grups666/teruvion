@@ -10,6 +10,7 @@ Input
   -> ConnectorRegistry
      -> PaperConnector
      -> GitHubConnector
+     -> GeoJSONConnector
      -> URLConnector
   -> DigitalEarthDecomposer
   -> TripleStore
@@ -19,7 +20,7 @@ Input
   -> Next.js frontend
 ```
 
-The current runtime accepts DOI, paper title, paper URL, generic URL, and GitHub repository inputs. It stores entities and relations rather than returning only prose summaries.
+The current runtime accepts DOI, paper title, paper URL, generic URL, GitHub repository inputs, and GeoJSON data URLs when a connector can normalize them. It stores entities and relations rather than returning only prose summaries.
 
 ## Runtime Components
 
@@ -34,6 +35,7 @@ The current runtime accepts DOI, paper title, paper URL, generic URL, and GitHub
 - `core/lenses`: recomposed graph views such as map, evidence, workflow, timeline, and comparison.
 - `core/project/ProjectRecomposer.js`: source-grounded project detail recomposition.
 - `core/project/MapRecomposer.js`: source-grounded map visualization recomposition.
+- `core/project/RecompositionSemantics.js`: shared display primitives and labels used by recomposition modules.
 - `core/presentation`: API-facing serialization helpers.
 - `frontend`: interactive project, map, object, and alpha admin UI.
 
@@ -104,6 +106,7 @@ Claude Code should be treated as a deep-analysis harness, not as a trusted sourc
 - **Object-centric**: sources become typed objects and relations.
 - **Evidence-first**: preserve source, provenance, confidence, coverage, and verification state.
 - **Single decomposition, multiple recompositions**: source decomposition is the shared base. Project detail views, map visualizations, lenses, and future panels should be independent recomposition modules over the same ontology-grounded objects rather than separate extraction paths.
+- **Shared recomposition language**: detail, map, and future recomposition modules may assemble different views, but they must reuse the same stable terms for display primitives, evidence state, source identity, and provenance boundaries.
 - **Small core**: keep the foundation generic; push domain-specific behavior into ontology extensions, connectors, lenses, or future modules.
 - **Multi-source by design**: project views and extraction protocols should support paper plus repository, paper plus dataset, report plus policy resource, news plus event context, and multiple comparable sources without special-case rewrites.
 - **Normalized source contracts**: source-specific retrieval belongs in connectors; downstream code should consume normalized metadata, sections, figures, tables, resources, provenance, and coverage.

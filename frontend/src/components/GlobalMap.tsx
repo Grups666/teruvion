@@ -76,8 +76,9 @@ export default function GlobalMap({
       zoom: 2,
       minZoom: 2,
       maxZoom: 12,
-      maxBounds: [[-90, -Infinity], [90, Infinity]],
+      maxBounds: [[-85.0511, -180], [85.0511, 180]],
       maxBoundsViscosity: 1.0,
+      worldCopyJump: true,
       zoomControl: true,
       attributionControl: false,
     });

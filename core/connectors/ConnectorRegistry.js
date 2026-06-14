@@ -4,6 +4,7 @@
 
 const PaperConnector = require('./PaperConnector');
 const GitHubConnector = require('./GitHubConnector');
+const GeoJSONConnector = require('./GeoJSONConnector');
 
 class ConnectorRegistry {
   constructor(config = {}) {
@@ -12,6 +13,7 @@ class ConnectorRegistry {
 
     // Register connectors (order matters - first match wins)
     this.registerConnector(new GitHubConnector(config));
+    this.registerConnector(new GeoJSONConnector(config));
     this.registerConnector(new PaperConnector(config));
   }
 
