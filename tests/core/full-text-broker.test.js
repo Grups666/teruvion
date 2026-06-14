@@ -89,6 +89,9 @@ describe('FullTextBroker', () => {
     broker._fetchHTMLWithCookies = async url => {
       assert.strictEqual(url, 'https://publisher.example/articles/example/tables/1');
       return `
+        <header>
+          <img src="https://cdn.publisher.example/chrome/logo.svg" />
+        </header>
         <main>
           <h1>Extended Data Table 1 Evaluation metrics</h1>
           <div class="table-image">

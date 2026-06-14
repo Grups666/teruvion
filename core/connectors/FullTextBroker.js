@@ -381,7 +381,7 @@ class FullTextBroker {
         const detailHtml = await this._fetchHTMLWithCookies(table.detailUrl);
         const $ = cheerio.load(detailHtml);
         const tableData = this._extractTableData($, $.root());
-        const imageUrl = this._extractFigureImageUrl($, $.root(), table.detailUrl);
+        const imageUrl = this._extractTableImageUrl($, $.root(), table.detailUrl);
         const detailCaption = this._cleanText(
           $('h1, [data-test="table-caption"], figcaption, caption').first().text()
         );
@@ -608,6 +608,40 @@ class FullTextBroker {
     const bestCandidate = this._selectBestImageCandidate(raw);
     const resolved = this._resolveResourceURL(bestCandidate, baseUrl);
     return this._normalizeResourceURL(resolved) || undefined;
+  }
+
+  _extractTableImageUrl($, el, baseUrl = '') {
+    const selectors = [
+      '[class*="table"] img',
+      '[class*="table"] source',
+      '[id*="table"] img',
+      '[id*="table"] source',
+      '[data-test*="table"] img',
+      '[data-test*="table"] source',
+      'table img',
+      'table source'
+    ];
+
+    for (const selector of selectors) {
+      const image = $(el).find(selector).first();
+      if (!image.length) continue;
+
+      const raw = image.attr('data-full')
+        || image.attr('data-original')
+        || image.attr('data-srcset')
+        || image.attr('srcset')
+        || image.attr('data-src')
+        || image.attr('src');
+
+      if (!raw) continue;
+
+      const bestCandidate = this._selectBestImageCandidate(raw);
+      const resolved = this._resolveResourceURL(bestCandidate, baseUrl);
+      const normalized = this._normalizeResourceURL(resolved);
+      if (normalized) return normalized;
+    }
+
+    return undefined;
   }
 
   _extractTableDetailUrl($, el, baseUrl = '') {
