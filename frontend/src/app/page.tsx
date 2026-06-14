@@ -902,6 +902,31 @@ export default function Home() {
                       <small>{Math.min(activeVisualIndex + 1, projectVisualEvidence.length)} / {projectVisualEvidence.length}</small>
                     </div>
                   </div>
+                  {projectVisualEvidence.length > 1 && (
+                    <div className="visual-strip" aria-label="Visual evidence navigation">
+                      {projectVisualEvidence.map((visual, index) => (
+                        <button
+                          type="button"
+                          className={`visual-strip-item ${index === activeVisualIndex ? 'active' : ''}`}
+                          key={`${visual.kind || 'visual'}-${visual.label || visual.title || index}`}
+                          onClick={() => setActiveVisualIndex(index)}
+                          aria-label={`Open ${visual.label || visual.title || `visual ${index + 1}`}`}
+                        >
+                          <span className="visual-strip-index">{visual.label || formatVisualKind(visual.kind)}</span>
+                          <span className="visual-strip-thumb">
+                            {isTableVisual(visual) ? (
+                              <em>Table</em>
+                            ) : visual.imageUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={resolveApiAssetUrl(visual.imageUrl)} alt="" loading="lazy" />
+                            ) : (
+                              <em>Figure</em>
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="visual-carousel-card">
                     <div className="visual-preview-wrap">
                       <button
@@ -1439,27 +1464,44 @@ type ProjectAction = {
 
 function rankProjectVisualEvidence(items: ProjectVisualEvidence[]) {
   const seen = new Set<string>();
-  const rolePriority: Record<string, number> = {
-    'Evaluation evidence': 90,
-    'Method structure': 84,
-    'Input evidence': 78,
-    'Result evidence': 74,
-    'Tabular evidence': 64,
-    'Visual evidence': 60
-  };
-
   return items
-    .filter(item => {
+    .map((item, index) => ({ item, index, order: visualSourceOrder(item, index) }))
+    .filter(entry => {
+      const item = entry.item;
       const key = `${item.kind || 'visual'}:${item.label || item.title || item.caption}`;
       if (!item?.caption || seen.has(key)) return false;
       seen.add(key);
       return true;
     })
     .sort((a, b) => {
-      const byRole = (rolePriority[b.routeRole || ''] || 0) - (rolePriority[a.routeRole || ''] || 0);
-      if (byRole !== 0) return byRole;
-      return String(a.label || '').localeCompare(String(b.label || ''));
-    });
+      if (a.order !== b.order) return a.order - b.order;
+      return a.index - b.index;
+    })
+    .map(entry => entry.item);
+}
+
+function visualSourceOrder(item: ProjectVisualEvidence, fallbackIndex: number) {
+  const kind = String(item.kind || '').toLowerCase();
+  const text = [
+    item.label,
+    item.title,
+    item.caption
+  ].filter(Boolean).join(' ');
+  const tableMatch = text.match(/\b(?:extended\s+data\s+)?table\s*([0-9]+[a-z]?)\b/i);
+  const figureMatch = text.match(/\b(?:extended\s+data\s+)?(?:fig\.?|figure)\s*([0-9]+[a-z]?)\b/i);
+  const isTable = kind === 'table' || !!tableMatch;
+  const match = isTable ? tableMatch : figureMatch;
+  const parsed = match ? parseVisualNumber(match[1]) : null;
+  if (parsed !== null) return (isTable ? 20000 : 10000) + parsed;
+  return (isTable ? 30000 : 15000) + fallbackIndex;
+}
+
+function parseVisualNumber(value: string) {
+  const match = String(value || '').match(/^([0-9]+)([a-z])?$/i);
+  if (!match) return null;
+  const base = Number.parseInt(match[1], 10);
+  const suffix = match[2] ? match[2].toLowerCase().charCodeAt(0) - 96 : 0;
+  return base * 100 + suffix;
 }
 
 function visualEvidenceSummary(items: ProjectVisualEvidence[]) {

@@ -1426,6 +1426,74 @@ html, body {
   text-align: center;
 }
 
+.visual-strip {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 2px 1px 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.visual-strip-item {
+  position: relative;
+  flex: 0 0 96px;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.66);
+  color: #64748b;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.035);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.visual-strip-item:hover,
+.visual-strip-item.active {
+  border-color: rgba(15, 118, 110, 0.34);
+  background: rgba(255,255,255,0.92);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.075);
+  transform: translateY(-1px);
+}
+
+.visual-strip-index {
+  display: block;
+  padding: 6px 8px 5px;
+  overflow: hidden;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 760;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-strip-thumb {
+  display: grid;
+  height: 56px;
+  place-items: center;
+  overflow: hidden;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(241,245,249,0.74);
+}
+
+.visual-strip-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.visual-strip-thumb em {
+  color: #64748b;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 740;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .visual-carousel-card {
   display: block;
   min-width: 0;
