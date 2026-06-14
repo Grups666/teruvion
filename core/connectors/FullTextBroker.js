@@ -264,6 +264,7 @@ class FullTextBroker {
     const figures = [];
     const tables = [];
     const resources = [];
+    const pageImageCandidates = this._extractPageImageCandidates($, baseUrl);
 
     // Common section patterns (not hardcoded keywords, just HTML structure hints)
     const sectionSelectors = [
@@ -339,7 +340,10 @@ class FullTextBroker {
         figures.push({
           number: label || `Figure ${i + 1}`,
           caption: caption,
-          imageUrl: this._extractFigureImageUrl($, el, baseUrl)
+          imageUrl: this._extractFigureImageUrl($, el, baseUrl, {
+            pageCandidate: pageImageCandidates[figures.length]
+          }),
+          detailUrl: this._extractFigureDetailUrl($, el, baseUrl)
         });
       }
     });
@@ -588,26 +592,198 @@ class FullTextBroker {
     return (text || '').replace(/\s+/g, ' ').trim();
   }
 
-  _extractFigureImageUrl($, el, baseUrl = '') {
-    const image = $(el).find('img, source').first();
-    const linkHref = $(el).find('a[href]').filter((i, anchor) => {
+  _extractFigureImageUrl($, el, baseUrl = '', options = {}) {
+    const candidates = [];
+    this._collectElementImageCandidates($, el, baseUrl, candidates);
+
+    if (options.pageCandidate) {
+      candidates.push({
+        url: options.pageCandidate.url,
+        source: options.pageCandidate.source || 'page-structured-image',
+        score: options.pageCandidate.score || 0
+      });
+    }
+
+    const best = this._selectBestImageUrl(candidates);
+    return best || undefined;
+  }
+
+  _extractPageImageCandidates($, baseUrl = '') {
+    const candidates = [];
+
+    $('script[type="application/ld+json"]').each((i, el) => {
+      const parsed = this._parseJSONSafe($(el).contents().text());
+      for (const node of this._flattenJSONLD(parsed)) {
+        this._collectStructuredImageValue(node?.image, baseUrl, candidates, 'json-ld-image');
+      }
+    });
+
+    $('meta[property="og:image"], meta[name="og:image"], meta[name="twitter:image"]').each((i, el) => {
+      const url = this._normalizeResourceURL(this._resolveResourceURL($(el).attr('content'), baseUrl));
+      if (url) candidates.push({ url, source: 'meta-image', score: 1200 });
+    });
+
+    return this._dedupeImageCandidates(candidates);
+  }
+
+  _parseJSONSafe(text = '') {
+    const value = String(text || '').trim();
+    if (!value) return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
+  _flattenJSONLD(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.flatMap(item => this._flattenJSONLD(item));
+    if (typeof value !== 'object') return [];
+
+    const nested = [];
+    for (const child of Object.values(value)) {
+      if (child && typeof child === 'object') {
+        nested.push(...this._flattenJSONLD(child));
+      }
+    }
+
+    return [value, ...nested];
+  }
+
+  _collectStructuredImageValue(value, baseUrl, candidates, source) {
+    if (!value) return;
+
+    if (typeof value === 'string') {
+      const url = this._normalizeResourceURL(this._resolveResourceURL(value, baseUrl));
+      if (url) candidates.push({ url, source, score: this._scoreImageUrl(url, 1800) });
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(item => this._collectStructuredImageValue(item, baseUrl, candidates, source));
+      return;
+    }
+
+    if (typeof value === 'object') {
+      const raw = value.url || value.contentUrl || value.thumbnailUrl;
+      const url = this._normalizeResourceURL(this._resolveResourceURL(raw, baseUrl));
+      const declaredWidth = Number.parseInt(value.width, 10) || 0;
+      if (url) candidates.push({ url, source, score: this._scoreImageUrl(url, declaredWidth || 1800) });
+    }
+  }
+
+  _collectElementImageCandidates($, el, baseUrl, candidates) {
+    $(el).find('img, source').each((i, image) => {
+      const attrs = [
+        ['data-full', 2200],
+        ['data-original', 2200],
+        ['data-zoom-src', 2100],
+        ['data-high-res-src', 2100],
+        ['data-srcset', 1600],
+        ['srcset', 1500],
+        ['data-src', 900],
+        ['src', 800]
+      ];
+
+      for (const [attr, baseScore] of attrs) {
+        const raw = $(image).attr(attr);
+        if (!raw) continue;
+        this._pushImageCandidate(raw, baseUrl, candidates, attr, baseScore);
+      }
+    });
+
+    $(el).find('a[href]').each((i, anchor) => {
       const href = String($(anchor).attr('href') || '');
-      return /\.(png|jpe?g|webp|gif|tiff?)(\?|#|$)/i.test(href);
-    }).first().attr('href');
+      if (!this._looksLikeDirectImageURL(href)) return;
+      this._pushImageCandidate(href, baseUrl, candidates, 'image-link', 2000);
+    });
+  }
 
-    const raw = image.attr('data-full')
-      || image.attr('data-original')
-      || image.attr('data-srcset')
-      || image.attr('srcset')
-      || linkHref
-      || image.attr('data-src')
-      || image.attr('src');
+  _pushImageCandidate(raw, baseUrl, candidates, source, baseScore = 1) {
+    for (const parsed of this._parseImageCandidates(raw)) {
+      const resolved = this._normalizeResourceURL(this._resolveResourceURL(parsed.url, baseUrl));
+      if (!resolved) continue;
+      candidates.push({
+        url: resolved,
+        source,
+        score: this._scoreImageUrl(resolved, Math.max(baseScore, parsed.score || 0))
+      });
+    }
+  }
 
-    if (!raw) return undefined;
+  _parseImageCandidates(raw = '') {
+    const value = String(raw || '').trim();
+    if (!value) return [];
 
-    const bestCandidate = this._selectBestImageCandidate(raw);
-    const resolved = this._resolveResourceURL(bestCandidate, baseUrl);
-    return this._normalizeResourceURL(resolved) || undefined;
+    return value.split(',').map(candidate => {
+      const parts = candidate.trim().split(/\s+/);
+      const url = parts[0];
+      const descriptor = parts[1] || '';
+      const width = descriptor.endsWith('w') ? Number.parseInt(descriptor, 10) : 0;
+      const density = descriptor.endsWith('x') ? Number.parseFloat(descriptor) * 1000 : 0;
+      return { url, score: width || density || 1 };
+    }).filter(candidate => candidate.url);
+  }
+
+  _scoreImageUrl(url = '', baseScore = 1) {
+    const value = String(url || '');
+    const sizeHints = [
+      /(?:^|[?&])(?:w|width)=([0-9]{3,5})(?:&|$)/i,
+      /(?:^|[?&])(?:h|height)=([0-9]{3,5})(?:&|$)/i,
+      /(?:^|[^\d])(?:lw|w|width)([0-9]{3,5})(?:[^\d]|$)/i
+    ];
+
+    let hintedSize = 0;
+    for (const pattern of sizeHints) {
+      const match = value.match(pattern);
+      if (match) hintedSize = Math.max(hintedSize, Number.parseInt(match[1], 10) || 0);
+    }
+
+    const formatBonus = /\.(png|jpe?g|tiff?)(\?|#|$)/i.test(value) ? 80 : 0;
+    return Math.max(baseScore || 1, hintedSize || 0) + formatBonus;
+  }
+
+  _selectBestImageUrl(candidates = []) {
+    const deduped = this._dedupeImageCandidates(candidates);
+    deduped.sort((a, b) => (b.score || 0) - (a.score || 0));
+    return deduped[0]?.url || null;
+  }
+
+  _dedupeImageCandidates(candidates = []) {
+    const seen = new Map();
+    for (const candidate of candidates) {
+      if (!candidate?.url) continue;
+      const existing = seen.get(candidate.url);
+      if (!existing || (candidate.score || 0) > (existing.score || 0)) {
+        seen.set(candidate.url, candidate);
+      }
+    }
+    return Array.from(seen.values());
+  }
+
+  _looksLikeDirectImageURL(url = '') {
+    return /\.(png|jpe?g|webp|gif|tiff?)(\?|#|$)/i.test(String(url || ''));
+  }
+
+  _extractFigureDetailUrl($, el, baseUrl = '') {
+    const links = $(el).find('a[href]').toArray();
+    for (const anchor of links) {
+      const href = String($(anchor).attr('href') || '');
+      const label = [
+        $(anchor).attr('data-test'),
+        $(anchor).attr('data-track-action'),
+        $(anchor).attr('aria-label'),
+        this._cleanText($(anchor).text())
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      if (/\b(figure|figures|image|full size|full-size|view larger|enlarge)\b/.test(label) || /\/figures?\//i.test(href)) {
+        const resolved = this._resolveResourceURL(href, baseUrl);
+        return this._normalizeResourceURL(resolved) || undefined;
+      }
+    }
+
+    return undefined;
   }
 
   _extractTableImageUrl($, el, baseUrl = '') {

@@ -135,6 +135,55 @@ describe('FullTextBroker', () => {
     );
   });
 
+  it('should prefer structured high-resolution figure candidates over inline previews', () => {
+    const broker = new FullTextBroker();
+    const html = `
+      <html>
+        <head>
+          <script type="application/ld+json">
+            {
+              "@context": "https://schema.org",
+              "@type": "ScholarlyArticle",
+              "image": [
+                "https://cdn.publisher.example/articles/example/figures/figure1-1600.png"
+              ]
+            }
+          </script>
+        </head>
+        <body>
+          <article>
+            <section>
+              <h2>Main</h2>
+              <p>${'The paper studies a reusable source-to-evidence workflow. '.repeat(200)}</p>
+            </section>
+            <figure>
+              <a href="/articles/example/figures/1">Full size image</a>
+              <picture>
+                <source srcset="/articles/example/figures/figure1-480.webp 480w" type="image/webp" />
+                <img src="/articles/example/figures/figure1-480.png" />
+              </picture>
+              <figcaption>Figure 1. Evaluation map for the extracted workflow.</figcaption>
+            </figure>
+          </article>
+        </body>
+      </html>
+    `;
+
+    const structured = broker._parseHTMLStructure(html, 'https://publisher.example/articles/example');
+
+    assert.strictEqual(structured.figures.length, 1, 'Should extract the figure');
+    assert.strictEqual(
+      structured.figures[0].imageUrl,
+      'https://cdn.publisher.example/articles/example/figures/figure1-1600.png',
+      'Should use structured high-resolution image candidates when they are available'
+    );
+    assert.strictEqual(
+      structured.figures[0].detailUrl,
+      'https://publisher.example/articles/example/figures/1',
+      'Should preserve a generic figure detail link for later enrichment'
+    );
+  });
+
   it('should extract scholarly resource metadata without publisher-specific rules', () => {
     const broker = new FullTextBroker();
     const html = `
