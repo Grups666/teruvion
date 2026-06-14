@@ -820,24 +820,17 @@ export default function Home() {
                   <div className="technical-route-head">
                     <span>{routeGraphDepth === 'detail' ? activeCockpitSignal?.label || 'Research Node' : 'Research Graph'}</span>
                     <div className="technical-route-actions">
-                      {routeGraphDepth === 'detail' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRouteGraphDepth('overview');
-                            setActiveFocusIndex(0);
-                            setStatus('Returned to research graph');
-                          }}
-                        >
-                          Back to overview
-                        </button>
-                      )}
                       <span>{routeGraphDepth === 'detail' ? 'Select a detail node' : 'Click a node to drill in'}</span>
                     </div>
                   </div>
                   <ResearchRouteGraph
                     signals={routeGraphSignals}
                     activeKey={routeGraphActiveKey}
+                    onBack={() => {
+                      setRouteGraphDepth('overview');
+                      setActiveFocusIndex(0);
+                      setStatus('Returned to research graph');
+                    }}
                     onSelect={key => {
                       if (routeGraphDepth === 'detail') {
                         const index = detailGraphSignals.findIndex(signal => signal.key === key);
