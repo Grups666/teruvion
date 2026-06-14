@@ -222,6 +222,123 @@ function buildEntitySchemas() {
 buildEntitySchemas();
 
 // ============================================================================
+// ONTOLOGY LANGUAGE PROTOCOL
+// ============================================================================
+
+const ENTITY_TYPE_LANGUAGE_ALIASES = {
+  DataObject: 'Data',
+  DatasetObject: 'Dataset',
+  DataProductObject: 'DataProduct',
+  DataResourceObject: 'Data',
+  ModelObject: 'Model',
+  MethodObject: 'Method',
+  AlgorithmObject: 'Algorithm',
+  WorkflowObject: 'Workflow',
+  PipelineObject: 'Pipeline',
+  SoftwareObject: 'Software',
+  ResourceObject: 'Resource',
+  RegionObject: 'Region',
+  EventObject: 'Event',
+  HazardObject: 'Hazard',
+  RiskObject: 'Risk',
+  VariableObject: 'Variable',
+  EarthVariableObject: 'EarthVariable',
+  ActorObject: 'Agent',
+  InstitutionObject: 'Institution',
+  ClaimObject: 'Claim',
+  Finding: 'Claim',
+  FindingObject: 'Claim',
+  Result: 'Claim',
+  ResultObject: 'Claim',
+  EvidenceObject: 'Evidence',
+  Figure: 'Evidence',
+  FigureObject: 'Evidence',
+  Table: 'Evidence',
+  TableObject: 'Evidence',
+  MetricObject: 'Metric',
+  Limitation: 'Uncertainty',
+  LimitationObject: 'Uncertainty',
+  UncertaintyObject: 'Uncertainty',
+  ObservationObject: 'Observation',
+  MeasurementObject: 'Measurement',
+  SourceObject: 'Source',
+  PaperObject: 'Paper',
+  RepositoryObject: 'Repository'
+};
+
+const EXTRACTION_TYPE_CONTRACT = {
+  capabilityObjects: [
+    'Dataset', 'Data', 'Model', 'Method', 'Workflow', 'Algorithm', 'Software', 'Resource'
+  ],
+  worldObjects: [
+    'Region', 'EarthObject', 'Event', 'Hazard', 'EarthVariable', 'Variable', 'Resource', 'Agent', 'Institution'
+  ],
+  evidenceObjects: [
+    'Claim', 'Evidence', 'Observation', 'Measurement', 'Metric', 'Uncertainty', 'DataQuality'
+  ],
+  routeNodes: [
+    'Data', 'Variable', 'Method', 'Model', 'Workflow', 'Context', 'Finding', 'Limitation', 'Resource'
+  ]
+};
+
+function normalizeTypeToken(value) {
+  return String(value || '').replace(/[\s_-]+/g, '').toLowerCase();
+}
+
+function buildEntityTypeAliasIndex() {
+  const index = new Map();
+
+  for (const [key, name] of Object.entries(ENTITY_TYPES)) {
+    index.set(normalizeTypeToken(key), name);
+    index.set(normalizeTypeToken(name), name);
+    index.set(normalizeTypeToken(`${name}Object`), name);
+  }
+
+  for (const [alias, canonical] of Object.entries(ENTITY_TYPE_LANGUAGE_ALIASES)) {
+    index.set(normalizeTypeToken(alias), canonical);
+  }
+
+  return index;
+}
+
+function resolveEntityType(typeName, options = {}) {
+  const raw = String(typeName || '').trim();
+  if (!raw) {
+    return {
+      type: raw,
+      changed: false,
+      valid: false,
+      reason: 'empty'
+    };
+  }
+
+  const aliasIndex = buildEntityTypeAliasIndex();
+  const resolved = aliasIndex.get(normalizeTypeToken(raw)) || raw;
+  let valid = false;
+  try {
+    validateEntityType(resolved);
+    valid = true;
+  } catch {
+    valid = false;
+  }
+
+  return {
+    type: valid || options.allowUnknown ? resolved : raw,
+    originalType: raw,
+    changed: resolved !== raw,
+    valid,
+    reason: valid ? 'ontology-type' : 'unknown'
+  };
+}
+
+function getExtractionTypeContract() {
+  return {
+    ...EXTRACTION_TYPE_CONTRACT,
+    entityAliases: { ...ENTITY_TYPE_LANGUAGE_ALIASES }
+  };
+}
+
+// ============================================================================
 // VALIDATION
 // ============================================================================
 
@@ -454,18 +571,7 @@ function registerCustomExtension(namespace, definition) {
  * Resolve a type name to its canonical form
  */
 function resolveTypeName(typeName) {
-  // Check if it's a known type
-  if (ENTITY_TYPES[typeName] || Object.values(ENTITY_TYPES).includes(typeName)) {
-    // Return canonical name
-    for (const [key, name] of Object.entries(ENTITY_TYPES)) {
-      if (key === typeName || name === typeName) {
-        return name;
-      }
-    }
-  }
-
-  // Return as-is if unknown
-  return typeName;
+  return resolveEntityType(typeName, { allowUnknown: true }).type;
 }
 
 /**
@@ -587,6 +693,8 @@ module.exports = {
 
   // Type resolution
   resolveTypeName,
+  resolveEntityType,
+  getExtractionTypeContract,
   getParentType,
   getTypeHierarchy,
 

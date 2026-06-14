@@ -730,6 +730,7 @@ class DigitalEarthDecomposer {
 
   _buildCompactAgentExtractionPrompt(admissionResult, content) {
     const metadata = content?.metadata || {};
+    const typeContract = ontology.getExtractionTypeContract();
     const sourceSummary = {
       sourceType: admissionResult.sourceType,
       depth: admissionResult.depth,
@@ -740,6 +741,10 @@ class DigitalEarthDecomposer {
       doi: metadata.doi || content?.doi || '',
       url: metadata.url || content?.url || ''
     };
+    const capabilityTypes = typeContract.capabilityObjects.join('|');
+    const worldTypes = typeContract.worldObjects.join('|');
+    const evidenceTypes = typeContract.evidenceObjects.join('|');
+    const routeTypes = typeContract.routeNodes.join('|');
 
     return `Task: build a low-loss, source-grounded object graph for Teruvion.
 
@@ -751,7 +756,7 @@ Return JSON matching source-object-graph-v1:
   "capabilityObjects": [
     {
       "id": "stable-id",
-      "type": "Dataset|Data|Model|Method|Workflow|Algorithm|Software|Resource",
+      "type": "${capabilityTypes}",
       "name": "Concrete source term",
       "description": "What the source says",
       "properties": {},
@@ -762,7 +767,7 @@ Return JSON matching source-object-graph-v1:
   "worldObjects": [
     {
       "id": "stable-id",
-      "type": "Region|EarthObject|Event|Hazard|EarthVariable|Variable|Resource|Agent|Institution",
+      "type": "${worldTypes}",
       "name": "Concrete source term",
       "description": "What the source says",
       "properties": {},
@@ -773,7 +778,7 @@ Return JSON matching source-object-graph-v1:
   "evidenceObjects": [
     {
       "id": "stable-id",
-      "type": "Claim|Evidence|Observation|Measurement|Metric|Uncertainty|DataQuality",
+      "type": "${evidenceTypes}",
       "name": "Concrete source term",
       "statement": "Claim, finding, metric, limitation, or visual evidence",
       "properties": {},
@@ -811,7 +816,7 @@ Return JSON matching source-object-graph-v1:
       {
         "id": "stable-id",
         "label": "Concrete data/method/model/result/resource",
-        "type": "Data|Variable|Method|Model|Workflow|Context|Finding|Limitation|Resource",
+        "type": "${routeTypes}",
         "stage": "data|method|execution|context|evidence|resource",
         "summary": "How this node contributes",
         "provenance": { "sourceText": "verbatim supporting text", "section": "section label" },
@@ -1132,14 +1137,14 @@ Return JSON with this structure:
 
     const normalizeObject = (obj, field, index) => {
       if (!obj || typeof obj !== 'object') return obj;
-      const normalizedType = this._normalizeExtractedEntityType(obj.type);
-      if (normalizedType !== obj.type) {
+      const resolvedType = ontology.resolveEntityType(obj.type);
+      if (resolvedType.changed) {
         obj.metadata = {
           ...(obj.metadata || {}),
-          originalLLMType: obj.type
+          originalLLMType: resolvedType.originalType
         };
-        obj.type = normalizedType;
-        warnings.push(`${field}[${index}] type normalized to ontology type ${normalizedType}`);
+        obj.type = resolvedType.type;
+        warnings.push(`${field}[${index}] type resolved by ontology protocol to ${resolvedType.type}`);
       }
       if (!obj.attributes || typeof obj.attributes !== 'object' || Array.isArray(obj.attributes)) {
         obj.attributes = {};
@@ -4909,75 +4914,6 @@ Return JSON with this structure:
     return Object.prototype.hasOwnProperty.call(typeMap, normalized)
       ? typeMap[normalized]
       : type;
-  }
-
-  _normalizeExtractedEntityType(type) {
-    if (!type) return type;
-    const raw = String(type).trim();
-    if (!raw) return raw;
-
-    try {
-      ontology.validateEntityType(raw);
-      return raw;
-    } catch {
-      // Continue with aliases and Object suffix normalization.
-    }
-
-    const compact = raw.replace(/[\s_-]+/g, '').toLowerCase();
-    const aliases = {
-      dataobject: 'Data',
-      datasetobject: 'Dataset',
-      dataproductobject: 'DataProduct',
-      dataresourceobject: 'Data',
-      modelobject: 'Model',
-      methodobject: 'Method',
-      algorithmobject: 'Algorithm',
-      workflowobject: 'Workflow',
-      pipelineobject: 'Pipeline',
-      softwareobject: 'Software',
-      resourceobject: 'Resource',
-      regionobject: 'Region',
-      eventobject: 'Event',
-      hazardobject: 'Hazard',
-      riskobject: 'Risk',
-      variableobject: 'Variable',
-      earthvariableobject: 'EarthVariable',
-      actorobject: 'Agent',
-      institutionobject: 'Institution',
-      finding: 'Claim',
-      claimobject: 'Claim',
-      findingobject: 'Claim',
-      result: 'Claim',
-      resultobject: 'Claim',
-      evidenceobject: 'Evidence',
-      figure: 'Evidence',
-      figureobject: 'Evidence',
-      table: 'Evidence',
-      tableobject: 'Evidence',
-      metricobject: 'Metric',
-      limitation: 'Uncertainty',
-      limitationobject: 'Uncertainty',
-      uncertaintyobject: 'Uncertainty',
-      observationobject: 'Observation',
-      measurementobject: 'Measurement',
-      sourceobject: 'Source',
-      paperobject: 'Paper',
-      repositoryobject: 'Repository'
-    };
-
-    if (aliases[compact]) return aliases[compact];
-
-    if (/Object$/.test(raw)) {
-      const stripped = raw.slice(0, -'Object'.length);
-      try {
-        ontology.validateEntityType(stripped);
-        return stripped;
-      } catch {
-        return raw;
-      }
-    }
-
-    return raw;
   }
 
   _findSectionByRole(sections = {}, roleHints = []) {

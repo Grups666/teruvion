@@ -496,6 +496,36 @@ describe('Backward Compatibility', () => {
       assert.ok(err.message.includes('Invalid'), 'Should throw for invalid');
     }
   });
+
+  it('should resolve LLM-facing type language through ontology protocol', () => {
+    const ontology = require('../../core/registry/ontology');
+
+    assert.deepStrictEqual(
+      ontology.resolveEntityType('ModelObject'),
+      {
+        type: 'Model',
+        originalType: 'ModelObject',
+        changed: true,
+        valid: true,
+        reason: 'ontology-type'
+      }
+    );
+    assert.strictEqual(ontology.resolveEntityType('Limitation').type, 'Uncertainty');
+    assert.strictEqual(ontology.resolveEntityType('FigureObject').type, 'Evidence');
+    assert.strictEqual(ontology.resolveEntityType('Region').type, 'Region');
+    assert.strictEqual(ontology.resolveEntityType('NotAType').valid, false);
+  });
+
+  it('should expose extraction type contracts from ontology', () => {
+    const ontology = require('../../core/registry/ontology');
+    const contract = ontology.getExtractionTypeContract();
+
+    assert.ok(contract.capabilityObjects.includes('Model'));
+    assert.ok(contract.worldObjects.includes('Region'));
+    assert.ok(contract.evidenceObjects.includes('Evidence'));
+    assert.ok(contract.routeNodes.includes('Method'));
+    assert.strictEqual(contract.entityAliases.ModelObject, 'Model');
+  });
 });
 
 // Run tests if executed directly

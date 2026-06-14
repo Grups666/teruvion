@@ -50,6 +50,8 @@ const registerCustomExtension = layeredOntology.registerCustomExtension;
 
 // Type resolution
 const resolveTypeName = layeredOntology.resolveTypeName;
+const resolveEntityType = layeredOntology.resolveEntityType;
+const getExtractionTypeContract = layeredOntology.getExtractionTypeContract;
 const getParentType = layeredOntology.getParentType;
 const getTypeHierarchy = layeredOntology.getTypeHierarchy;
 
@@ -478,6 +480,8 @@ module.exports = {
   registerDomainExtension,
   registerCustomExtension,
   resolveTypeName,
+  resolveEntityType,
+  getExtractionTypeContract,
   getParentType,
   getTypeHierarchy,
   getOntologyStats,
