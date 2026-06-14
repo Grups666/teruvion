@@ -54,6 +54,22 @@ describe('AlphaMembershipStore Quota Tests', () => {
     assert.strictEqual(updated.quota.maxJobsPerMonth, 18, 'Provided quota field should update');
     assert.strictEqual(updated.quota.maxSourcesPerJob, 5, 'Unprovided quota field should be preserved');
   });
+
+  it('should rotate membership sessions so only the latest token is active', () => {
+    const store = new AlphaMembershipStore(':memory:');
+    const membership = store.create('alpha@example.com', 'Alpha User');
+
+    const first = store.createSession(membership.id);
+    assert.ok(store.findBySessionToken(first.token), 'First session should be active initially');
+
+    const second = store.createSession(membership.id);
+    assert.strictEqual(store.findBySessionToken(first.token), null, 'Old session should be invalid after rotation');
+    assert.strictEqual(
+      store.findBySessionToken(second.token)?.id,
+      membership.id,
+      'Latest session should remain active'
+    );
+  });
 });
 
 function tempMembershipPath() {

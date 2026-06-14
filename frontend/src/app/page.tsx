@@ -79,12 +79,9 @@ export default function Home() {
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const savedToken = sessionStorage.getItem('teruvionAccessToken');
-    if (savedToken) {
-      api.setAccessCode(savedToken);
-      setAccessGranted(true);
-      setStatus('Access restored');
-    }
+    api.setAccessCode(null);
+    sessionStorage.removeItem('teruvionAccessToken');
+    sessionStorage.removeItem('teruvionAccessTokenExpiresAt');
   }, []);
 
   useEffect(() => {
@@ -237,10 +234,6 @@ export default function Home() {
       }
       const accessToken = result.accessToken || code;
       api.setAccessCode(accessToken);
-      sessionStorage.setItem('teruvionAccessToken', accessToken);
-      if (result.accessTokenExpiresAt) {
-        sessionStorage.setItem('teruvionAccessTokenExpiresAt', result.accessTokenExpiresAt);
-      }
       setAccessGranted(true);
       setStatus('Access granted');
     } catch (err) {
