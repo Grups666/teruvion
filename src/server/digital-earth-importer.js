@@ -256,7 +256,7 @@ class DigitalEarthImporter {
       this.store.addEntity(sourceEntity);
       sourceId = sourceEntity.id;
       this._registerEntityKeys(entityMap, decomposition.sourceObject, sourceEntity.id);
-      project.addEntity(sourceEntity.id, decomposition.sourceObject.type);
+      project.addEntity(sourceEntity.id, sourceEntity.type);
       entityCount++;
     }
 
@@ -265,7 +265,7 @@ class DigitalEarthImporter {
       const entity = this._createEntity(cap, input, projectId);
       this.store.addEntity(entity);
       this._registerEntityKeys(entityMap, cap, entity.id);
-      project.addEntity(entity.id, cap.type);
+      project.addEntity(entity.id, entity.type);
       entityCount++;
 
       // Create relation from source to capability
@@ -284,7 +284,7 @@ class DigitalEarthImporter {
       const entity = this._createEntity(world, input, projectId);
       this.store.addEntity(entity);
       this._registerEntityKeys(entityMap, world, entity.id);
-      project.addEntity(entity.id, world.type);
+      project.addEntity(entity.id, entity.type);
       entityCount++;
 
       // Create relation from source to world
@@ -303,7 +303,7 @@ class DigitalEarthImporter {
       const entity = this._createEntity(evidence, input, projectId);
       this.store.addEntity(entity);
       this._registerEntityKeys(entityMap, evidence, entity.id);
-      project.addEntity(entity.id, evidence.type);
+      project.addEntity(entity.id, entity.type);
       entityCount++;
     }
 
@@ -333,6 +333,8 @@ class DigitalEarthImporter {
    */
   _createEntity(obj, source, projectId) {
     const objectMetadata = obj.metadata || {};
+    const resolvedType = ontology.resolveEntityType(obj.type);
+    const entityType = resolvedType.valid ? resolvedType.type : 'Entity';
 
     // Merge attributes, ensuring name is preserved
     const attrs = {
@@ -348,9 +350,12 @@ class DigitalEarthImporter {
     delete attrs.provenance;
     delete attrs.metadata;
 
-    return new Entity(obj.type, attrs, {
+    return new Entity(entityType, attrs, {
       id: obj.id,
       ...objectMetadata,
+      originalType: resolvedType.changed || !resolvedType.valid
+        ? (objectMetadata.originalType || resolvedType.originalType || obj.type)
+        : objectMetadata.originalType,
       source,
       projectId,
       extractedBy: 'DigitalEarthDecomposer',

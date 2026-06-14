@@ -84,6 +84,21 @@ describe('DigitalEarthImporter', () => {
     assert.strictEqual(entity.id, 'dataset-era5');
   });
 
+  it('should resolve LLM-facing entity type aliases before storage', () => {
+    const importer = new DigitalEarthImporter(null, null, null, null);
+    const entity = importer._createEntity({
+      id: 'limitation-1',
+      type: 'Limitation',
+      name: 'Limited evaluation scope',
+      attributes: {
+        detail: 'The source only reports a limited validation setting.'
+      }
+    }, 'https://example.com/source', 'project-1');
+
+    assert.strictEqual(entity.type, 'Uncertainty');
+    assert.strictEqual(entity.metadata.originalType, 'Limitation');
+  });
+
   it('should write import protocol metadata for processing and failed projects', () => {
     const importer = new DigitalEarthImporter(null, null, null, null);
     const project = new Project('Importing...', 'Protocol test', {
