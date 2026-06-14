@@ -46,6 +46,16 @@ function resolveApiBase(): string {
 
 const API_BASE = resolveApiBase();
 
+export function resolveApiAssetUrl(value?: string | null): string {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('/assets/')) {
+    return `${API_BASE}${trimmed}`;
+  }
+  return trimmed;
+}
+
 class APIClient {
   private accessCode: string | null = null;
 

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import api from '../types/client';
+import api, { resolveApiAssetUrl } from '../types/client';
 import type {
   Entity,
   Project,
@@ -918,7 +918,7 @@ export default function Home() {
                         >
                           {activeVisualEvidence.imageUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={activeVisualEvidence.imageUrl} alt={activeVisualEvidence.label || activeVisualEvidence.title || 'Source figure'} loading="lazy" />
+                            <img src={resolveApiAssetUrl(activeVisualEvidence.imageUrl)} alt={activeVisualEvidence.label || activeVisualEvidence.title || 'Source figure'} loading="lazy" />
                           ) : (
                             <span>No image preview</span>
                           )}
@@ -1029,7 +1029,7 @@ export default function Home() {
                 </div>
               ) : expandedVisualEvidence.imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={expandedVisualEvidence.imageUrl} alt={expandedVisualEvidence.label || 'Expanded source figure'} />
+                <img src={resolveApiAssetUrl(expandedVisualEvidence.imageUrl)} alt={expandedVisualEvidence.label || 'Expanded source figure'} />
               )}
               <div className="visual-modal-caption">
                 <span>{expandedVisualEvidence.label || formatVisualKind(expandedVisualEvidence.kind)}</span>
@@ -1370,7 +1370,7 @@ function VisualTable({ visual }: { visual: ProjectVisualEvidence }) {
     return (
       <div className="visual-table-image">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={visual.imageUrl} alt={visual.label || 'Source table'} loading="lazy" />
+        <img src={resolveApiAssetUrl(visual.imageUrl)} alt={visual.label || 'Source table'} loading="lazy" />
       </div>
     );
   }
