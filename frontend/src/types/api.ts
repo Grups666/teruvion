@@ -129,6 +129,11 @@ export interface ProjectRecomposition {
         kind?: string;
         caption?: string;
         imageUrl?: string | null;
+        originalImageUrl?: string | null;
+        tableData?: {
+          headers?: string[];
+          rows?: string[][];
+        } | null;
         sourceUrl?: string | null;
         routeRole?: string;
         supports?: string;
@@ -453,6 +458,11 @@ export interface Decomposition {
     title?: string;
     caption?: string;
     imageUrl?: string | null;
+    originalImageUrl?: string | null;
+    tableData?: {
+      headers?: string[];
+      rows?: string[][];
+    } | null;
     sourceUrl?: string | null;
     source?: string;
     routeRole?: string;

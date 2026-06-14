@@ -902,20 +902,26 @@ export default function Home() {
                       >
                         <span aria-hidden="true">‹</span>
                       </button>
-                      <button
-                        type="button"
-                        className="visual-preview"
-                        onClick={() => setExpandedVisualIndex(activeVisualIndex)}
-                        disabled={!activeVisualEvidence.imageUrl}
-                        aria-label="Open figure preview"
-                      >
-                        {activeVisualEvidence.imageUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={activeVisualEvidence.imageUrl} alt={activeVisualEvidence.label || activeVisualEvidence.title || 'Source figure'} loading="lazy" />
-                        ) : (
-                          <span>No image preview</span>
-                        )}
-                      </button>
+                      {isTableVisual(activeVisualEvidence) ? (
+                        <div className="visual-preview visual-table-preview">
+                          <VisualTable visual={activeVisualEvidence} />
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="visual-preview"
+                          onClick={() => setExpandedVisualIndex(activeVisualIndex)}
+                          disabled={!activeVisualEvidence.imageUrl}
+                          aria-label="Open figure preview"
+                        >
+                          {activeVisualEvidence.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={activeVisualEvidence.imageUrl} alt={activeVisualEvidence.label || activeVisualEvidence.title || 'Source figure'} loading="lazy" />
+                          ) : (
+                            <span>No image preview</span>
+                          )}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="visual-nav visual-nav-next"
@@ -1015,7 +1021,11 @@ export default function Home() {
               <button className="visual-modal-close" type="button" onClick={() => setExpandedVisualIndex(null)} aria-label="Close figure preview">
                 x
               </button>
-              {expandedVisualEvidence.imageUrl && (
+              {isTableVisual(expandedVisualEvidence) ? (
+                <div className="visual-modal-table">
+                  <VisualTable visual={expandedVisualEvidence} />
+                </div>
+              ) : expandedVisualEvidence.imageUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={expandedVisualEvidence.imageUrl} alt={expandedVisualEvidence.label || 'Expanded source figure'} />
               )}
@@ -1330,6 +1340,11 @@ type ProjectVisualEvidence = {
   title?: string;
   caption?: string;
   imageUrl?: string | null;
+  originalImageUrl?: string | null;
+  tableData?: {
+    headers?: string[];
+    rows?: string[][];
+  } | null;
   sourceUrl?: string | null;
   source?: string;
   routeRole?: string;
@@ -1339,6 +1354,50 @@ type ProjectVisualEvidence = {
   howProduced?: string;
   supportedClaim?: string;
 };
+
+function isTableVisual(visual?: ProjectVisualEvidence | null) {
+  return String(visual?.kind || '').toLowerCase() === 'table';
+}
+
+function VisualTable({ visual }: { visual: ProjectVisualEvidence }) {
+  const headers = Array.isArray(visual.tableData?.headers) ? visual.tableData?.headers || [] : [];
+  const rows = Array.isArray(visual.tableData?.rows) ? visual.tableData?.rows || [] : [];
+  const maxColumns = Math.max(headers.length, ...rows.map(row => row.length), 0);
+
+  if (rows.length === 0) {
+    return (
+      <div className="visual-table-empty">
+        <strong>{visual.label || 'Table'}</strong>
+        <span>{visual.caption || 'Structured table data was not available from this source.'}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="visual-table-scroll" aria-label={visual.label || 'Source table'}>
+      <table>
+        {headers.length > 0 && (
+          <thead>
+            <tr>
+              {Array.from({ length: maxColumns }).map((_, index) => (
+                <th key={`head-${index}`}>{headers[index] || ''}</th>
+              ))}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={`row-${rowIndex}`}>
+              {Array.from({ length: maxColumns }).map((_, cellIndex) => (
+                <td key={`cell-${rowIndex}-${cellIndex}`}>{row[cellIndex] || ''}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 type ProjectAction = {
   label: string;

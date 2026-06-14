@@ -22,6 +22,7 @@ const {
 } = require('../../core/project/ProjectDiagnostics');
 const { buildProjectRecomposition } = require('../../core/project/ProjectRecomposer');
 const PaperIdentifierResolver = require('../../core/connectors/PaperIdentifierResolver');
+const SourceAssetCache = require('../../core/source/SourceAssetCache');
 
 class DigitalEarthImporter {
   constructor(store, eventLog, projectRegistry, sseNotify) {
@@ -33,6 +34,7 @@ class DigitalEarthImporter {
     // Initialize pipeline components
     this.admission = new SourceAdmission(llm);
     this.decomposer = new DigitalEarthDecomposer(llm);
+    this.assetCache = new SourceAssetCache();
 
     // Connector registry for fetching
     const config = {
@@ -141,6 +143,7 @@ class DigitalEarthImporter {
       this._notifyProgress(projectId, 'decomposition', 'started');
 
       const decomposition = await this.decomposer.decompose(input, content, admissionResult);
+      await this.assetCache.cacheVisualEvidence(decomposition.visualEvidence);
       await this._enrichLinkedResources(decomposition, signal);
       console.log('[DigitalEarthImporter] Decomposition:', {
         capabilities: decomposition.capabilityObjects?.length || 0,

@@ -3641,6 +3641,8 @@ Return JSON for the whole source packet.`;
         title: this._summarizeText(label, 90),
         caption,
         imageUrl: candidate.imageUrl || candidate.url || candidate.href || null,
+        originalImageUrl: candidate.originalImageUrl || null,
+        tableData: kind === 'table' ? this._normalizeTableData(candidate) : null,
         sourceUrl,
         source: candidate.source || provenance.source || 'source-structure',
         routeRole: role,
@@ -3813,6 +3815,8 @@ Return JSON for the whole source packet.`;
       match.supportedClaim = match.supportedClaim || visual.supportedClaim || null;
       match.routeNodeId = match.routeNodeId || visual.routeNodeId || null;
       match.imageUrl = match.imageUrl || visual.imageUrl || null;
+      match.originalImageUrl = match.originalImageUrl || visual.originalImageUrl || null;
+      match.tableData = match.tableData || visual.tableData || null;
       match.sourceUrl = match.sourceUrl || visual.sourceUrl || null;
       match.provenance = {
         ...(match.provenance || {}),
@@ -3857,6 +3861,22 @@ Return JSON for the whole source packet.`;
       return `Use this ${objectName} to verify input variables, data coverage, or source material behind the route.`;
     }
     return `Use this ${objectName} as direct source evidence; verify axes, caption, context, and the claim it supports.`;
+  }
+
+  _normalizeTableData(candidate = {}) {
+    const headers = Array.isArray(candidate.headers)
+      ? candidate.headers.map(value => this._summarizeText(value, 120)).filter(Boolean)
+      : [];
+    const rows = Array.isArray(candidate.rows)
+      ? candidate.rows
+          .filter(row => Array.isArray(row))
+          .map(row => row.map(value => this._summarizeText(value, 180)).filter(value => value !== ''))
+          .filter(row => row.length > 0)
+          .slice(0, 50)
+      : [];
+
+    if (headers.length === 0 && rows.length === 0) return null;
+    return { headers, rows };
   }
 
   _buildResourceGraph(result = {}, content = {}) {

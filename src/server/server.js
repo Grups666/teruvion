@@ -5,6 +5,7 @@
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const apiRouter = require('./api');
 
 const app = express();
@@ -25,6 +26,15 @@ app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
+
+// Local source media cache. Files live under _local and are not committed.
+app.use(
+  '/assets/source-assets',
+  express.static(path.join(__dirname, '../../_local/source-assets'), {
+    immutable: true,
+    maxAge: '30d'
+  })
+);
 
 // ============================================================================
 // API ROUTES

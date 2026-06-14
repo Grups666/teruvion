@@ -341,9 +341,11 @@ class FullTextBroker {
     // Extract tables
     $('table, .table').each((i, el) => {
       const caption = $(el).find('caption, .caption').text().trim();
+      const tableData = this._extractTableData($, el);
       tables.push({
         number: `Table ${i + 1}`,
-        caption: caption
+        caption: caption,
+        ...tableData
       });
     });
 
@@ -497,20 +499,69 @@ class FullTextBroker {
 
   _extractFigureImageUrl($, el, baseUrl = '') {
     const image = $(el).find('img, source').first();
-    if (!image.length) return undefined;
+    const linkHref = $(el).find('a[href]').filter((i, anchor) => {
+      const href = String($(anchor).attr('href') || '');
+      return /\.(png|jpe?g|webp|gif|tiff?)(\?|#|$)/i.test(href);
+    }).first().attr('href');
 
-    const raw = image.attr('src')
-      || image.attr('data-src')
+    const raw = image.attr('data-full')
       || image.attr('data-original')
-      || image.attr('data-full')
+      || image.attr('data-srcset')
       || image.attr('srcset')
-      || image.attr('data-srcset');
+      || linkHref
+      || image.attr('data-src')
+      || image.attr('src');
 
     if (!raw) return undefined;
 
-    const firstCandidate = String(raw).split(',')[0].trim().split(/\s+/)[0];
-    const resolved = this._resolveResourceURL(firstCandidate, baseUrl);
+    const bestCandidate = this._selectBestImageCandidate(raw);
+    const resolved = this._resolveResourceURL(bestCandidate, baseUrl);
     return this._normalizeResourceURL(resolved) || undefined;
+  }
+
+  _selectBestImageCandidate(raw = '') {
+    const value = String(raw || '').trim();
+    if (!value.includes(',')) return value.split(/\s+/)[0];
+
+    const candidates = value
+      .split(',')
+      .map(candidate => {
+        const parts = candidate.trim().split(/\s+/);
+        const url = parts[0];
+        const descriptor = parts[1] || '';
+        const width = descriptor.endsWith('w') ? Number.parseInt(descriptor, 10) : 0;
+        const density = descriptor.endsWith('x') ? Number.parseFloat(descriptor) * 1000 : 0;
+        return { url, score: width || density || 1 };
+      })
+      .filter(candidate => candidate.url);
+
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0]?.url || value.split(/\s+/)[0];
+  }
+
+  _extractTableData($, el) {
+    const headers = [];
+    const rows = [];
+
+    $(el).find('tr').each((rowIndex, row) => {
+      const cells = [];
+      $(row).children('th, td').each((cellIndex, cell) => {
+        const text = this._cleanText($(cell).text());
+        if (!text) return;
+        cells.push(text);
+        if (rowIndex === 0 && $(cell).is('th')) {
+          headers[cellIndex] = text;
+        }
+      });
+      if (cells.length > 0) rows.push(cells);
+    });
+
+    const normalizedHeaders = headers.filter(Boolean);
+    const bodyRows = normalizedHeaders.length > 0 ? rows.slice(1) : rows;
+    return {
+      headers: normalizedHeaders,
+      rows: bodyRows.slice(0, 50)
+    };
   }
 
   _resolveResourceURL(url, baseUrl = '') {

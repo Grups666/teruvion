@@ -49,9 +49,18 @@ describe('FullTextBroker', () => {
           </p>
         </section>
         <figure>
-          <img src="/articles/example/figures/1.png" />
+          <img
+            src="/articles/example/figures/1-small.png"
+            srcset="/articles/example/figures/1-small.png 320w, /articles/example/figures/1-large.png 1600w"
+          />
           <figcaption>Model forecast reliability across regions.</figcaption>
         </figure>
+        <table>
+          <caption>Table 1: Forecast skill by lead time.</caption>
+          <tr><th>Lead time</th><th>Skill</th></tr>
+          <tr><td>0 day</td><td>0.72</td></tr>
+          <tr><td>5 day</td><td>0.64</td></tr>
+        </table>
       </article>
     `;
 
@@ -65,9 +74,12 @@ describe('FullTextBroker', () => {
     assert.strictEqual(structured.figures.length, 1, 'Should extract figure captions');
     assert.strictEqual(
       structured.figures[0].imageUrl,
-      'https://publisher.example/articles/example/figures/1.png',
-      'Should resolve figure image URLs against the source page'
+      'https://publisher.example/articles/example/figures/1-large.png',
+      'Should choose the highest-resolution srcset figure URL against the source page'
     );
+    assert.strictEqual(structured.tables.length, 1, 'Should extract table captions');
+    assert.deepStrictEqual(structured.tables[0].headers, ['Lead time', 'Skill']);
+    assert.deepStrictEqual(structured.tables[0].rows, [['0 day', '0.72'], ['5 day', '0.64']]);
     assert.ok(structured.resources.some(resource => resource.type === 'dataset'), 'Should classify data repository links');
     assert.ok(structured.resources.some(resource => resource.type === 'repository'), 'Should classify code repository links');
   });
