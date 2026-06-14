@@ -772,6 +772,13 @@ describe('Digital Earth Decomposer', () => {
               statement: 'The figure compares forecast skill.',
               provenance: { section: 'figure 1', sourceText: 'Figure 1 compares forecast skill.' },
               confidence: 0.74
+            }, {
+              id: 'stated-limitation',
+              type: 'Limitation',
+              name: 'Limited evaluation scope',
+              statement: 'The evaluation scope is limited.',
+              provenance: { section: 'limitations', sourceText: 'The evaluation scope is limited.' },
+              confidence: 0.71
             }],
             bridgeRelations: [],
             researchRoute: {
@@ -812,6 +819,7 @@ describe('Digital Earth Decomposer', () => {
     assert.strictEqual(result.capabilityObjects.find(object => object.id === 'forecast-model').type, 'Model');
     assert.strictEqual(result.worldObjects.find(object => object.id === 'study-region').type, 'Region');
     assert.strictEqual(result.evidenceObjects.find(object => object.id === 'figure-skill').type, 'Evidence');
+    assert.strictEqual(result.evidenceObjects.find(object => object.id === 'stated-limitation').type, 'Uncertainty');
     assert.strictEqual(result.capabilityObjects.find(object => object.id === 'forecast-model').metadata.originalLLMType, 'ModelObject');
   });
 
