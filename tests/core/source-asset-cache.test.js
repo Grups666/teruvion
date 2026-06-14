@@ -36,7 +36,7 @@ function startImageServer() {
 }
 
 describe('SourceAssetCache', () => {
-  it('should cache source figure images and preserve original URLs', async () => {
+  it('should cache source visual images and preserve original URLs', async () => {
     const { server, url } = await startImageServer();
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teruvion-assets-'));
     const cache = new SourceAssetCache({
@@ -62,7 +62,8 @@ describe('SourceAssetCache', () => {
       assert.strictEqual(visuals[0].originalImageUrl, url, 'Should preserve original image URL');
       assert.strictEqual(visuals[0].cachedImage.contentType, 'image/png');
       assert.ok(fs.existsSync(path.join(rootDir, visuals[0].cachedImage.path)), 'Should write cached image');
-      assert.strictEqual(visuals[1].imageUrl, url, 'Should not cache table image placeholders');
+      assert.ok(visuals[1].imageUrl.startsWith('/assets/source-assets/'), 'Should cache image-backed tables');
+      assert.strictEqual(visuals[1].originalImageUrl, url, 'Should preserve original table image URL');
     } finally {
       server.close();
       fs.rmSync(rootDir, { recursive: true, force: true });

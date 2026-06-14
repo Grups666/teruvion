@@ -242,7 +242,9 @@ class FullTextBroker {
    */
   async _parseStructure(content, sourceType) {
     if (content.type === 'html') {
-      return this._parseHTMLStructure(content.text, content.url);
+      const structured = this._parseHTMLStructure(content.text, content.url);
+      await this._enrichLinkedTables(structured.tables, content.url);
+      return structured;
     }
 
     if (content.type === 'xml') {
@@ -323,10 +325,12 @@ class FullTextBroker {
       const label = $(el).find('label, .label').text().trim();
       if (caption) {
         if (this._looksLikeTableCaption(caption)) {
+          const detailUrl = this._extractTableDetailUrl($, el, baseUrl);
           tables.push({
             number: label || `Table ${tables.length + 1}`,
             caption,
             imageUrl: this._extractFigureImageUrl($, el, baseUrl),
+            detailUrl,
             ...this._extractTableData($, el)
           });
           return;
@@ -348,6 +352,7 @@ class FullTextBroker {
         number: `Table ${i + 1}`,
         caption: caption,
         imageUrl: this._extractFigureImageUrl($, el, baseUrl),
+        detailUrl: this._extractTableDetailUrl($, el, baseUrl),
         ...tableData
       });
     });
@@ -365,6 +370,89 @@ class FullTextBroker {
       references: [], // Would need reference parser
       totalLength
     };
+  }
+
+  async _enrichLinkedTables(tables = [], baseUrl = '') {
+    for (const table of tables) {
+      if (!table || !table.detailUrl) continue;
+      if (table.imageUrl || (Array.isArray(table.rows) && table.rows.length > 0)) continue;
+
+      try {
+        const detailHtml = await this._fetchHTMLWithCookies(table.detailUrl);
+        const $ = cheerio.load(detailHtml);
+        const tableData = this._extractTableData($, $.root());
+        const imageUrl = this._extractFigureImageUrl($, $.root(), table.detailUrl);
+        const detailCaption = this._cleanText(
+          $('h1, [data-test="table-caption"], figcaption, caption').first().text()
+        );
+
+        if (imageUrl) table.imageUrl = imageUrl;
+        if (detailCaption && (!table.caption || detailCaption.length > table.caption.length)) {
+          table.caption = detailCaption;
+        }
+        if (tableData.headers.length || tableData.rows.length) {
+          table.headers = tableData.headers;
+          table.rows = tableData.rows;
+        }
+        table.sourceUrl = table.detailUrl;
+      } catch (error) {
+        table.detailFetchWarning = error.message;
+      }
+    }
+
+    return tables;
+  }
+
+  async _fetchHTMLWithCookies(url) {
+    let currentUrl = url;
+    const cookies = new Map();
+
+    for (let redirects = 0; redirects < 20; redirects += 1) {
+      const response = await fetch(currentUrl, {
+        redirect: 'manual',
+        timeout: 15000,
+        headers: {
+          'User-Agent': 'Teruvion/0.1.0 (https://teruvion.org)',
+          'Accept': 'text/html,application/xhtml+xml',
+          ...(cookies.size ? { Cookie: Array.from(cookies.entries()).map(([key, value]) => `${key}=${value}`).join('; ') } : {})
+        }
+      });
+
+      this._storeResponseCookies(response, cookies);
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (!location) throw new Error(`Redirect without location from ${currentUrl}`);
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Table detail request failed with HTTP ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('text/html')) {
+        throw new Error(`Table detail is not HTML: ${contentType || 'unknown content type'}`);
+      }
+
+      return response.text();
+    }
+
+    throw new Error('Table detail exceeded redirect limit');
+  }
+
+  _storeResponseCookies(response, cookies) {
+    const raw = typeof response.headers.raw === 'function'
+      ? response.headers.raw()['set-cookie'] || []
+      : [];
+
+    for (const cookieLine of raw) {
+      const pair = String(cookieLine || '').split(';')[0];
+      const separator = pair.indexOf('=');
+      if (separator <= 0) continue;
+      cookies.set(pair.slice(0, separator).trim(), pair.slice(separator + 1).trim());
+    }
   }
 
   _articleSectionRoot($) {
@@ -520,6 +608,27 @@ class FullTextBroker {
     const bestCandidate = this._selectBestImageCandidate(raw);
     const resolved = this._resolveResourceURL(bestCandidate, baseUrl);
     return this._normalizeResourceURL(resolved) || undefined;
+  }
+
+  _extractTableDetailUrl($, el, baseUrl = '') {
+    const links = $(el).find('a[href]').toArray();
+    for (const anchor of links) {
+      const href = String($(anchor).attr('href') || '');
+      const text = this._cleanText($(anchor).text()).toLowerCase();
+      const label = [
+        $(anchor).attr('data-test'),
+        $(anchor).attr('data-track-action'),
+        $(anchor).attr('aria-label'),
+        text
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      if (/\btable(s)?\b/.test(label) || /\/tables?\//i.test(href)) {
+        const resolved = this._resolveResourceURL(href, baseUrl);
+        return this._normalizeResourceURL(resolved) || undefined;
+      }
+    }
+
+    return undefined;
   }
 
   _selectBestImageCandidate(raw = '') {

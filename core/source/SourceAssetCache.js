@@ -24,7 +24,7 @@ class SourceAssetCache {
     if (!Array.isArray(visuals) || visuals.length === 0) return visuals;
 
     for (const visual of visuals) {
-      if (!visual || String(visual.kind || '').toLowerCase() === 'table') continue;
+      if (!visual) continue;
       const imageUrl = visual.imageUrl;
       if (!this._canCacheUrl(imageUrl)) continue;
 

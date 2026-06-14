@@ -84,6 +84,54 @@ describe('FullTextBroker', () => {
     assert.ok(structured.resources.some(resource => resource.type === 'repository'), 'Should classify code repository links');
   });
 
+  it('should enrich linked image-backed tables from detail pages', async () => {
+    const broker = new FullTextBroker();
+    broker._fetchHTMLWithCookies = async url => {
+      assert.strictEqual(url, 'https://publisher.example/articles/example/tables/1');
+      return `
+        <main>
+          <h1>Extended Data Table 1 Evaluation metrics</h1>
+          <div class="table-image">
+            <img src="//cdn.publisher.example/tables/table1-large.jpg" />
+          </div>
+        </main>
+      `;
+    };
+
+    const html = `
+      <article>
+        <section>
+          <h2>Main</h2>
+          <p>${'Article text for a source with a linked table detail page. '.repeat(200)}</p>
+        </section>
+        <div class="article-table">
+          <figure>
+            <figcaption><b>Extended Data Table 1 Evaluation metrics</b></figcaption>
+            <a data-test="table-link" href="/articles/example/tables/1">Full size table</a>
+          </figure>
+        </div>
+      </article>
+    `;
+
+    const structured = await broker._parseStructure({
+      type: 'html',
+      text: html,
+      url: 'https://publisher.example/articles/example'
+    }, 'publisher_html');
+
+    assert.strictEqual(structured.tables.length, 1, 'Should keep the linked table');
+    assert.strictEqual(
+      structured.tables[0].imageUrl,
+      'https://cdn.publisher.example/tables/table1-large.jpg',
+      'Should enrich image-backed table from its detail page'
+    );
+    assert.strictEqual(
+      structured.tables[0].detailUrl,
+      'https://publisher.example/articles/example/tables/1',
+      'Should preserve the source detail URL'
+    );
+  });
+
   it('should extract scholarly resource metadata without publisher-specific rules', () => {
     const broker = new FullTextBroker();
     const html = `
