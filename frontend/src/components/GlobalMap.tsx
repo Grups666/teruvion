@@ -65,7 +65,10 @@ export default function GlobalMap({
     [mapRecomposition, entities]
   );
   const diagnostics = mapRecomposition?.map?.diagnostics;
-  const mapLayers = mapRecomposition?.map?.layers || [];
+  const mapLayers = useMemo(
+    () => buildDisplayLayers(mapRecomposition?.map?.layers || [], renderFeatures),
+    [mapRecomposition, renderFeatures]
+  );
 
   useEffect(() => {
     if (!containerRef.current || initializedRef.current) return;
@@ -194,7 +197,7 @@ function buildRenderFeatures(
     .map(item => featureFromRecomposition(item))
     .filter((feature): feature is RenderFeature => Boolean(feature));
 
-  if (recomposed.length > 0) return recomposed;
+  if (recomposed.length > 0) return suppressAggregateCoverage(recomposed);
 
   return entities
     .map(entity => featureFromEntity(entity))
@@ -203,8 +206,9 @@ function buildRenderFeatures(
 
 function featureFromRecomposition(item: any): RenderFeature | null {
   const spatial = item.spatial || {};
-  const geometry = spatial.geometry || geometryFromBbox(spatial.bbox) || null;
-  const point = normalizePoint(spatial.point);
+  const rawGeometry = spatial.geometry || null;
+  const point = normalizePoint(spatial.point) || pointFromGeometry(rawGeometry);
+  const geometry = point ? null : rawGeometry || geometryFromBbox(spatial.bbox) || null;
   if (!geometry && !point) return null;
 
   return {
@@ -225,8 +229,10 @@ function featureFromRecomposition(item: any): RenderFeature | null {
 function featureFromEntity(entity: Entity): RenderFeature | null {
   const attributes = entity.attributes || {};
   const bbox = normalizeBbox(attributes.bbox || attributes.spatialCoverage);
-  const geometry = attributes.geometry || geometryFromBbox(bbox);
-  const point = normalizePoint(attributes.centroid || attributes.location || attributes.coordinates || attributes.spatialCoverage);
+  const rawGeometry = attributes.geometry || null;
+  const point = normalizePoint(attributes.centroid || attributes.location || attributes.coordinates || attributes.spatialCoverage)
+    || pointFromGeometry(rawGeometry);
+  const geometry = point ? null : rawGeometry || geometryFromBbox(bbox);
   if (!geometry && !point) return null;
 
   return {
@@ -249,9 +255,35 @@ function renderFeature(
   onSelectEntity: (id: string) => void
 ) {
   const isSelected = feature.objectId === selectedEntityId;
+  if (feature.point) {
+    const color = PRIMITIVE_STYLES[feature.primitive] || PRIMITIVE_STYLES['point-layer'];
+    const marker = L.circleMarker([feature.point.lat, feature.point.lon], {
+      radius: isSelected ? 8 : 4.8,
+      fillColor: isSelected ? '#0f172a' : color.fill,
+      fillOpacity: isSelected ? 0.96 : 0.72,
+      weight: isSelected ? 2.4 : 1.1,
+      color: isSelected ? '#0f172a' : color.stroke,
+      opacity: isSelected ? 1 : 0.82,
+      bubblingMouseEvents: true,
+    });
+    marker.bindPopup(buildFeaturePopupHtml(feature), { closeButton: false });
+    if (feature.objectId) {
+      marker.on('click', () => onSelectEntity(feature.objectId!));
+    }
+    return marker;
+  }
+
   if (feature.geometry) {
     const style = PRIMITIVE_STYLES[feature.primitive] || DEFAULT_STYLE;
     const geoJson = L.geoJSON(feature.geometry as any, {
+      pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+        radius: isSelected ? 8 : 4.8,
+        fillColor: isSelected ? '#0f172a' : (PRIMITIVE_STYLES['point-layer'] || DEFAULT_STYLE).fill,
+        fillOpacity: isSelected ? 0.96 : 0.72,
+        weight: isSelected ? 2.4 : 1.1,
+        color: isSelected ? '#0f172a' : (PRIMITIVE_STYLES['point-layer'] || DEFAULT_STYLE).stroke,
+        opacity: isSelected ? 1 : 0.82,
+      }),
       style: {
         color: isSelected ? '#0f172a' : style.stroke,
         weight: isSelected ? style.weight + 1.5 : style.weight,
@@ -267,23 +299,41 @@ function renderFeature(
     return geoJson;
   }
 
-  if (feature.point) {
-    const color = PRIMITIVE_STYLES[feature.primitive] || DEFAULT_STYLE;
-    const marker = L.circleMarker([feature.point.lat, feature.point.lon], {
-      radius: isSelected ? 11 : 7,
-      fillColor: isSelected ? '#0f172a' : color.fill,
-      fillOpacity: isSelected ? 1 : 0.82,
-      weight: isSelected ? 3 : 1.6,
-      color: isSelected ? '#0f172a' : color.stroke,
-    });
-    marker.bindPopup(buildFeaturePopupHtml(feature), { closeButton: false });
-    if (feature.objectId) {
-      marker.on('click', () => onSelectEntity(feature.objectId!));
-    }
-    return marker;
-  }
-
   return null;
+}
+
+function buildDisplayLayers(layers: any[], features: RenderFeature[]) {
+  if (layers.length > 0) return layers;
+  const counts = new Map<string, number>();
+  for (const feature of features) {
+    const primitive = feature.primitive || (feature.point ? 'point-layer' : 'region-layer');
+    counts.set(primitive, (counts.get(primitive) || 0) + 1);
+  }
+  return Array.from(counts.entries()).map(([primitive, count]) => ({
+    id: primitive,
+    displayPrimitive: primitive,
+    label: formatPrimaryMode(primitive),
+    anchorCount: count,
+    resultCount: 0,
+  }));
+}
+
+function suppressAggregateCoverage(features: RenderFeature[]) {
+  const pointCount = features.filter(feature => feature.point).length;
+  if (pointCount < 8) return features;
+
+  return features.filter(feature => {
+    const isBboxOnlyRegion = feature.geometry?.type === 'Polygon' && feature.bbox && !feature.point;
+    const isSourceLevel = /source|paper|datasetpage|repository|sourceobject/i.test(feature.type || '');
+    return !(isBboxOnlyRegion && isSourceLevel);
+  });
+}
+
+function pointFromGeometry(value: unknown): MapPoint | null {
+  if (!value || typeof value !== 'object') return null;
+  const geometry = value as GeoJSON.Geometry;
+  if (geometry.type !== 'Point') return null;
+  return normalizePoint((geometry as GeoJSON.Point).coordinates);
 }
 
 function extendBounds(bounds: L.LatLngBounds, feature: RenderFeature) {
