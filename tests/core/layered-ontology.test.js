@@ -511,6 +511,8 @@ describe('Backward Compatibility', () => {
       }
     );
     assert.strictEqual(ontology.resolveEntityType('Limitation').type, 'Uncertainty');
+    assert.strictEqual(ontology.resolveEntityType('Gap').type, 'Uncertainty');
+    assert.strictEqual(ontology.resolveEntityType('ResearchGap').type, 'Uncertainty');
     assert.strictEqual(ontology.resolveEntityType('FigureObject').type, 'Evidence');
     assert.strictEqual(ontology.resolveEntityType('Region').type, 'Region');
     assert.strictEqual(ontology.resolveEntityType('NotAType').valid, false);
