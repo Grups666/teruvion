@@ -902,31 +902,6 @@ export default function Home() {
                       <small>{Math.min(activeVisualIndex + 1, projectVisualEvidence.length)} / {projectVisualEvidence.length}</small>
                     </div>
                   </div>
-                  {projectVisualEvidence.length > 1 && (
-                    <div className="visual-strip" aria-label="Visual evidence navigation">
-                      {projectVisualEvidence.map((visual, index) => (
-                        <button
-                          type="button"
-                          className={`visual-strip-item ${index === activeVisualIndex ? 'active' : ''}`}
-                          key={`${visual.kind || 'visual'}-${visual.label || visual.title || index}`}
-                          onClick={() => setActiveVisualIndex(index)}
-                          aria-label={`Open ${visual.label || visual.title || `visual ${index + 1}`}`}
-                        >
-                          <span className="visual-strip-index">{visual.label || formatVisualKind(visual.kind)}</span>
-                          <span className="visual-strip-thumb">
-                            {isTableVisual(visual) ? (
-                              <em>Table</em>
-                            ) : visual.imageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={resolveApiAssetUrl(visual.imageUrl)} alt="" loading="lazy" />
-                            ) : (
-                              <em>Figure</em>
-                            )}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                   <div className="visual-carousel-card">
                     <div className="visual-preview-wrap">
                       <button
@@ -991,6 +966,31 @@ export default function Home() {
                       )}
                       <small>{activeVisualEvidence.readHint || activeVisualEvidence.supports || 'Verify this visual against the original source.'}</small>
                     </div>
+                    {projectVisualEvidence.length > 1 && (
+                      <div className="visual-strip" aria-label="Visual evidence navigation">
+                        {projectVisualEvidence.map((visual, index) => (
+                          <button
+                            type="button"
+                            className={`visual-strip-item ${index === activeVisualIndex ? 'active' : ''}`}
+                            key={`${visual.kind || 'visual'}-${visual.label || visual.title || index}`}
+                            onClick={() => setActiveVisualIndex(index)}
+                            aria-label={`Open ${visual.label || visual.title || `visual ${index + 1}`}`}
+                          >
+                            <span className="visual-strip-thumb">
+                              {isTableVisual(visual) ? (
+                                <em>Table</em>
+                              ) : visual.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={resolveApiAssetUrl(visual.imageUrl)} alt="" loading="lazy" />
+                              ) : (
+                                <em>Figure</em>
+                              )}
+                            </span>
+                            <span className="visual-strip-index">{visual.label || formatVisualKind(visual.kind)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

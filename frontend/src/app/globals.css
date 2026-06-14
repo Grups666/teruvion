@@ -1428,66 +1428,79 @@ html, body {
 
 .visual-strip {
   display: flex;
-  gap: 8px;
-  margin: 0 0 12px;
-  padding: 2px 1px 8px;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 12px 12px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.78), rgba(255,255,255,0.38), rgba(255,255,255,0.78));
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.18) transparent;
 }
 
 .visual-strip-item {
   position: relative;
-  flex: 0 0 96px;
+  display: grid;
+  flex: 0 0 72px;
   min-width: 0;
-  padding: 0;
+  gap: 4px;
+  justify-items: center;
+  padding: 5px;
   overflow: hidden;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 8px;
-  background: rgba(255,255,255,0.66);
+  border: 1px solid rgba(15, 23, 42, 0.055);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.44);
   color: #64748b;
   cursor: pointer;
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.035);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  opacity: 0.58;
+  box-shadow: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
 }
 
 .visual-strip-item:hover,
 .visual-strip-item.active {
-  border-color: rgba(15, 118, 110, 0.34);
-  background: rgba(255,255,255,0.92);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.075);
-  transform: translateY(-1px);
+  opacity: 1;
+  border-color: rgba(15, 118, 110, 0.22);
+  background: rgba(255,255,255,0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.68),
+    0 8px 18px rgba(15, 23, 42, 0.04);
 }
 
 .visual-strip-index {
   display: block;
-  padding: 6px 8px 5px;
   overflow: hidden;
-  color: #475569;
-  font-size: 9px;
+  color: #64748b;
+  font-size: 8px;
   font-weight: 760;
   line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: center;
 }
 
 .visual-strip-thumb {
   display: grid;
-  height: 56px;
+  width: 54px;
+  height: 28px;
   place-items: center;
   overflow: hidden;
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
-  background: rgba(241,245,249,0.74);
+  border-radius: 999px;
+  background: rgba(241,245,249,0.52);
 }
 
 .visual-strip-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  filter: saturate(0.82) contrast(0.96);
 }
 
 .visual-strip-thumb em {
   color: #64748b;
-  font-size: 10px;
+  font-size: 8px;
   font-style: normal;
   font-weight: 740;
   letter-spacing: 0.08em;
