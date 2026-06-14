@@ -738,6 +738,83 @@ describe('Digital Earth Decomposer', () => {
     assert.strictEqual(result.extractionIntegrity.schemaWarningCount, 0, 'Grounded schema aliases should not create quality warnings');
   });
 
+  it('should normalize agent object-type aliases before entity storage', async () => {
+    const llm = {
+      async chat(params) {
+        const userText = params.messages?.map(message => message.content).join('\n') || '';
+        if (userText.includes('"task": "Critical Review"')) {
+          return { content: JSON.stringify({ limitations: [] }) };
+        }
+
+        return {
+          agent: { provider: 'claude-code', success: true },
+          content: JSON.stringify({
+            capabilityObjects: [{
+              id: 'forecast-model',
+              type: 'ModelObject',
+              name: 'Forecast model',
+              description: 'Transforms weather inputs into discharge forecasts.',
+              provenance: { section: 'methods', sourceText: 'The forecast model transforms weather inputs into discharge forecasts.' },
+              confidence: 0.83
+            }],
+            worldObjects: [{
+              id: 'study-region',
+              type: 'RegionObject',
+              name: 'Study region',
+              description: 'The evaluated river basins.',
+              provenance: { section: 'study area', sourceText: 'The evaluated river basins are the study region.' },
+              confidence: 0.78
+            }],
+            evidenceObjects: [{
+              id: 'figure-skill',
+              type: 'FigureObject',
+              name: 'Skill comparison figure',
+              statement: 'The figure compares forecast skill.',
+              provenance: { section: 'figure 1', sourceText: 'Figure 1 compares forecast skill.' },
+              confidence: 0.74
+            }],
+            bridgeRelations: [],
+            researchRoute: {
+              nodes: [
+                { id: 'forecast-model', label: 'Forecast model', stage: 'method', type: 'Model', summary: 'Transforms weather inputs.' },
+                { id: 'figure-skill', label: 'Skill comparison', stage: 'evidence', type: 'Evidence', summary: 'Compares forecast skill.' }
+              ],
+              edges: [{ from: 'forecast-model', to: 'figure-skill', label: 'evaluated by' }]
+            }
+          })
+        };
+      }
+    };
+    const decomposer = new DigitalEarthDecomposer(llm);
+    const admissionResult = {
+      sourceType: 'Paper',
+      depth: 'deep',
+      activatedCategories: ['modeling', 'earth-object', 'evidence'],
+      activatedOntologyLayers: ['source', 'capability', 'world', 'evidence'],
+      sourceRoles: { modeling_capability: 0.9 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+
+    const result = await decomposer.decompose('10.5555/object-aliases', {
+      type: 'paper',
+      title: 'Object alias paper',
+      content: [
+        'Methods',
+        'The forecast model transforms weather inputs into discharge forecasts.',
+        'Study area',
+        'The evaluated river basins are the study region.',
+        'Results',
+        'Figure 1 compares forecast skill.'
+      ].join('\n')
+    }, admissionResult);
+
+    assert.strictEqual(result.capabilityObjects.find(object => object.id === 'forecast-model').type, 'Model');
+    assert.strictEqual(result.worldObjects.find(object => object.id === 'study-region').type, 'Region');
+    assert.strictEqual(result.evidenceObjects.find(object => object.id === 'figure-skill').type, 'Evidence');
+    assert.strictEqual(result.capabilityObjects.find(object => object.id === 'forecast-model').metadata.originalLLMType, 'ModelObject');
+  });
+
   it('should repair minor agent JSON syntax issues before schema validation', async () => {
     const llm = {
       async chat(params) {

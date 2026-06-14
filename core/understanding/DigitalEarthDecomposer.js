@@ -751,7 +751,7 @@ Return JSON matching source-object-graph-v1:
   "capabilityObjects": [
     {
       "id": "stable-id",
-      "type": "DataObject|ModelObject|MethodObject|WorkflowObject|AlgorithmObject|ResourceObject",
+      "type": "Dataset|Data|Model|Method|Workflow|Algorithm|Software|Resource",
       "name": "Concrete source term",
       "description": "What the source says",
       "properties": {},
@@ -762,7 +762,7 @@ Return JSON matching source-object-graph-v1:
   "worldObjects": [
     {
       "id": "stable-id",
-      "type": "RegionObject|EventObject|HazardObject|VariableObject|ResourceObject|ActorObject",
+      "type": "Region|EarthObject|Event|Hazard|EarthVariable|Variable|Resource|Agent|Institution",
       "name": "Concrete source term",
       "description": "What the source says",
       "properties": {},
@@ -773,7 +773,7 @@ Return JSON matching source-object-graph-v1:
   "evidenceObjects": [
     {
       "id": "stable-id",
-      "type": "ClaimObject|FindingObject|FigureObject|TableObject|MetricObject|LimitationObject",
+      "type": "Claim|Evidence|Observation|Measurement|Metric|Uncertainty|DataQuality",
       "name": "Concrete source term",
       "statement": "Claim, finding, metric, limitation, or visual evidence",
       "properties": {},
@@ -1132,6 +1132,15 @@ Return JSON with this structure:
 
     const normalizeObject = (obj, field, index) => {
       if (!obj || typeof obj !== 'object') return obj;
+      const normalizedType = this._normalizeExtractedEntityType(obj.type);
+      if (normalizedType !== obj.type) {
+        obj.metadata = {
+          ...(obj.metadata || {}),
+          originalLLMType: obj.type
+        };
+        obj.type = normalizedType;
+        warnings.push(`${field}[${index}] type normalized to ontology type ${normalizedType}`);
+      }
       if (!obj.attributes || typeof obj.attributes !== 'object' || Array.isArray(obj.attributes)) {
         obj.attributes = {};
       }
@@ -4900,6 +4909,70 @@ Return JSON with this structure:
     return Object.prototype.hasOwnProperty.call(typeMap, normalized)
       ? typeMap[normalized]
       : type;
+  }
+
+  _normalizeExtractedEntityType(type) {
+    if (!type) return type;
+    const raw = String(type).trim();
+    if (!raw) return raw;
+
+    try {
+      ontology.validateEntityType(raw);
+      return raw;
+    } catch {
+      // Continue with aliases and Object suffix normalization.
+    }
+
+    const compact = raw.replace(/[\s_-]+/g, '').toLowerCase();
+    const aliases = {
+      dataobject: 'Data',
+      datasetobject: 'Dataset',
+      dataproductobject: 'DataProduct',
+      dataresourceobject: 'Data',
+      modelobject: 'Model',
+      methodobject: 'Method',
+      algorithmobject: 'Algorithm',
+      workflowobject: 'Workflow',
+      pipelineobject: 'Pipeline',
+      softwareobject: 'Software',
+      resourceobject: 'Resource',
+      regionobject: 'Region',
+      eventobject: 'Event',
+      hazardobject: 'Hazard',
+      riskobject: 'Risk',
+      variableobject: 'Variable',
+      earthvariableobject: 'EarthVariable',
+      actorobject: 'Agent',
+      institutionobject: 'Institution',
+      claimobject: 'Claim',
+      findingobject: 'Claim',
+      resultobject: 'Claim',
+      evidenceobject: 'Evidence',
+      figureobject: 'Evidence',
+      tableobject: 'Evidence',
+      metricobject: 'Metric',
+      limitationobject: 'Uncertainty',
+      uncertaintyobject: 'Uncertainty',
+      observationobject: 'Observation',
+      measurementobject: 'Measurement',
+      sourceobject: 'Source',
+      paperobject: 'Paper',
+      repositoryobject: 'Repository'
+    };
+
+    if (aliases[compact]) return aliases[compact];
+
+    if (/Object$/.test(raw)) {
+      const stripped = raw.slice(0, -'Object'.length);
+      try {
+        ontology.validateEntityType(stripped);
+        return stripped;
+      } catch {
+        return raw;
+      }
+    }
+
+    return raw;
   }
 
   _findSectionByRole(sections = {}, roleHints = []) {
