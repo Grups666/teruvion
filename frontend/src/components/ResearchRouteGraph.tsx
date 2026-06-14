@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import {
   Background,
   BackgroundVariant,
+  Controls,
   MarkerType,
   ReactFlow,
   type Edge,
@@ -22,6 +23,7 @@ type Props = {
   activeKey?: string | null;
   onSelect?: (key: string) => void;
   variant?: 'overview' | 'detail' | 'micro';
+  depth?: 'overview' | 'detail';
 };
 
 function getPosition(index: number, total: number, variant: Props['variant']) {
@@ -29,15 +31,16 @@ function getPosition(index: number, total: number, variant: Props['variant']) {
   const isDetail = variant === 'detail';
   const width = isMicro ? 720 : isDetail ? 1180 : 1240;
   const centerY = isMicro ? 110 : isDetail ? 132 : 186;
-  const amplitude = isMicro ? 62 : isDetail ? 70 : 92;
+  const amplitude = isMicro ? 54 : isDetail ? 58 : 76;
   const spacing = total <= 1 ? 0 : width / Math.max(total - 1, 1);
-  const x = total <= 1 ? width / 2 - 85 : index * spacing + 26;
-  const wave = Math.sin((index / Math.max(total - 1, 1)) * Math.PI * 1.7 - 0.45);
-  const y = centerY + wave * amplitude;
+  const x = total <= 1 ? width / 2 - 92 : index * spacing + 24;
+  const wave = Math.sin((index / Math.max(total - 1, 1)) * Math.PI * 1.45 - 0.5);
+  const branch = total > 4 && index > 0 && index < total - 1 && index % 2 === 0 ? -34 : 0;
+  const y = centerY + wave * amplitude + branch;
   return { x, y };
 }
 
-export default function ResearchRouteGraph({ signals, activeKey, onSelect, variant = 'overview' }: Props) {
+export default function ResearchRouteGraph({ signals, activeKey, onSelect, variant = 'overview', depth = 'overview' }: Props) {
   const { nodes, edges } = useMemo(() => {
     const graphNodes: Node[] = signals.map((signal, index) => {
       const position = getPosition(index, signals.length, variant);
@@ -59,7 +62,7 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect, varia
             </button>
           )
         },
-        selectable: false,
+        selectable: true,
         draggable: false,
         type: 'default'
       };
@@ -95,22 +98,26 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect, varia
   }, [activeKey, onSelect, signals, variant]);
 
   return (
-    <div className={`research-flow-shell ${variant}`}>
+    <div className={`research-flow-shell ${variant} ${depth}`}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         fitView
-        fitViewOptions={{ padding: 0.18 }}
+        fitViewOptions={{ padding: 0.2 }}
         nodesDraggable={false}
         nodesConnectable={false}
-        elementsSelectable={false}
+        elementsSelectable
         panOnDrag
-        zoomOnScroll={false}
+        zoomOnScroll
         zoomOnPinch
+        zoomOnDoubleClick={false}
+        minZoom={0.45}
+        maxZoom={1.8}
         preventScrolling={false}
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={28} size={0.6} />
+        <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
     </div>
   );

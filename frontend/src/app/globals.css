@@ -627,9 +627,7 @@ html, body {
   color: var(--primary);
   text-decoration: none;
   max-width: min(960px, 72vw);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .project-panel-title-link:hover {
@@ -717,9 +715,7 @@ html, body {
 
 .capsule-meta span {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .capsule-brief {
@@ -769,12 +765,9 @@ html, body {
 .extraction-integrity-signal small {
   display: block;
   margin-top: 4px;
-  overflow: hidden;
   color: #64748b;
   font-size: 11px;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .extraction-integrity-signal.ready {
@@ -808,6 +801,35 @@ html, body {
   text-transform: uppercase;
 }
 
+.technical-route-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.technical-route-actions button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.78);
+  color: #475569;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.technical-route-actions button:hover {
+  border-color: rgba(15, 23, 42, 0.24);
+  background: rgba(255,255,255,0.96);
+  color: #0f172a;
+}
+
 .research-flow-shell {
   position: relative;
   height: 340px;
@@ -815,27 +837,13 @@ html, body {
   border: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: 8px;
   background:
-    radial-gradient(circle at 50% 50%, transparent 0 33%, rgba(15, 23, 42, 0.028) 34%, transparent 35%),
-    radial-gradient(circle at 50% 50%, transparent 0 57%, rgba(15, 23, 42, 0.02) 58%, transparent 59%),
-    linear-gradient(180deg, rgba(255,255,255,0.8), rgba(248,250,252,0.66));
+    linear-gradient(180deg, rgba(255,255,255,0.88), rgba(248,250,252,0.68));
 }
 
 .research-flow-shell.detail {
-  height: 252px;
-  margin-top: 12px;
+  height: 340px;
   border-color: rgba(15, 23, 42, 0.07);
-  background:
-    radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.035), transparent 10%),
-    linear-gradient(180deg, rgba(255,255,255,0.72), rgba(248,250,252,0.55));
-}
-
-.research-flow-shell.micro {
-  height: 206px;
-  margin-top: 13px;
-  border-color: rgba(15, 23, 42, 0.07);
-  background:
-    radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.032), transparent 10%),
-    rgba(255,255,255,0.5);
+  background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(248,250,252,0.66));
 }
 
 .research-flow-shell .react-flow {
@@ -843,18 +851,14 @@ html, body {
 }
 
 .research-flow-shell .react-flow__node {
-  width: 178px;
+  width: 210px;
   border: none;
   background: transparent;
   box-shadow: none;
 }
 
 .research-flow-shell.detail .react-flow__node {
-  width: 170px;
-}
-
-.research-flow-shell.micro .react-flow__node {
-  width: 156px;
+  width: 210px;
 }
 
 .research-flow-shell .react-flow__handle {
@@ -878,8 +882,8 @@ html, body {
 .research-flow-node {
   position: relative;
   display: block;
-  width: 178px;
-  min-height: 78px;
+  width: 210px;
+  min-height: 88px;
   padding: 12px 14px 12px 36px;
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 999px;
@@ -937,15 +941,9 @@ html, body {
 }
 
 .research-flow-shell.detail .research-flow-node {
-  width: 170px;
-  min-height: 76px;
+  width: 210px;
+  min-height: 88px;
   padding: 12px 13px 12px 36px;
-}
-
-.research-flow-shell.micro .research-flow-node {
-  width: 156px;
-  min-height: 68px;
-  padding: 10px 11px 10px 32px;
 }
 
 .research-flow-node span {
@@ -960,25 +958,39 @@ html, body {
 }
 
 .research-flow-node strong {
-  display: -webkit-box;
+  display: block;
   margin-bottom: 4px;
-  overflow: hidden;
   color: #0f172a;
   font-size: 13px;
   font-weight: 740;
-  line-height: 1.16;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
 }
 
 .research-flow-node small {
-  display: -webkit-box;
-  overflow: hidden;
+  display: block;
   color: #64748b;
   font-size: 10px;
   line-height: 1.28;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.research-flow-shell .react-flow__controls {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.72);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.research-flow-shell .react-flow__controls-button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  background: transparent;
+  color: #64748b;
 }
 
 .decomposition-progress {
@@ -1214,27 +1226,23 @@ html, body {
 .route-drilldown-head strong {
   display: block;
   min-width: 0;
-  overflow: hidden;
   color: var(--primary);
   font-size: 18px;
   font-weight: 750;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .route-drilldown-head em {
   flex: 0 0 auto;
   max-width: 240px;
-  overflow: hidden;
   color: var(--secondary);
   font-size: 13px;
   font-style: normal;
   font-weight: 700;
   line-height: 1.25;
   text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .route-drilldown p {
@@ -1937,6 +1945,7 @@ html, body {
   font-size: 15px;
   font-weight: 760;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .route-focus-card p {
@@ -1944,6 +1953,7 @@ html, body {
   color: var(--secondary);
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .project-brief {

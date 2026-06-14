@@ -69,6 +69,7 @@ export default function Home() {
   const [projectLenses, setProjectLenses] = useState<Record<string, any> | null>(null);
   const [activeCockpitKey, setActiveCockpitKey] = useState<string>('source');
   const [activeFocusIndex, setActiveFocusIndex] = useState(0);
+  const [routeGraphDepth, setRouteGraphDepth] = useState<'overview' | 'detail'>('overview');
   const [accessGranted, setAccessGranted] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -93,6 +94,8 @@ export default function Home() {
   useEffect(() => {
     setActiveVisualIndex(0);
     setExpandedVisualIndex(null);
+    setRouteGraphDepth('overview');
+    setActiveFocusIndex(0);
   }, [selectedProjectId]);
 
   useEffect(() => {
@@ -459,7 +462,6 @@ export default function Home() {
       })
     : [];
   const activeFocusItem = cockpitFocusItems[activeFocusIndex] || cockpitFocusItems[0] || null;
-  const focusMicroGraph = buildFocusMicroGraph(activeFocusItem);
   const detailGraphSignals = cockpitFocusItems.map((item, index) => ({
     key: `${activeCockpitSignal?.key || 'detail'}-${index}`,
     label: item.label,
@@ -470,13 +472,12 @@ export default function Home() {
   const activeDetailGraphKey = activeFocusItem
     ? `${activeCockpitSignal?.key || 'detail'}-${Math.max(0, cockpitFocusItems.indexOf(activeFocusItem))}`
     : null;
-  const focusGraphSignals = focusMicroGraph.map((node, index) => ({
-    key: `${activeDetailGraphKey || 'focus'}-${index}`,
-    label: node.label,
-    value: node.value,
-    detail: node.detail,
-    status: 'review' as const
-  }));
+  const routeGraphSignals = routeGraphDepth === 'detail' && detailGraphSignals.length > 0
+    ? detailGraphSignals
+    : cockpitSignals;
+  const routeGraphActiveKey = routeGraphDepth === 'detail'
+    ? activeDetailGraphKey
+    : activeCockpitSignal?.key;
   const selectedEntitySignals = selectedEntity ? getEntitySignals(selectedEntity, selectedExplore) : [];
   const selectedEntityReviewNotes = selectedEntity ? getEntityReviewNotes(selectedEntity, selectedExplore, selectedEntitySignals) : [];
   const selectedEntityTakeaways = selectedEntity ? getEntityTakeaways(selectedEntity, selectedExplore, selectedEntitySignals) : [];
@@ -817,18 +818,55 @@ export default function Home() {
               {cockpitSignals.length > 0 && (
                 <div className="technical-route">
                   <div className="technical-route-head">
-                    <span>Research Graph</span>
-                    <span>Open a node to inspect its inner route</span>
+                    <span>{routeGraphDepth === 'detail' ? activeCockpitSignal?.label || 'Research Node' : 'Research Graph'}</span>
+                    <div className="technical-route-actions">
+                      {routeGraphDepth === 'detail' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRouteGraphDepth('overview');
+                            setActiveFocusIndex(0);
+                            setStatus('Returned to research graph');
+                          }}
+                        >
+                          Back to overview
+                        </button>
+                      )}
+                      <span>{routeGraphDepth === 'detail' ? 'Select a detail node' : 'Click a node to drill in'}</span>
+                    </div>
                   </div>
                   <ResearchRouteGraph
-                    signals={cockpitSignals}
-                    activeKey={activeCockpitSignal?.key}
+                    signals={routeGraphSignals}
+                    activeKey={routeGraphActiveKey}
                     onSelect={key => {
+                      if (routeGraphDepth === 'detail') {
+                        const index = detailGraphSignals.findIndex(signal => signal.key === key);
+                        if (index >= 0) {
+                          setActiveFocusIndex(index);
+                          setStatus(`${detailGraphSignals[index].label} node selected`);
+                        }
+                        return;
+                      }
+
                       const signal = cockpitSignals.find(item => item.key === key);
+                      const nextFocusItems = signal && selectedProject
+                        ? getCockpitFocusItems({
+                            signal,
+                            project: selectedProject,
+                            stats: projectStats,
+                            quality: projectQuality,
+                            readiness: projectReadiness,
+                            diagnosis: projectDiagnosis,
+                            lenses: lensSummaries,
+                            sourceCapsule
+                          })
+                        : [];
                       setActiveCockpitKey(key);
                       setActiveFocusIndex(0);
+                      setRouteGraphDepth(nextFocusItems.length > 0 ? 'detail' : 'overview');
                       setStatus(`${signal?.label || 'Research'} graph node selected`);
                     }}
+                    depth={routeGraphDepth}
                   />
                 </div>
               )}
@@ -843,32 +881,11 @@ export default function Home() {
                     <em>{activeCockpitSignal.value}</em>
                   </div>
                   <p>{activeCockpitSignal.detail}</p>
-                  {cockpitFocusItems.length > 0 && (
-                    <ResearchRouteGraph
-                      signals={detailGraphSignals}
-                      activeKey={activeDetailGraphKey}
-                      variant="detail"
-                      onSelect={key => {
-                        const index = detailGraphSignals.findIndex(signal => signal.key === key);
-                        if (index >= 0) {
-                          setActiveFocusIndex(index);
-                          setStatus(`${detailGraphSignals[index].label} inner node selected`);
-                        }
-                      }}
-                    />
-                  )}
                   {activeFocusItem && (
                     <div className="route-focus-card">
-                      <span>Inner Route</span>
+                      <span>Focused Layer</span>
                       <strong>{activeFocusItem.value}</strong>
                       <p>{activeFocusItem.detail}</p>
-                      {focusMicroGraph.length > 0 && (
-                        <ResearchRouteGraph
-                          signals={focusGraphSignals}
-                          activeKey={focusGraphSignals[0]?.key}
-                          variant="micro"
-                        />
-                      )}
                     </div>
                   )}
                 </div>
@@ -1861,46 +1878,6 @@ function rankProjectLimitations(limitations: ProjectLimitation[]) {
     if (severityDiff !== 0) return severityDiff;
     return String(a.label || '').localeCompare(String(b.label || ''));
   });
-}
-
-function buildFocusMicroGraph(item: {
-  label: string;
-  value: string;
-  detail: string;
-  children?: Array<{ label: string; value: string; detail?: string }>;
-} | null) {
-  if (!item) return [];
-  if (Array.isArray(item.children) && item.children.length > 0) {
-    return item.children.slice(0, 5).map(child => ({
-      label: child.label,
-      value: child.value,
-      detail: child.detail || 'Detail from the selected route node.'
-    }));
-  }
-
-  return [
-    {
-      label: 'Meaning',
-      value: item.label,
-      detail: item.value || 'This node summarizes part of the source route.'
-    },
-    {
-      label: 'Evidence',
-      value: summarizeInline(item.detail, 64),
-      detail: 'Use this as a review cue before relying on the interpretation.'
-    },
-    {
-      label: 'Next Check',
-      value: 'Inspect confidence',
-      detail: 'Follow the source, evidence, or linked resource before relying on this node.'
-    }
-  ];
-}
-
-function summarizeInline(value: string, limit: number) {
-  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
-  if (normalized.length <= limit) return normalized;
-  return `${normalized.slice(0, Math.max(0, limit - 3)).trim()}...`;
 }
 
 function shortProjectName(project: Project) {

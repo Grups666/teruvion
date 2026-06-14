@@ -705,7 +705,7 @@ function isInternalRouteValue(value: string) {
 function summarizeRouteText(value: string, limit: number) {
   const normalized = String(value || '').replace(/\s+/g, ' ').trim();
   if (normalized.length <= limit) return normalized;
-  return `${normalized.slice(0, Math.max(0, limit - 3)).trim()}...`;
+  return normalized.slice(0, limit).trim();
 }
 
 function formatRouteProvenance(value: Record<string, any> | null | undefined) {
