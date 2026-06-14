@@ -620,14 +620,21 @@ function shadeColor(hex: string, amount: number) {
 }
 
 function suppressAggregateCoverage(features: RenderFeature[]) {
-  const pointCount = features.filter(feature => feature.point).length;
-  if (pointCount < 8) return features;
+  const concreteFeatureCount = features.filter(feature => !isAggregateCoverageFeature(feature)).length;
+  if (concreteFeatureCount < 8) return features;
 
   return features.filter(feature => {
-    const isBboxOnlyRegion = feature.geometry?.type === 'Polygon' && feature.bbox && !feature.point;
-    const isSourceLevel = /source|paper|datasetpage|repository|sourceobject/i.test(feature.type || '');
-    return !(isBboxOnlyRegion && isSourceLevel);
+    return !isAggregateCoverageFeature(feature);
   });
+}
+
+function isAggregateCoverageFeature(feature: RenderFeature) {
+  const isBboxOnlyRegion = feature.geometry?.type === 'Polygon' && feature.bbox && !feature.point;
+  const isSourceLevel = /source|paper|datasetpage|repository|sourceobject/i.test(feature.type || '');
+  const propertyKeys = Object.keys(feature.properties || {});
+  const hasOnlySourceIdentityFields = propertyKeys.length > 0
+    && propertyKeys.every(key => ['identifier', 'title', 'type', 'url', 'id', 'name'].includes(key));
+  return Boolean(isBboxOnlyRegion && isSourceLevel && hasOnlySourceIdentityFields);
 }
 
 function pointFromGeometry(value: unknown): MapPoint | null {

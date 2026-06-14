@@ -429,7 +429,7 @@ export default function Home() {
   const projectEntities = selectedProject?.id
     ? entities.filter(e => e.metadata?.projectId === selectedProject.id)
     : [];
-  const mapEntities = projectEntities.length > 0 ? projectEntities : entities;
+  const mapEntities = selectedProject ? projectEntities : entities;
   const selectedEntity = entities.find(e => e.id === selectedEntityId);
   const projectStats = getProjectStats(projectEntities);
   const projectQuality = selectedProject ? getProjectQuality(selectedProject, projectEntities) : null;
