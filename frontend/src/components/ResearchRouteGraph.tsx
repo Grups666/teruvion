@@ -32,12 +32,13 @@ function getPosition(index: number, total: number, variant: Props['variant']) {
   const isDetail = variant === 'detail';
   if (total > 4) {
     const columns = Math.ceil(total / 2);
-    const col = Math.floor(index / 2);
-    const row = index % 2;
-    const columnSpacing = isMicro ? 210 : isDetail ? 240 : 270;
-    const startX = isMicro ? 28 : 36;
-    const topY = isMicro ? 54 : isDetail ? 78 : 96;
-    const rowGap = isMicro ? 86 : isDetail ? 116 : 132;
+    const row = Math.floor(index / columns);
+    const rawCol = index % columns;
+    const col = row === 0 ? rawCol : columns - 1 - rawCol;
+    const columnSpacing = isMicro ? 230 : isDetail ? 270 : 310;
+    const startX = isMicro ? 28 : 42;
+    const topY = isMicro ? 42 : isDetail ? 66 : 72;
+    const rowGap = isMicro ? 132 : isDetail ? 178 : 190;
     const centerOffset = Math.max(0, 3 - columns) * (columnSpacing / 2);
     return {
       x: startX + centerOffset + col * columnSpacing,
@@ -94,7 +95,13 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect, onBac
         },
         selectable: true,
         draggable: false,
-        type: 'default'
+        type: 'default',
+        style: {
+          background: 'transparent',
+          border: 0,
+          boxShadow: 'none',
+          padding: 0
+        }
       };
     });
 
@@ -131,6 +138,10 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect, onBac
     <div
       ref={shellRef}
       className={`research-flow-shell ${variant} ${depth} ${isZoomArmed ? 'zoom-armed' : ''}`}
+      onContextMenu={event => {
+        event.preventDefault();
+        setIsZoomArmed(false);
+      }}
     >
       {depth === 'detail' && onBack && (
         <button
@@ -146,9 +157,6 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect, onBac
           <span aria-hidden="true">‹</span>
         </button>
       )}
-      <div className="research-flow-mode">
-        {isZoomArmed ? 'Scroll to zoom' : 'Click graph to zoom'}
-      </div>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -161,7 +169,7 @@ export default function ResearchRouteGraph({ signals, activeKey, onSelect, onBac
         zoomOnScroll={isZoomArmed}
         zoomOnPinch
         zoomOnDoubleClick={false}
-        onPaneClick={() => setIsZoomArmed(false)}
+        onPaneClick={() => setIsZoomArmed(true)}
         minZoom={0.45}
         maxZoom={1.8}
         preventScrolling={isZoomArmed}
