@@ -22,6 +22,7 @@ const {
   inferFormatFromUrl,
   primitiveFromFormat
 } = require('./RecompositionSemantics');
+const { buildMapVisualizationStrategy } = require('./MapVisualizationStrategy');
 
 const SPATIAL_FIELDS = [
   'geometry',
@@ -65,11 +66,14 @@ function buildMapRecomposition(input = {}) {
   const results = dedupeByKey(mapSources.flatMap(source => source.results), resultKey);
   const attachments = dedupeByKey(mapSources.flatMap(source => source.attachments), attachmentKey);
   const layers = buildLayers(anchors, results);
+  const visualizationHints = mapSources.flatMap(source => source.visualizationHints || []);
+  const viewPlan = buildMapVisualizationStrategy({ anchors, results, attachments, layers, visualizationHints });
   const diagnostics = buildDiagnostics({
     anchors,
     results,
     attachments,
-    sources: mapSources
+    sources: mapSources,
+    viewPlan
   });
 
   return {
@@ -83,6 +87,7 @@ function buildMapRecomposition(input = {}) {
       layers,
       attachments,
       results,
+      viewPlan,
       diagnostics
     }
   };
@@ -227,8 +232,25 @@ function buildSourceMap(source, index) {
     },
     anchors: mergedAnchors,
     results,
-    attachments
+    attachments,
+    visualizationHints: normalizeVisualizationHints(decomposition.llmInsights?.mapVisualizationHints)
   };
+}
+
+function normalizeVisualizationHints(hints) {
+  if (!Array.isArray(hints)) return [];
+  return hints
+    .filter(item => item && typeof item === 'object')
+    .map(item => ({
+      visualGoal: item.visualGoal || item.goal || item.summary || '',
+      geometryRole: item.geometryRole || item.geometry || '',
+      colorBy: item.colorBy || item.classificationField || null,
+      sizeBy: item.sizeBy || item.metricField || null,
+      timeSeriesFields: Array.isArray(item.timeSeriesFields) ? item.timeSeriesFields : [],
+      inspectorFocus: Array.isArray(item.inspectorFocus) ? item.inspectorFocus : [],
+      sourceGrounding: item.sourceGrounding || item.provenance || null,
+      confidence: typeof item.confidence === 'number' ? item.confidence : null
+    }));
 }
 
 function collectObjects(decomposition = {}) {
@@ -402,6 +424,7 @@ function buildDiagnostics(input) {
     attachedResultCount: attachedResults,
     attachmentCount: input.attachments.length,
     sourceFigureOnlyCount: figureOnly,
+    visualizationMode: input.viewPlan?.primaryVisual || null,
     warnings
   };
 }

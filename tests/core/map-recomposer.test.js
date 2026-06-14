@@ -323,4 +323,119 @@ describe('MapRecomposer', () => {
     assert.strictEqual(recomposition.sourceCount, 3);
     assert.strictEqual(recomposition.map.diagnostics.status, 'ready');
   });
+
+  it('builds a product-facing visualization strategy from feature semantics', () => {
+    const recomposition = buildMapRecomposition({
+      decomposition: {
+        sourceObject: {
+          id: 'classification-source',
+          type: 'Dataset',
+          name: 'Regional classification result'
+        },
+        worldObjects: [
+          {
+            id: 'region-a',
+            type: 'Region',
+            name: 'Region A',
+            attributes: {
+              geometry: {
+                type: 'Polygon',
+                coordinates: [[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]]
+              },
+              class: 'deficit',
+              areaKm2: 1025899,
+              monthlyWaterDemand: [3, 4, 5, 7, 6, 9]
+            }
+          },
+          {
+            id: 'region-b',
+            type: 'Region',
+            name: 'Region B',
+            attributes: {
+              geometry: {
+                type: 'Polygon',
+                coordinates: [[[3, 0], [5, 0], [5, 2], [3, 2], [3, 0]]]
+              },
+              class: 'stable',
+              areaKm2: 612000,
+              monthlyWaterDemand: [2, 3, 3, 4, 4, 5]
+            }
+          }
+        ]
+      }
+    });
+
+    assert.strictEqual(recomposition.map.viewPlan.schemaVersion, 'map-visualization-strategy-v1');
+    assert.strictEqual(recomposition.map.viewPlan.primaryVisual, 'classified-region-map');
+    assert.strictEqual(recomposition.map.viewPlan.styling.colorBy, 'class');
+    assert.strictEqual(recomposition.map.viewPlan.styling.sizeBy, 'areaKm2');
+    assert.ok(
+      recomposition.map.viewPlan.inspector.timeSeriesFields.includes('monthlyWaterDemand'),
+      'Inspector should expose feature-level time series data'
+    );
+    assert.strictEqual(recomposition.map.diagnostics.visualizationMode, 'classified-region-map');
+  });
+
+  it('uses grounded visualization hints without trusting unavailable fields', () => {
+    const recomposition = buildMapRecomposition({
+      decomposition: {
+        sourceObject: {
+          id: 'hinted-source',
+          type: 'Dataset',
+          name: 'Hinted regional result'
+        },
+        llmInsights: {
+          mapVisualizationHints: [
+            {
+              visualGoal: 'Color regions by imbalance status and size by area.',
+              geometryRole: 'regions',
+              colorBy: 'status',
+              sizeBy: 'missingMetric',
+              timeSeriesFields: ['monthlyStorage', 'missingSeries'],
+              sourceGrounding: { section: 'Results' },
+              confidence: 0.8
+            }
+          ]
+        },
+        worldObjects: [
+          {
+            id: 'region-a',
+            type: 'Region',
+            name: 'Region A',
+            attributes: {
+              geometry: {
+                type: 'Polygon',
+                coordinates: [[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]]
+              },
+              status: 'imbalanced',
+              class: 'deficit',
+              areaKm2: 1025899,
+              monthlyStorage: [3, 5, 8, 6]
+            }
+          },
+          {
+            id: 'region-b',
+            type: 'Region',
+            name: 'Region B',
+            attributes: {
+              geometry: {
+                type: 'Polygon',
+                coordinates: [[[3, 0], [5, 0], [5, 2], [3, 2], [3, 0]]]
+              },
+              status: 'within range',
+              class: 'stable',
+              areaKm2: 612000,
+              monthlyStorage: [2, 3, 4, 4]
+            }
+          }
+        ]
+      }
+    });
+
+    assert.strictEqual(recomposition.map.viewPlan.styling.colorBy, 'status');
+    assert.strictEqual(recomposition.map.viewPlan.styling.sizeBy, 'areaKm2');
+    assert.deepStrictEqual(recomposition.map.viewPlan.inspector.timeSeriesFields, ['monthlyStorage']);
+    assert.strictEqual(recomposition.map.viewPlan.agentHints.acceptedCount, 1);
+    assert.strictEqual(recomposition.map.viewPlan.agentHints.accepted[0].sizeBy, null);
+  });
 });

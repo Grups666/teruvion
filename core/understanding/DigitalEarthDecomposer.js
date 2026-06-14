@@ -869,6 +869,18 @@ Return JSON matching source-object-graph-v1:
       "provenance": { "sourceText": "verbatim text", "section": "section" },
       "confidence": 0.0
     }
+  ],
+  "mapVisualizationHints": [
+    {
+      "visualGoal": "What a map or regional visualization should help the user understand",
+      "geometryRole": "regions|points|routes|raster|attachments|unknown",
+      "colorBy": "field or object property to use for classification if present",
+      "sizeBy": "numeric field or object property to use for point/region emphasis if present",
+      "timeSeriesFields": ["fields that should be inspectable as time series if present"],
+      "inspectorFocus": ["fields or concepts that should appear in the map detail panel"],
+      "sourceGrounding": { "sourceText": "verbatim supporting text", "section": "section" },
+      "confidence": 0.0
+    }
   ]
 }
 
@@ -961,6 +973,7 @@ If the section exposes how the source actually works, include a researchRoute ob
 - figureAnalyses must reference a source figure/table label or caption and explain what the visual shows, how it was produced, and what claim or route step it supports
 - researchGaps and limitations must be source-grounded and include provenance or section; do not invent future work
 - resourceLinks should connect a URL/resource to a route node, evidence object, figure, dataset, code, or reproducibility role when the source states the link
+- mapVisualizationHints should describe how already-available source results or data fields should be recomposed into an interactive map. Do not request code execution or invent unavailable result data.
 - use bridge relation vocabulary when possible: covers, observes, measures, simulates, predicts, models, has_variable, represents, mitigates, targets, responds_to, governs, assesses, supports, contradicts, applicable_to, transferable_to, limited_by
 
 ## Source Text (Section: ${chunk.sections.join(', ')})
@@ -1139,6 +1152,7 @@ ${sourcePacket.text}
 - Preserve concrete source content with low information loss: inputs, datasets, variables, methods, model architecture, evaluation design, figures/tables, metrics, quantitative findings, limitations, and reusable resources when present.
 - Do not use Teruvion internal states as route nodes.
 - If a detail is not present in the packet, omit it or mark it as unavailable; do not infer it from the source title alone.
+- If the source exposes map-ready result data, dataset links, classified regions, points, routes, rasters, or time series, include mapVisualizationHints grounded in those fields. These hints are soft recomposition guidance; do not invent missing geometry or results.
 
 Return JSON for the whole source packet.`;
 
@@ -1267,6 +1281,7 @@ Return JSON for the whole source packet.`;
     coerceArray('limitations');
     coerceArray('figureAnalyses');
     coerceArray('resourceLinks');
+    coerceArray('mapVisualizationHints');
     result.sourceBrief = this._coerceSourceBriefSchema(result.sourceBrief, warnings);
 
     const normalizeObject = (obj, field, index) => {
@@ -1366,6 +1381,16 @@ Return JSON for the whole source packet.`;
       return valid;
     });
 
+    result.mapVisualizationHints = result.mapVisualizationHints.filter((item, index) => {
+      const valid = item && typeof item === 'object'
+        && (item.visualGoal || item.geometryRole || item.colorBy || item.sizeBy || item.inspectorFocus || item.timeSeriesFields);
+      if (!valid) warnings.push(`mapVisualizationHints[${index}] is missing visualization guidance`);
+      else if (!this._hasGroundingProvenance(item.sourceGrounding || item.provenance) && !item.section) {
+        warnings.push(`mapVisualizationHints[${index}] lacks source-grounding provenance`);
+      }
+      return valid;
+    });
+
     if (result.researchRoute !== undefined && result.researchRoute !== null) {
       if (!result.researchRoute || typeof result.researchRoute !== 'object' || Array.isArray(result.researchRoute)) {
         warnings.push('researchRoute must be an object');
@@ -1411,7 +1436,7 @@ Return JSON for the whole source packet.`;
   }
 
   _hasLLMInsights(result = {}) {
-    return ['keyFindings', 'researchGaps', 'limitations', 'figureAnalyses', 'resourceLinks']
+    return ['keyFindings', 'researchGaps', 'limitations', 'figureAnalyses', 'resourceLinks', 'mapVisualizationHints']
       .some(field => Array.isArray(result[field]) && result[field].length > 0)
       || Boolean(result.sourceBrief?.oneLine || result.sourceBrief?.keyPoints?.length);
   }
@@ -1423,13 +1448,14 @@ Return JSON for the whole source packet.`;
       researchGaps: [],
       limitations: [],
       figureAnalyses: [],
-      resourceLinks: []
+      resourceLinks: [],
+      mapVisualizationHints: []
     };
   }
 
   _appendLLMInsights(target = {}, source = {}) {
     target.sourceBrief = this._mergeSourceBriefInsights(target.sourceBrief, source.sourceBrief);
-    const fields = ['keyFindings', 'researchGaps', 'limitations', 'figureAnalyses', 'resourceLinks'];
+    const fields = ['keyFindings', 'researchGaps', 'limitations', 'figureAnalyses', 'resourceLinks', 'mapVisualizationHints'];
     for (const field of fields) {
       if (!Array.isArray(target[field])) target[field] = [];
       for (const item of source[field] || []) {
@@ -1559,7 +1585,11 @@ Return JSON for the whole source packet.`;
       item.statement,
       item.value,
       item.detail,
-      item.caption
+      item.caption,
+      item.visualGoal,
+      item.geometryRole,
+      item.colorBy,
+      item.sizeBy
     ].filter(Boolean).join(':').toLowerCase().slice(0, 180);
   }
 
@@ -1583,7 +1613,8 @@ Return JSON for the whole source packet.`;
         researchGaps: [],
         limitations: [],
         figureAnalyses: [],
-        resourceLinks: []
+        resourceLinks: [],
+        mapVisualizationHints: []
       }
     };
 

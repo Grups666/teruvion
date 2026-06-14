@@ -35,6 +35,7 @@ The current runtime accepts DOI, paper title, paper URL, generic URL, GitHub rep
 - `core/lenses`: recomposed graph views such as map, evidence, workflow, timeline, and comparison.
 - `core/project/ProjectRecomposer.js`: source-grounded project detail recomposition.
 - `core/project/MapRecomposer.js`: source-grounded map visualization recomposition.
+- `core/project/MapVisualizationStrategy.js`: product-facing map view planning over renderable features, attached result fields, evidence, resources, and agent hints.
 - `core/project/RecompositionSemantics.js`: shared display primitives and labels used by recomposition modules.
 - `core/presentation`: API-facing serialization helpers.
 - `frontend`: interactive project, map, object, and alpha admin UI.
@@ -107,6 +108,7 @@ Claude Code should be treated as a deep-analysis harness, not as a trusted sourc
 - **Evidence-first**: preserve source, provenance, confidence, coverage, and verification state.
 - **Single decomposition, multiple recompositions**: source decomposition is the shared base. Project detail views, map visualizations, lenses, and future panels should be independent recomposition modules over the same ontology-grounded objects rather than separate extraction paths.
 - **Shared recomposition language**: detail, map, and future recomposition modules may assemble different views, but they must reuse the same stable terms for display primitives, evidence state, source identity, and provenance boundaries.
+- **Map view planning as recomposition**: map and regional views should consume renderable spatial features, properties, figures, tables, resources, and provenance from the shared graph. They may accept LLM/agent hints for fields such as color, size, time series, and inspector focus, but those hints must be validated against available source-grounded fields before the frontend uses them.
 - **Small core**: keep the foundation generic; push domain-specific behavior into ontology extensions, connectors, lenses, or future modules.
 - **Multi-source by design**: project views and extraction protocols should support paper plus repository, paper plus dataset, report plus policy resource, news plus event context, and multiple comparable sources without special-case rewrites.
 - **Normalized source contracts**: source-specific retrieval belongs in connectors; downstream code should consume normalized metadata, sections, figures, tables, resources, provenance, and coverage.
@@ -126,6 +128,7 @@ Examples and fixtures can mention specific domains or sources, but production pa
 - What objects and relations can be extracted with provenance?
 - Which parts are verified, inferred, fallback, or missing?
 - How can multiple sources be compared or merged inside one project?
+- Which source-grounded results are map-ready now, which are only dataset/resource leads, and which would require future sandboxed execution?
 
 ## Extension Direction
 

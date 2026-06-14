@@ -218,6 +218,39 @@ export interface ProjectMapRecomposition {
     }>;
     attachments?: Array<Record<string, any>>;
     results?: Array<Record<string, any>>;
+    viewPlan?: {
+      schemaVersion?: string;
+      primaryVisual?: string;
+      interaction?: Record<string, any>;
+      styling?: {
+        colorBy?: string | null;
+        sizeBy?: string | null;
+        lineBy?: string | null;
+        opacityBy?: string | null;
+        palette?: string | null;
+      };
+      legend?: {
+        type?: string;
+        title?: string;
+        items?: Array<{
+          value?: string;
+          count?: number;
+        }>;
+      };
+      inspector?: {
+        titleFields?: string[];
+        metricFields?: Array<{
+          field: string;
+          role?: string;
+          coverage?: number;
+        }>;
+        descriptorFields?: string[];
+        timeSeriesFields?: string[];
+        evidenceFields?: Array<Record<string, any>>;
+        resourceFields?: Array<Record<string, any>>;
+      };
+      diagnostics?: Record<string, any>;
+    };
     diagnostics?: {
       status?: string;
       anchorCount?: number;
@@ -228,6 +261,7 @@ export interface ProjectMapRecomposition {
       attachedResultCount?: number;
       attachmentCount?: number;
       sourceFigureOnlyCount?: number;
+      visualizationMode?: string | null;
       warnings?: string[];
     };
   };

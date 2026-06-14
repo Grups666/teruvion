@@ -28,6 +28,21 @@ Input: DOI / Title / Paper URL / GitHub URL
 
 The pipeline is intentionally source-centric and object-centric. It stores extracted entities and relations rather than returning a single fixed PaperObject payload.
 
+## Map And Regional Recomposition
+
+Map visualization is a recomposition over the same source object graph, not a separate extraction path. When a paper, repository, report, dataset page, or other source exposes map-ready result geometry, feature properties, figures, tables, dataset links, or reusable resources, the decomposer preserves those as source-grounded objects and attachments.
+
+`MapRecomposer` then separates:
+
+- renderable spatial anchors and result features;
+- data or resource leads that need review before display;
+- figure/table evidence that can explain a mapped result;
+- blocked candidates that would require future sandboxed code execution.
+
+`MapVisualizationStrategy` builds the product-facing view plan. It chooses generic map modes such as classified regions, scaled points, routes/flows, or source overview; selects color, size, legend, metrics, time-series fields, and inspector fields from available properties; and validates optional LLM/agent hints against real fields before using them.
+
+This means the agent can help decide how to present already-available result data, but it cannot invent missing geometry, run untrusted code, or bypass provenance and fallback visibility.
+
 ## Actual API Surface
 
 ### Import

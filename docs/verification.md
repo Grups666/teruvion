@@ -119,6 +119,8 @@ Open the frontend and verify:
 8. Clicking an actionable lens card opens a relevant object inspector.
 9. Selecting an object shows object signals, review notes, graph connections, properties, confidence, and source metadata where available.
 10. Map markers or regions are visible when imported objects contain spatial fields.
+11. If imported spatial features include attributes, the global map shows a product-facing view plan: an appropriate visual mode, legend, feature selection, metrics, descriptors, and any available time series.
+12. If a source only exposes dataset/resource leads or would require code execution to produce results, the map marks that limitation instead of pretending a result layer exists.
 
 ## API Smoke Test
 

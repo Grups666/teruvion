@@ -30,6 +30,29 @@ type RenderFeature = {
   sourceUrl?: string | null;
 };
 
+type MapViewPlan = {
+  primaryVisual?: string;
+  styling?: {
+    colorBy?: string | null;
+    sizeBy?: string | null;
+    palette?: string | null;
+  };
+  legend?: {
+    type?: string;
+    title?: string;
+    items?: Array<{ value?: string; count?: number }>;
+  };
+  inspector?: {
+    titleFields?: string[];
+    metricFields?: Array<{ field: string; role?: string; coverage?: number }>;
+    descriptorFields?: string[];
+    timeSeriesFields?: string[];
+    evidenceFields?: Array<Record<string, any>>;
+    resourceFields?: Array<Record<string, any>>;
+  };
+  diagnostics?: Record<string, any>;
+};
+
 const LAYER_MARKER_COLORS: Record<EntityLayer, MarkerColor> = {
   world: { fill: '#0f9f8f', stroke: '#0f766e' },
   capability: { fill: '#4f46e5', stroke: '#3730a3' },
@@ -70,6 +93,7 @@ export default function GlobalMap({
   );
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const diagnostics = mapRecomposition?.map?.diagnostics;
+  const viewPlan = (mapRecomposition?.map as any)?.viewPlan as MapViewPlan | undefined;
   const mapLayers = useMemo(
     () => buildDisplayLayers(mapRecomposition?.map?.layers || [], renderFeatures),
     [mapRecomposition, renderFeatures]
@@ -136,7 +160,7 @@ export default function GlobalMap({
     layerGroup.clearLayers();
 
     for (const feature of renderFeatures) {
-      const layer = renderFeature(feature, selectedFeature?.id || selectedEntityId, (selected) => {
+      const layer = renderFeature(feature, selectedFeature?.id || selectedEntityId, viewPlan, (selected) => {
         setSelectedFeatureId(selected.id);
         if (selected.objectId) onSelectEntity(selected.objectId);
       });
@@ -150,7 +174,7 @@ export default function GlobalMap({
       map.fitBounds(bounds.pad(0.16), { animate: false, maxZoom: 6 });
       fittedFeatureSignatureRef.current = featureSignature;
     }
-  }, [renderFeatures, selectedEntityId, selectedFeature, onSelectEntity]);
+  }, [renderFeatures, selectedEntityId, selectedFeature, viewPlan, onSelectEntity]);
 
   return (
     <div className="global-map-root">
@@ -158,12 +182,13 @@ export default function GlobalMap({
 
       <section className="global-map-intelligence" aria-label="Global map intelligence summary">
         {selectedFeature ? (
-          <FeatureInspector feature={selectedFeature} onClose={() => setSelectedFeatureId(null)} />
+          <FeatureInspector feature={selectedFeature} viewPlan={viewPlan} onClose={() => setSelectedFeatureId(null)} />
         ) : (
           <>
             <div className="global-map-kicker">Global Map</div>
-            <h2>{formatPrimaryMode(mapRecomposition?.map?.primaryMode || 'global-source-overview')}</h2>
+            <h2>{formatPrimaryMode(viewPlan?.primaryVisual || mapRecomposition?.map?.primaryMode || 'global-source-overview')}</h2>
             <p className="global-map-summary">{mapSummary.sentence}</p>
+            <MapLegend viewPlan={viewPlan} />
             <div className="global-map-metrics">
               <div>
                 <span>Features</span>
@@ -276,12 +301,13 @@ function featureFromEntity(entity: Entity): RenderFeature | null {
 function renderFeature(
   feature: RenderFeature,
   selectedId: string | null,
+  viewPlan: MapViewPlan | undefined,
   onSelectFeature: (feature: RenderFeature) => void
 ) {
   const isSelected = feature.id === selectedId || feature.objectId === selectedId;
   if (feature.point) {
-    const color = featureColor(feature);
-    const numeric = primaryNumericMetric(feature.properties || {});
+    const color = featureColor(feature, viewPlan);
+    const numeric = primaryNumericMetric(feature.properties || {}, viewPlan);
     const marker = L.circleMarker([feature.point.lat, feature.point.lon], {
       radius: isSelected ? 8 : Math.max(4.5, Math.min(11, 4.5 + (numeric?.normalized || 0) * 6)),
       fillColor: isSelected ? '#0f172a' : color.fill,
@@ -297,7 +323,7 @@ function renderFeature(
   }
 
   if (feature.geometry) {
-    const style = featureColor(feature);
+    const style = featureColor(feature, viewPlan);
     const geoJson = L.geoJSON(feature.geometry as any, {
       pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
         radius: isSelected ? 8 : 4.8,
@@ -323,12 +349,12 @@ function renderFeature(
   return null;
 }
 
-function FeatureInspector({ feature, onClose }: { feature: RenderFeature; onClose: () => void }) {
+function FeatureInspector({ feature, viewPlan, onClose }: { feature: RenderFeature; viewPlan?: MapViewPlan; onClose: () => void }) {
   const properties = feature.properties || {};
-  const metrics = numericMetrics(properties).slice(0, 4);
-  const descriptors = descriptorFields(properties).slice(0, 6);
-  const series = timeSeriesFields(properties).slice(0, 3);
-  const category = categoricalValue(properties);
+  const metrics = selectMetrics(properties, viewPlan).slice(0, 4);
+  const descriptors = selectDescriptors(properties, viewPlan).slice(0, 8);
+  const series = selectSeries(properties, viewPlan).slice(0, 3);
+  const category = categoricalValue(properties, viewPlan);
 
   return (
     <>
@@ -337,7 +363,7 @@ function FeatureInspector({ feature, onClose }: { feature: RenderFeature; onClos
       <h2>{feature.label}</h2>
       <p className="global-map-summary">
         {feature.sourceTitle || feature.type}
-        {category ? ` · ${category.label}: ${category.value}` : ''}
+        {category ? ` - ${humanizeKey(category.label)}: ${category.value}` : ''}
       </p>
 
       {metrics.length > 0 ? (
@@ -407,6 +433,27 @@ function FeatureInspector({ feature, onClose }: { feature: RenderFeature; onClos
   );
 }
 
+function MapLegend({ viewPlan }: { viewPlan?: MapViewPlan }) {
+  const legend = viewPlan?.legend;
+  if (!legend?.title && !legend?.items?.length) return null;
+  return (
+    <div className="global-map-legend" aria-label="Map legend">
+      <div className="global-map-section-title">{legend.type || 'Legend'}</div>
+      <strong>{legend.title || 'Map signal'}</strong>
+      {legend.items?.length ? (
+        <div className="global-map-legend-items">
+          {legend.items.slice(0, 8).map((item, index) => (
+            <span key={`${item.value || 'value'}-${index}`}>
+              <i style={{ background: QUALITATIVE_PALETTE[index % QUALITATIVE_PALETTE.length] }} />
+              {item.value || 'Value'}{typeof item.count === 'number' ? ` (${item.count})` : ''}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function buildDisplayLayers(layers: any[], features: RenderFeature[]) {
   if (layers.length > 0) return layers;
   const counts = new Map<string, number>();
@@ -439,9 +486,9 @@ function buildMapSummary(features: RenderFeature[]) {
   };
 }
 
-function featureColor(feature: RenderFeature) {
+function featureColor(feature: RenderFeature, viewPlan?: MapViewPlan) {
   const base = PRIMITIVE_STYLES[feature.primitive] || DEFAULT_STYLE;
-  const category = categoricalValue(feature.properties || {});
+  const category = categoricalValue(feature.properties || {}, viewPlan);
   if (!category) return base;
   const hash = stableHash(`${category.label}:${category.value}`);
   const fill = QUALITATIVE_PALETTE[hash % QUALITATIVE_PALETTE.length];
@@ -453,7 +500,11 @@ function featureColor(feature: RenderFeature) {
   };
 }
 
-function categoricalValue(properties: Record<string, any>) {
+function categoricalValue(properties: Record<string, any>, viewPlan?: MapViewPlan) {
+  const colorBy = viewPlan?.styling?.colorBy;
+  if (colorBy && properties[colorBy] !== undefined && properties[colorBy] !== null && properties[colorBy] !== '') {
+    return { label: colorBy, value: String(properties[colorBy]) };
+  }
   const entries = Object.entries(properties).filter(([, value]) => value !== null && value !== undefined && value !== '');
   const preferred = entries.find(([key, value]) => {
     const text = key.toLowerCase();
@@ -471,8 +522,10 @@ function numericMetrics(properties: Record<string, any>) {
     .filter(item => Number.isFinite(item.value));
 }
 
-function primaryNumericMetric(properties: Record<string, any>) {
-  const metric = numericMetrics(properties)[0];
+function primaryNumericMetric(properties: Record<string, any>, viewPlan?: MapViewPlan) {
+  const sizeBy = viewPlan?.styling?.sizeBy;
+  const planned = sizeBy ? numericMetrics(properties).find(metric => metric.key === sizeBy) : null;
+  const metric = planned || numericMetrics(properties)[0];
   if (!metric) return null;
   const magnitude = Math.log10(Math.abs(metric.value) + 1);
   return { ...metric, normalized: Math.max(0, Math.min(1, magnitude / 6)) };
@@ -485,6 +538,31 @@ function descriptorFields(properties: Record<string, any>) {
     .filter(([key]) => !numericMetrics({ [key]: properties[key] }).length)
     .slice(0, 8)
     .map(([key, value]) => ({ key, value }));
+}
+
+function selectMetrics(properties: Record<string, any>, viewPlan?: MapViewPlan) {
+  const planned = viewPlan?.inspector?.metricFields
+    ?.map(item => numericMetrics(properties).find(metric => metric.key === item.field))
+    .filter(Boolean) as Array<{ key: string; value: number }> | undefined;
+  return planned?.length ? planned : numericMetrics(properties);
+}
+
+function selectDescriptors(properties: Record<string, any>, viewPlan?: MapViewPlan) {
+  const plannedFields = viewPlan?.inspector?.descriptorFields || [];
+  const planned = plannedFields
+    .filter(field => properties[field] !== undefined && properties[field] !== null && properties[field] !== '')
+    .filter(field => !Array.isArray(properties[field]) && typeof properties[field] !== 'object')
+    .map(field => ({ key: field, value: properties[field] }));
+  return planned.length ? planned : descriptorFields(properties);
+}
+
+function selectSeries(properties: Record<string, any>, viewPlan?: MapViewPlan) {
+  const plannedFields = viewPlan?.inspector?.timeSeriesFields || [];
+  const planned = plannedFields
+    .filter(field => Array.isArray(properties[field]))
+    .map(field => ({ key: field, values: (properties[field] as any[]).map(Number).filter(Number.isFinite) }))
+    .filter(item => item.values.length >= 3);
+  return planned.length ? planned : timeSeriesFields(properties);
 }
 
 function timeSeriesFields(properties: Record<string, any>) {
@@ -633,7 +711,7 @@ function buildFeaturePopupHtml(feature: RenderFeature) {
   return `<div class="gm-popup">
     <div class="gm-popup-kicker">${escapeHtml(formatPrimaryMode(feature.primitive))}</div>
     <div class="gm-popup-title">${escapeHtml(feature.label)}</div>
-    <div class="gm-popup-meta">${escapeHtml(feature.type)} · ${escapeHtml(confidence)}</div>
+    <div class="gm-popup-meta">${escapeHtml(feature.type)} - ${escapeHtml(confidence)}</div>
     ${source}
   </div>`;
 }
