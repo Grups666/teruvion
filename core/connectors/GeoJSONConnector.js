@@ -240,6 +240,13 @@ function summarizeProperties(properties) {
   const output = {};
   for (const [key, value] of Object.entries(properties).slice(0, 12)) {
     if (value === null || value === undefined) continue;
+    if (Array.isArray(value)) {
+      const primitiveValues = value
+        .filter(item => item === null || ['string', 'number', 'boolean'].includes(typeof item))
+        .slice(0, 80);
+      if (primitiveValues.length > 0) output[key] = primitiveValues;
+      continue;
+    }
     if (typeof value === 'object') continue;
     output[key] = value;
   }

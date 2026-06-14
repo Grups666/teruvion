@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import type { Entity, EntityLayer, ProjectMapRecomposition } from '../types/api';
 import { getEntityLayer } from '../types/api';
@@ -26,6 +26,8 @@ type RenderFeature = {
   bbox?: [number, number, number, number] | null;
   confidence?: number | null;
   provenance?: Record<string, any> | null;
+  properties?: Record<string, any>;
+  sourceUrl?: string | null;
 };
 
 const LAYER_MARKER_COLORS: Record<EntityLayer, MarkerColor> = {
@@ -49,6 +51,7 @@ const PRIMITIVE_STYLES: Record<string, { fill: string; stroke: string; weight: n
 
 const DEFAULT_STYLE = PRIMITIVE_STYLES['spatial-anchor'];
 const DEFAULT_MARKER_COLOR = LAYER_MARKER_COLORS.foundation;
+const QUALITATIVE_PALETTE = ['#5ecad3', '#f2c85b', '#d98ac3', '#ee8b83', '#7fbf7a', '#7fa6df', '#8d949e', '#c78de0'];
 
 export default function GlobalMap({
   entities,
@@ -60,15 +63,22 @@ export default function GlobalMap({
   const layerRef = useRef<L.LayerGroup | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const initializedRef = useRef(false);
+  const fittedFeatureSignatureRef = useRef<string | null>(null);
   const renderFeatures = useMemo(
     () => buildRenderFeatures(mapRecomposition, entities),
     [mapRecomposition, entities]
   );
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const diagnostics = mapRecomposition?.map?.diagnostics;
   const mapLayers = useMemo(
     () => buildDisplayLayers(mapRecomposition?.map?.layers || [], renderFeatures),
     [mapRecomposition, renderFeatures]
   );
+  const selectedFeature = useMemo(
+    () => renderFeatures.find(feature => feature.id === selectedFeatureId || feature.objectId === selectedEntityId) || null,
+    [renderFeatures, selectedFeatureId, selectedEntityId]
+  );
+  const mapSummary = useMemo(() => buildMapSummary(renderFeatures), [renderFeatures]);
 
   useEffect(() => {
     if (!containerRef.current || initializedRef.current) return;
@@ -126,52 +136,64 @@ export default function GlobalMap({
     layerGroup.clearLayers();
 
     for (const feature of renderFeatures) {
-      const layer = renderFeature(feature, selectedEntityId, onSelectEntity);
+      const layer = renderFeature(feature, selectedFeature?.id || selectedEntityId, (selected) => {
+        setSelectedFeatureId(selected.id);
+        if (selected.objectId) onSelectEntity(selected.objectId);
+      });
       if (!layer) continue;
       layer.addTo(layerGroup);
       extendBounds(bounds, feature);
     }
 
-    if (bounds.isValid()) {
+    const featureSignature = renderFeatures.map(feature => feature.id).join('|');
+    if (bounds.isValid() && featureSignature !== fittedFeatureSignatureRef.current) {
       map.fitBounds(bounds.pad(0.16), { animate: false, maxZoom: 6 });
+      fittedFeatureSignatureRef.current = featureSignature;
     }
-  }, [renderFeatures, selectedEntityId, onSelectEntity]);
+  }, [renderFeatures, selectedEntityId, selectedFeature, onSelectEntity]);
 
   return (
     <div className="global-map-root">
       <div ref={containerRef} className="global-map-canvas" />
 
       <section className="global-map-intelligence" aria-label="Global map intelligence summary">
-        <div className="global-map-kicker">Global Map</div>
-        <h2>{formatPrimaryMode(mapRecomposition?.map?.primaryMode || 'global-source-overview')}</h2>
-        <div className="global-map-metrics">
-          <div>
-            <span>Anchors</span>
-            <strong>{diagnostics?.renderableAnchorCount ?? renderFeatures.length}</strong>
-          </div>
-          <div>
-            <span>Results</span>
-            <strong>{diagnostics?.resultCount ?? 0}</strong>
-          </div>
-          <div>
-            <span>Evidence</span>
-            <strong>{diagnostics?.attachmentCount ?? 0}</strong>
-          </div>
-        </div>
-        <div className="global-map-layer-list">
-          {mapLayers.slice(0, 4).map(layer => (
-            <div key={layer.id} className="global-map-layer">
-              <span style={{ background: layerSwatch(layer.displayPrimitive) }} />
+        {selectedFeature ? (
+          <FeatureInspector feature={selectedFeature} onClose={() => setSelectedFeatureId(null)} />
+        ) : (
+          <>
+            <div className="global-map-kicker">Global Map</div>
+            <h2>{formatPrimaryMode(mapRecomposition?.map?.primaryMode || 'global-source-overview')}</h2>
+            <p className="global-map-summary">{mapSummary.sentence}</p>
+            <div className="global-map-metrics">
               <div>
-                <strong>{layer.label}</strong>
-                <small>{layer.resultCount || 0} results / {layer.anchorCount || 0} anchors</small>
+                <span>Features</span>
+                <strong>{diagnostics?.renderableAnchorCount ?? renderFeatures.length}</strong>
+              </div>
+              <div>
+                <span>Geometry</span>
+                <strong>{mapSummary.geometryKinds.length}</strong>
+              </div>
+              <div>
+                <span>Fields</span>
+                <strong>{mapSummary.fieldCount}</strong>
               </div>
             </div>
-          ))}
-          {mapLayers.length === 0 && (
-            <p>{diagnostics?.warnings?.[0] || 'No map-ready layer has been assembled yet.'}</p>
-          )}
-        </div>
+            <div className="global-map-layer-list">
+              {mapLayers.slice(0, 4).map(layer => (
+                <div key={layer.id} className="global-map-layer">
+                  <span style={{ background: layerSwatch(layer.displayPrimitive) }} />
+                  <div>
+                    <strong>{layer.label}</strong>
+                    <small>{layer.resultCount || 0} results / {layer.anchorCount || 0} anchors</small>
+                  </div>
+                </div>
+              ))}
+              {mapLayers.length === 0 && (
+                <p>{diagnostics?.warnings?.[0] || 'No map-ready layer has been assembled yet.'}</p>
+              )}
+            </div>
+          </>
+        )}
       </section>
 
       {diagnostics?.warnings?.length ? (
@@ -220,7 +242,9 @@ function featureFromRecomposition(item: any): RenderFeature | null {
     point,
     bbox: normalizeBbox(spatial.bbox),
     confidence: item.confidence ?? null,
-    provenance: item.provenance || null
+    provenance: item.provenance || null,
+    properties: item.properties || {},
+    sourceUrl: item.sourceUrl || item.provenance?.sourceUrl || null
   };
 }
 
@@ -243,20 +267,23 @@ function featureFromEntity(entity: Entity): RenderFeature | null {
     point,
     bbox,
     confidence: entity.metadata?.confidence ?? null,
-    provenance: entity.metadata?.provenance || null
+    provenance: entity.metadata?.provenance || null,
+    properties: attributes.properties || attributes,
+    sourceUrl: attributes.sourceUrl || entity.metadata?.sourceUrl || null
   };
 }
 
 function renderFeature(
   feature: RenderFeature,
-  selectedEntityId: string | null,
-  onSelectEntity: (id: string) => void
+  selectedId: string | null,
+  onSelectFeature: (feature: RenderFeature) => void
 ) {
-  const isSelected = feature.objectId === selectedEntityId;
+  const isSelected = feature.id === selectedId || feature.objectId === selectedId;
   if (feature.point) {
-    const color = PRIMITIVE_STYLES[feature.primitive] || PRIMITIVE_STYLES['point-layer'];
+    const color = featureColor(feature);
+    const numeric = primaryNumericMetric(feature.properties || {});
     const marker = L.circleMarker([feature.point.lat, feature.point.lon], {
-      radius: isSelected ? 8 : 4.8,
+      radius: isSelected ? 8 : Math.max(4.5, Math.min(11, 4.5 + (numeric?.normalized || 0) * 6)),
       fillColor: isSelected ? '#0f172a' : color.fill,
       fillOpacity: isSelected ? 0.96 : 0.72,
       weight: isSelected ? 2.4 : 1.1,
@@ -265,14 +292,12 @@ function renderFeature(
       bubblingMouseEvents: true,
     });
     marker.bindPopup(buildFeaturePopupHtml(feature), { closeButton: false });
-    if (feature.objectId) {
-      marker.on('click', () => onSelectEntity(feature.objectId!));
-    }
+    marker.on('click', () => onSelectFeature(feature));
     return marker;
   }
 
   if (feature.geometry) {
-    const style = PRIMITIVE_STYLES[feature.primitive] || DEFAULT_STYLE;
+    const style = featureColor(feature);
     const geoJson = L.geoJSON(feature.geometry as any, {
       pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
         radius: isSelected ? 8 : 4.8,
@@ -291,13 +316,95 @@ function renderFeature(
       }
     });
     geoJson.bindPopup(buildFeaturePopupHtml(feature), { closeButton: false });
-    if (feature.objectId) {
-      geoJson.on('click', () => onSelectEntity(feature.objectId!));
-    }
+    geoJson.on('click', () => onSelectFeature(feature));
     return geoJson;
   }
 
   return null;
+}
+
+function FeatureInspector({ feature, onClose }: { feature: RenderFeature; onClose: () => void }) {
+  const properties = feature.properties || {};
+  const metrics = numericMetrics(properties).slice(0, 4);
+  const descriptors = descriptorFields(properties).slice(0, 6);
+  const series = timeSeriesFields(properties).slice(0, 3);
+  const category = categoricalValue(properties);
+
+  return (
+    <>
+      <button className="global-map-inspector-close" type="button" onClick={onClose} aria-label="Close map detail">x</button>
+      <div className="global-map-kicker">{formatPrimaryMode(feature.primitive)}</div>
+      <h2>{feature.label}</h2>
+      <p className="global-map-summary">
+        {feature.sourceTitle || feature.type}
+        {category ? ` · ${category.label}: ${category.value}` : ''}
+      </p>
+
+      {metrics.length > 0 ? (
+        <div className="global-map-metrics feature-metrics">
+          {metrics.map(metric => (
+            <div key={metric.key}>
+              <span>{humanizeKey(metric.key)}</span>
+              <strong>{formatMetric(metric.value)}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {descriptors.length > 0 ? (
+        <div className="global-map-field-list">
+          <div className="global-map-section-title">Attributes</div>
+          {descriptors.map(item => (
+            <div className="global-map-field" key={item.key}>
+              <span>{humanizeKey(item.key)}</span>
+              <strong>{String(item.value)}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {series.length > 0 ? (
+        <div className="global-map-series">
+          <div className="global-map-section-title">Time Series / Multi Value</div>
+          <svg viewBox="0 0 280 96" role="img" aria-label="Feature series preview">
+            {series.map((item, index) => (
+              <polyline
+                key={item.key}
+                points={sparklinePoints(item.values, 280, 96)}
+                fill="none"
+                stroke={QUALITATIVE_PALETTE[index % QUALITATIVE_PALETTE.length]}
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+          </svg>
+          <div className="global-map-series-legend">
+            {series.map((item, index) => (
+              <span key={item.key}><i style={{ background: QUALITATIVE_PALETTE[index % QUALITATIVE_PALETTE.length] }} />{humanizeKey(item.key)}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="global-map-field-list compact">
+        <div className="global-map-section-title">Trace</div>
+        <div className="global-map-field">
+          <span>Type</span>
+          <strong>{feature.type}</strong>
+        </div>
+        {typeof feature.confidence === 'number' ? (
+          <div className="global-map-field">
+            <span>Confidence</span>
+            <strong>{Math.round(feature.confidence * 100)}%</strong>
+          </div>
+        ) : null}
+        {feature.sourceUrl ? (
+          <a className="global-map-source-link" href={feature.sourceUrl} target="_blank" rel="noreferrer">Open source</a>
+        ) : null}
+      </div>
+    </>
+  );
 }
 
 function buildDisplayLayers(layers: any[], features: RenderFeature[]) {
@@ -314,6 +421,124 @@ function buildDisplayLayers(layers: any[], features: RenderFeature[]) {
     anchorCount: count,
     resultCount: 0,
   }));
+}
+
+function buildMapSummary(features: RenderFeature[]) {
+  const geometryKinds = Array.from(new Set(features.map(feature => feature.point ? 'point' : feature.geometry?.type || 'unknown')));
+  const fields = new Set<string>();
+  for (const feature of features) {
+    for (const key of Object.keys(feature.properties || {})) fields.add(key);
+  }
+  const firstCategory = categoricalValue(features.find(feature => categoricalValue(feature.properties || {}))?.properties || {});
+  return {
+    geometryKinds,
+    fieldCount: fields.size,
+    sentence: features.length > 0
+      ? `${features.length} spatial features assembled from source-grounded objects${firstCategory ? `, including ${humanizeKey(firstCategory.label)} categories` : ''}. Click a feature to inspect its attached data.`
+      : 'No spatial feature has been assembled yet.'
+  };
+}
+
+function featureColor(feature: RenderFeature) {
+  const base = PRIMITIVE_STYLES[feature.primitive] || DEFAULT_STYLE;
+  const category = categoricalValue(feature.properties || {});
+  if (!category) return base;
+  const hash = stableHash(`${category.label}:${category.value}`);
+  const fill = QUALITATIVE_PALETTE[hash % QUALITATIVE_PALETTE.length];
+  return {
+    ...base,
+    fill,
+    stroke: shadeColor(fill, -28),
+    opacity: feature.point ? 0.76 : Math.max(base.opacity, 0.34)
+  };
+}
+
+function categoricalValue(properties: Record<string, any>) {
+  const entries = Object.entries(properties).filter(([, value]) => value !== null && value !== undefined && value !== '');
+  const preferred = entries.find(([key, value]) => {
+    const text = key.toLowerCase();
+    return ['class', 'category', 'status', 'group', 'type', 'cluster', 'region', 'continent'].some(token => text.includes(token))
+      && typeof value !== 'object';
+  });
+  const fallback = entries.find(([, value]) => typeof value === 'string' || typeof value === 'boolean');
+  const match = preferred || fallback;
+  return match ? { label: match[0], value: String(match[1]) } : null;
+}
+
+function numericMetrics(properties: Record<string, any>) {
+  return Object.entries(properties)
+    .map(([key, value]) => ({ key, value: Number(value) }))
+    .filter(item => Number.isFinite(item.value));
+}
+
+function primaryNumericMetric(properties: Record<string, any>) {
+  const metric = numericMetrics(properties)[0];
+  if (!metric) return null;
+  const magnitude = Math.log10(Math.abs(metric.value) + 1);
+  return { ...metric, normalized: Math.max(0, Math.min(1, magnitude / 6)) };
+}
+
+function descriptorFields(properties: Record<string, any>) {
+  return Object.entries(properties)
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .filter(([, value]) => !Array.isArray(value) && typeof value !== 'object')
+    .filter(([key]) => !numericMetrics({ [key]: properties[key] }).length)
+    .slice(0, 8)
+    .map(([key, value]) => ({ key, value }));
+}
+
+function timeSeriesFields(properties: Record<string, any>) {
+  return Object.entries(properties)
+    .filter(([, value]) => Array.isArray(value) && value.length >= 3)
+    .map(([key, value]) => ({
+      key,
+      values: (value as any[]).map(Number).filter(Number.isFinite)
+    }))
+    .filter(item => item.values.length >= 3);
+}
+
+function sparklinePoints(values: number[], width: number, height: number) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return values.map((value, index) => {
+    const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
+    const y = height - 12 - ((value - min) / span) * (height - 24);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function formatMetric(value: number) {
+  if (Math.abs(value) >= 1000000) return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (Math.abs(value) >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (Number.isInteger(value)) return value.toLocaleString();
+  return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+
+function humanizeKey(key: string) {
+  return String(key)
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function stableHash(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function shadeColor(hex: string, amount: number) {
+  const clean = hex.replace('#', '');
+  const number = parseInt(clean, 16);
+  const r = Math.max(0, Math.min(255, (number >> 16) + amount));
+  const g = Math.max(0, Math.min(255, ((number >> 8) & 0x00ff) + amount));
+  const b = Math.max(0, Math.min(255, (number & 0x0000ff) + amount));
+  return `#${(b | (g << 8) | (r << 16)).toString(16).padStart(6, '0')}`;
 }
 
 function suppressAggregateCoverage(features: RenderFeature[]) {

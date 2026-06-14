@@ -68,7 +68,12 @@ describe('GeoJSONConnector', () => {
       features: [
         {
           type: 'Feature',
-          properties: { name: 'Observation point' },
+          properties: {
+            name: 'Observation point',
+            status: 'active',
+            magnitude: 2.1,
+            monthlyValues: [1, 2, 3, 5]
+          },
           geometry: { type: 'Point', coordinates: [10, 20] }
         },
         {
@@ -96,6 +101,11 @@ describe('GeoJSONConnector', () => {
     assert.ok(decomposition.worldObjects.length >= 2, 'GeoJSON features should become spatial objects');
     assert.ok(primitives.has('point-layer'), 'Point features should be map-ready');
     assert.ok(primitives.has('region-layer'), 'Region features should be map-ready');
+    const pointAnchor = map.map.anchors.find(anchor => anchor.label === 'Observation point');
+    assert.ok(pointAnchor, 'Point feature should become an inspectable map anchor');
+    assert.strictEqual(pointAnchor.properties.status, 'active');
+    assert.strictEqual(pointAnchor.properties.magnitude, 2.1);
+    assert.deepStrictEqual(pointAnchor.properties.monthlyValues, [1, 2, 3, 5]);
     assert.strictEqual(map.map.diagnostics.status, 'ready');
   });
 });

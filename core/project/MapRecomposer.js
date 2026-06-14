@@ -166,7 +166,9 @@ function buildSourceMap(source, index) {
       objectType: object.type || 'Entity',
       label: titleForObject(object, object.type || 'Entity'),
       provenance: object.provenance || object.metadata?.provenance || null,
-      confidence: readConfidence(object)
+      confidence: readConfidence(object),
+      properties: readInspectableProperties(object),
+      sourceUrl: attributesOf(object).sourceUrl || object.provenance?.sourceUrl || object.metadata?.sourceUrl || null
     };
 
     if (isSpatialAnchorCandidate(layer, category, spatial)) {
@@ -493,6 +495,29 @@ function readResultValue(object) {
 function readConfidence(object) {
   const value = object.confidence ?? object.metadata?.confidence;
   return typeof value === 'number' ? value : null;
+}
+
+function readInspectableProperties(object) {
+  const attrs = attributesOf(object);
+  const raw = attrs.properties && typeof attrs.properties === 'object' && !Array.isArray(attrs.properties)
+    ? attrs.properties
+    : attrs;
+  const excluded = new Set([
+    'geometry',
+    'bbox',
+    'bounds',
+    'centroid',
+    'location',
+    'coordinates',
+    'spatialCoverage',
+    'coverage',
+    'properties'
+  ]);
+  const entries = Object.entries(raw)
+    .filter(([key, value]) => !excluded.has(key) && value !== null && value !== undefined && value !== '')
+    .filter(([, value]) => typeof value !== 'object' || Array.isArray(value))
+    .slice(0, 18);
+  return Object.fromEntries(entries);
 }
 
 function chooseAnchorPrimitive(spatial, category) {
