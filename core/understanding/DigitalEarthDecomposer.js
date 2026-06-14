@@ -143,6 +143,7 @@ class DigitalEarthDecomposer {
       maxLLMChunks: options.maxLLMChunks || 6,
       llmTimeout: options.llmTimeout || 45000,
       deepExtractionTimeout: options.deepExtractionTimeout || Math.max(options.llmTimeout || 0, 300000),
+      maxAgentSourceChars: options.maxAgentSourceChars || 28000,
       // Fallback bridge relations are disabled by default
       // LLM-extracted relations are preferred
       allowFallbackBridgeRelations: options.allowFallbackBridgeRelations || false,
@@ -927,6 +928,16 @@ IMPORTANT:
 - Prefer source-grounded content over ontology labels. Ontology organizes the extraction; it is not itself the paper's content
 - Return valid JSON only`;
 
+    if (useAgentPrompt) {
+      return this._extractWithAgentSourcePacket({
+        prompt,
+        systemPrompt,
+        admissionResult,
+        chunks,
+        fullText
+      });
+    }
+
     // Process each chunk
     for (const chunk of chunks) {
       const chunkPrompt = `${prompt}
@@ -1103,6 +1114,122 @@ Return JSON with this structure:
     const mergedResult = this._mergeChunkResults([...allResults, ...diagnosticResults]);
     mergedResult.requestErrors = requestErrors;
     return mergedResult;
+  }
+
+  async _extractWithAgentSourcePacket({ prompt, systemPrompt, admissionResult, chunks, fullText }) {
+    const sourcePacket = this._buildAgentSourcePacket(chunks, fullText);
+    const requestErrors = [];
+
+    const agentPrompt = `${prompt}
+
+## Source Packet
+The following packet contains prioritized sections from the source. Extract one coherent source-object graph across the packet instead of treating each section as an isolated chunk.
+
+${sourcePacket.text}
+
+## Source Packet Requirements
+- Build one unified sourceBrief, researchRoute, object set, evidence set, resource list, and limitation/gap list for the whole source packet.
+- Preserve concrete source content with low information loss: inputs, datasets, variables, methods, model architecture, evaluation design, figures/tables, metrics, quantitative findings, limitations, and reusable resources when present.
+- Do not use Teruvion internal states as route nodes.
+- If a detail is not present in the packet, omit it or mark it as unavailable; do not infer it from the source title alone.
+
+Return JSON for the whole source packet.`;
+
+    try {
+      const response = await this.llm.chat({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: agentPrompt }
+        ],
+        agentTask: DEEP_DECOMPOSITION_AGENT_TASK,
+        agentSchema: DEEP_DECOMPOSITION_SCHEMA_VERSION,
+        agentContext: {
+          sourceType: admissionResult.sourceType,
+          depth: admissionResult.depth,
+          mode: 'source-packet',
+          sections: sourcePacket.sections,
+          sourcePacketChars: sourcePacket.text.length
+        },
+        temperature: 0.1,
+        max_tokens: 6000,
+        timeout: this._getDeepExtractionTimeout()
+      });
+
+      const responseText = response.choices?.[0]?.message?.content || response.content || '';
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return this._mergeChunkResults([{
+          schemaWarnings: ['agent source-packet response did not contain JSON'],
+          agentInfo: response.agent || null
+        }]);
+      }
+
+      const parsed = this._coerceLLMExtractionSchema(this._parseLLMJson(jsonMatch[0]));
+      const mergedResult = this._mergeChunkResults([{
+        ...parsed,
+        agentInfo: response.agent || null,
+        chunkInfo: {
+          sections: sourcePacket.sections,
+          index: 0,
+          mode: 'source-packet'
+        }
+      }]);
+      mergedResult.requestErrors = requestErrors;
+      return mergedResult;
+    } catch (error) {
+      requestErrors.push({
+        mode: 'source-packet',
+        sections: sourcePacket.sections,
+        error: error.message
+      });
+      console.error('LLM extraction failed for source packet:', error.message);
+      const mergedResult = this._mergeChunkResults([]);
+      mergedResult.requestErrors = requestErrors;
+      return mergedResult;
+    }
+  }
+
+  _buildAgentSourcePacket(chunks = [], fullText = '') {
+    const maxChars = this.options.maxAgentSourceChars;
+    const selected = [];
+    let usedChars = 0;
+
+    for (const chunk of chunks) {
+      const text = String(chunk.text || '').trim();
+      if (!text) continue;
+      const header = `\n\n### Sections: ${chunk.sections.join(', ')}\n`;
+      const available = maxChars - usedChars - header.length;
+      if (available <= 0) break;
+      const chunkText = text.length > available
+        ? `${text.slice(0, Math.max(0, available - 80)).trim()}\n[section truncated by source packet budget]`
+        : text;
+      selected.push({
+        sections: chunk.sections,
+        text: `${header}${chunkText}`
+      });
+      usedChars += header.length + chunkText.length;
+    }
+
+    if (selected.length === 0 && fullText) {
+      selected.push({
+        sections: ['source'],
+        text: `\n\n### Sections: source\n${String(fullText).slice(0, maxChars)}`
+      });
+    }
+
+    return {
+      sections: [...new Set(selected.flatMap(item => item.sections))],
+      text: selected.map(item => item.text).join('')
+    };
+  }
+
+  _getDeepExtractionTimeout() {
+    const agentStatus = this.llm?.getAgentStatus?.();
+    const configuredAgentTimeout = Number(agentStatus?.timeout || 0);
+    if (agentStatus?.enabled && configuredAgentTimeout > 0) {
+      return Math.max(this.options.deepExtractionTimeout, configuredAgentTimeout);
+    }
+    return this.options.deepExtractionTimeout;
   }
 
   _parseLLMJson(rawText = '') {

@@ -331,6 +331,84 @@ describe('Digital Earth Decomposer', () => {
     assert.strictEqual(result.extractionMetadata.llmExtraction.success, true);
   });
 
+  it('should send Claude Code one source-packet extraction instead of per-chunk jobs', async () => {
+    const calls = [];
+    const llm = {
+      getAgentStatus() {
+        return { enabled: true, provider: 'claude-code', timeout: 600000 };
+      },
+      async chat(params) {
+        calls.push(params);
+        const userText = params.messages?.map(message => message.content).join('\n') || '';
+        if (userText.includes('"task": "Critical Review"')) {
+          return { content: JSON.stringify({ limitations: [] }) };
+        }
+
+        return {
+          agent: { provider: 'claude-code', success: true },
+          content: JSON.stringify({
+            sourceBrief: {
+              oneLine: 'The source describes a data-to-method-to-result route.',
+              keyPoints: []
+            },
+            capabilityObjects: [{
+              type: 'Model',
+              attributes: { name: 'Forecast model' },
+              provenance: { sourceText: 'Method section describes a forecasting model.' },
+              confidence: 0.8
+            }],
+            worldObjects: [],
+            evidenceObjects: [],
+            bridgeRelations: [],
+            researchRoute: {
+              nodes: [
+                { id: 'input-data', label: 'Input data', type: 'Data', summary: 'Input section.' },
+                { id: 'method', label: 'Forecast model', type: 'Method', summary: 'Method section.' },
+                { id: 'result', label: 'Results', type: 'Evidence', summary: 'Results section.' }
+              ],
+              edges: [
+                { from: 'input-data', to: 'method', label: 'feeds' },
+                { from: 'method', to: 'result', label: 'produces' }
+              ]
+            }
+          })
+        };
+      }
+    };
+    const decomposer = new DigitalEarthDecomposer(llm, {
+      maxChunkSize: 120,
+      maxAgentSourceChars: 1200
+    });
+    const admissionResult = {
+      sourceType: 'Paper',
+      depth: 'deep',
+      activatedCategories: ['modeling'],
+      activatedOntologyLayers: ['source', 'capability'],
+      sourceRoles: { modeling_capability: 0.9 },
+      primaryRole: 'modeling_capability',
+      admitted: true
+    };
+    const longSource = [
+      'Abstract\nThis source describes input data, a forecasting model, and reported results.',
+      'Methods\nMethod section describes a forecasting model. '.repeat(20),
+      'Results\nResults section reports evaluation metrics and comparisons. '.repeat(20),
+      'Discussion\nThe discussion states limitations and possible reuse. '.repeat(20)
+    ].join('\n\n');
+
+    await decomposer.decompose('10.1038/source-packet', {
+      type: 'paper',
+      title: 'Source packet paper',
+      content: longSource,
+      metadata: { title: 'Source packet paper' }
+    }, admissionResult);
+
+    const extractionCalls = calls.filter(call => call.agentTask === 'source-to-object-graph-decomposition');
+    assert.strictEqual(extractionCalls.length, 1, 'Agent path should make one coherent extraction call');
+    assert.strictEqual(extractionCalls[0].agentContext.mode, 'source-packet');
+    assert.ok(extractionCalls[0].messages[1].content.includes('## Source Packet'));
+    assert.ok(extractionCalls[0].timeout >= 600000, 'Agent extraction should honor configured long timeout');
+  });
+
   it('should recompose LLM insights into brief, gaps, and figure evidence', async () => {
     const llm = {
       async chat(params) {

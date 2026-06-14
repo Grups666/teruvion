@@ -389,10 +389,12 @@ class LLM {
 
   getAgentStatus() {
     const agent = this.getAgentRuntime();
+    const config = this.loadConfig();
     return {
       enabled: agent.isEnabled(),
       provider: agent.providerName(),
-      fallbackToApi: this.loadConfig().agent?.fallbackToApi !== false
+      fallbackToApi: config.agent?.fallbackToApi !== false,
+      timeout: config.agent?.claudeCode?.timeout || null
     };
   }
 }
