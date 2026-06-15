@@ -7,6 +7,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const apiRouter = require('./api');
+const { version } = require('../../package.json');
 
 const app = express();
 
@@ -50,7 +51,7 @@ app.use('/api', apiRouter);
 app.get('/', (req, res) => {
   res.json({
     name: 'Teruvion API',
-    version: '0.12.1',
+    version,
     endpoints: {
       entities: '/api/entities',
       projects: '/api/projects',
