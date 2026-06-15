@@ -5,6 +5,7 @@
 const PaperConnector = require('./PaperConnector');
 const GitHubConnector = require('./GitHubConnector');
 const GeoJSONConnector = require('./GeoJSONConnector');
+const URLConnector = require('./URLConnector');
 
 class ConnectorRegistry {
   constructor(config = {}) {
@@ -15,6 +16,7 @@ class ConnectorRegistry {
     this.registerConnector(new GitHubConnector(config));
     this.registerConnector(new GeoJSONConnector(config));
     this.registerConnector(new PaperConnector(config));
+    this.registerConnector(new URLConnector(config));
   }
 
   /**
@@ -40,15 +42,23 @@ class ConnectorRegistry {
    * Fetch content using the appropriate connector
    */
   async fetch(input) {
-    const connector = this.findConnector(input);
+    const candidates = this.connectors.filter(connector => connector.canHandle(input));
 
-    if (!connector) {
+    if (candidates.length === 0) {
       throw new Error('No connector found for input type');
     }
 
-    console.log(`[ConnectorRegistry] Using ${connector.getName()} for input`);
+    const errors = [];
+    for (const connector of candidates) {
+      try {
+        console.log(`[ConnectorRegistry] Using ${connector.getName()} for input`);
+        return await connector.fetch(input);
+      } catch (error) {
+        errors.push(`${connector.getName()}: ${error.message}`);
+      }
+    }
 
-    return await connector.fetch(input);
+    throw new Error(`All connectors failed for input: ${errors.join('; ')}`);
   }
 
   /**

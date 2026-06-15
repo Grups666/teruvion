@@ -53,6 +53,29 @@ type MapViewPlan = {
   diagnostics?: Record<string, any>;
 };
 
+type SpatialResourceCandidate = {
+  id?: string;
+  label?: string;
+  url?: string | null;
+  kind?: string;
+  format?: string | null;
+  displayPrimitive?: string;
+  readiness?: string;
+  geometryIntent?: string;
+  reason?: string;
+  processing?: string[];
+};
+
+type SpatialResourcePlan = {
+  candidateCount?: number;
+  candidates?: SpatialResourceCandidate[];
+  summary?: {
+    actionable?: number;
+    headline?: string;
+    byReadiness?: Record<string, number>;
+  };
+};
+
 const LAYER_MARKER_COLORS: Record<EntityLayer, MarkerColor> = {
   world: { fill: '#0f9f8f', stroke: '#0f766e' },
   capability: { fill: '#4f46e5', stroke: '#3730a3' },
@@ -94,6 +117,7 @@ export default function GlobalMap({
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const diagnostics = mapRecomposition?.map?.diagnostics;
   const viewPlan = (mapRecomposition?.map as any)?.viewPlan as MapViewPlan | undefined;
+  const spatialResourcePlan = (mapRecomposition?.map as any)?.spatialResources as SpatialResourcePlan | undefined;
   const mapLayers = useMemo(
     () => buildDisplayLayers(mapRecomposition?.map?.layers || [], renderFeatures),
     [mapRecomposition, renderFeatures]
@@ -203,6 +227,7 @@ export default function GlobalMap({
                 <strong>{mapSummary.fieldCount}</strong>
               </div>
             </div>
+            <SpatialResourcePanel plan={spatialResourcePlan} />
             <div className="global-map-layer-list">
               {mapLayers.slice(0, 4).map(layer => (
                 <div key={layer.id} className="global-map-layer">
@@ -227,6 +252,32 @@ export default function GlobalMap({
           <p>{diagnostics.warnings[0]}</p>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+function SpatialResourcePanel({ plan }: { plan?: SpatialResourcePlan }) {
+  const candidates = plan?.candidates || [];
+  if (candidates.length === 0) return null;
+  return (
+    <div className="global-map-spatial-resources">
+      <div className="global-map-section-title">Spatial Resources</div>
+      <strong>{plan?.summary?.headline || `${candidates.length} candidate resource(s)`}</strong>
+      <div className="global-map-resource-list">
+        {candidates.slice(0, 5).map((candidate, index) => (
+          <div key={candidate.id || `${candidate.url || candidate.label}-${index}`} className="global-map-resource-row">
+            <span>{formatReadiness(candidate.readiness || 'review')}</span>
+            <div>
+              {candidate.url ? (
+                <a href={candidate.url} target="_blank" rel="noreferrer">{candidate.label || readableResourceUrl(candidate.url)}</a>
+              ) : (
+                <strong>{candidate.label || 'Spatial resource'}</strong>
+              )}
+              <small>{candidate.reason || candidate.geometryIntent || candidate.format || 'Review source resource before display.'}</small>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -591,6 +642,23 @@ function formatMetric(value: number) {
   if (Math.abs(value) >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
   if (Number.isInteger(value)) return value.toLocaleString();
   return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+}
+
+function formatReadiness(value: string) {
+  return String(value || 'review')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function readableResourceUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() || parsed.hostname)
+      .replace(/\.(geojson|json|zip|gpkg|tiff?|nc|csv|tsv|xlsx)$/i, '')
+      .replace(/[_-]+/g, ' ');
+  } catch {
+    return url;
+  }
 }
 
 function humanizeKey(key: string) {

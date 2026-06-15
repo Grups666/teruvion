@@ -438,4 +438,53 @@ describe('MapRecomposer', () => {
     assert.strictEqual(recomposition.map.viewPlan.agentHints.acceptedCount, 1);
     assert.strictEqual(recomposition.map.viewPlan.agentHints.accepted[0].sizeBy, null);
   });
+
+  it('surfaces map-ready linked resources without pretending they are rendered', () => {
+    const recomposition = buildMapRecomposition({
+      decomposition: {
+        sourceObject: {
+          id: 'paper-with-data',
+          type: 'Paper',
+          name: 'Regional flood product paper'
+        },
+        worldObjects: [],
+        externalResources: [
+          {
+            type: 'dataset',
+            label: 'Flood extent GeoJSON',
+            url: 'https://data.example.org/flood-extent.geojson',
+            format: 'geojson',
+            role: 'reported result layer',
+            provenance: {
+              section: 'Data availability'
+            }
+          },
+          {
+            type: 'dataset',
+            label: 'Large raster archive',
+            url: 'https://data.example.org/result-surface.tif',
+            format: 'geotiff',
+            role: 'reported result raster'
+          }
+        ]
+      }
+    });
+
+    assert.strictEqual(recomposition.map.spatialResources.schemaVersion, 'spatial-resource-plan-v1');
+    assert.strictEqual(recomposition.map.spatialResources.candidateCount, 2);
+    assert.ok(
+      recomposition.map.spatialResources.candidates.some(candidate => candidate.readiness === 'sampleable-now'),
+      'Direct GeoJSON resources should be marked as sampleable'
+    );
+    assert.ok(
+      recomposition.map.spatialResources.candidates.some(candidate => candidate.readiness === 'requires-light-processing'),
+      'Raster resources should be visible but not falsely rendered'
+    );
+    assert.strictEqual(recomposition.map.diagnostics.spatialResourceCount, 2);
+    assert.strictEqual(recomposition.map.diagnostics.actionableSpatialResourceCount, 2);
+    assert.ok(
+      recomposition.map.diagnostics.warnings.some(warning => warning.includes('spatial resource candidate')),
+      'Diagnostics should explain why map display is still pending'
+    );
+  });
 });

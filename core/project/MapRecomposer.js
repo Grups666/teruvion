@@ -23,6 +23,7 @@ const {
   primitiveFromFormat
 } = require('./RecompositionSemantics');
 const { buildMapVisualizationStrategy } = require('./MapVisualizationStrategy');
+const { buildSpatialResourcePlan } = require('./SpatialResourcePlanner');
 
 const SPATIAL_FIELDS = [
   'geometry',
@@ -67,13 +68,15 @@ function buildMapRecomposition(input = {}) {
   const attachments = dedupeByKey(mapSources.flatMap(source => source.attachments), attachmentKey);
   const layers = buildLayers(anchors, results);
   const visualizationHints = mapSources.flatMap(source => source.visualizationHints || []);
+  const spatialResources = buildSpatialResourcePlan(attachments);
   const viewPlan = buildMapVisualizationStrategy({ anchors, results, attachments, layers, visualizationHints });
   const diagnostics = buildDiagnostics({
     anchors,
     results,
     attachments,
     sources: mapSources,
-    viewPlan
+    viewPlan,
+    spatialResources
   });
 
   return {
@@ -87,6 +90,7 @@ function buildMapRecomposition(input = {}) {
       layers,
       attachments,
       results,
+      spatialResources,
       viewPlan,
       diagnostics
     }
@@ -332,11 +336,13 @@ function buildAttachments(input) {
       resultId: null,
       label: resource.label || resource.url || `Resource ${index + 1}`,
       kind: String(resource.type || 'resource').toLowerCase(),
+      format: resource.format || resource.dataFormat || resource.mediaType || inferFormatFromUrl(resource.url) || null,
       displayPrimitive,
       renderability: resourceRenderability(resource, displayPrimitive),
       provenance: resource.provenance || null,
       evidence: {
         url: resource.url || null,
+        format: resource.format || resource.dataFormat || resource.mediaType || inferFormatFromUrl(resource.url) || null,
         role: resource.role || resource.context || '',
         reviewHint: resource.reviewHint || resource.verificationFocus || ''
       }
@@ -398,6 +404,8 @@ function buildDiagnostics(input) {
   const attachedResults = input.results.filter(result => result.displayPrimitive.startsWith('attached-')).length;
   const blockedResults = input.results.filter(result => result.renderability === 'requires-code-execution').length;
   const figureOnly = input.attachments.filter(attachment => attachment.renderability === 'source-figure-only').length;
+  const spatialResourceCount = input.spatialResources?.candidateCount || 0;
+  const actionableSpatialResourceCount = input.spatialResources?.summary?.actionable || 0;
   const warnings = [];
 
   if (input.anchors.length === 0) {
@@ -408,6 +416,10 @@ function buildDiagnostics(input) {
 
   if (input.results.length > 0 && renderableResults === 0 && attachedResults === 0) {
     warnings.push('Results were detected, but none are directly map-renderable yet.');
+  }
+
+  if (spatialResourceCount > 0 && renderableAnchors === 0) {
+    warnings.push(`${spatialResourceCount} spatial resource candidate(s) were found; bounded sampling is required before map display.`);
   }
 
   if (blockedResults > 0) {
@@ -423,6 +435,8 @@ function buildDiagnostics(input) {
     renderableResultCount: renderableResults,
     attachedResultCount: attachedResults,
     attachmentCount: input.attachments.length,
+    spatialResourceCount,
+    actionableSpatialResourceCount,
     sourceFigureOnlyCount: figureOnly,
     visualizationMode: input.viewPlan?.primaryVisual || null,
     warnings

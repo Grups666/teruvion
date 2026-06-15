@@ -376,6 +376,11 @@ class DigitalEarthImporter {
 
   async _enrichLinkedResources(decomposition = {}, signal) {
     const resources = decomposition.externalResources || [];
+    await this._enrichLinkedGeoJSONResources(decomposition, resources, signal);
+    await this._enrichRepositoryResources(resources, signal);
+  }
+
+  async _enrichRepositoryResources(resources = [], signal) {
     const candidates = resources
       .filter(resource => resource?.url && String(resource.type || '').toLowerCase() === 'repository')
       .slice(0, 2);
@@ -408,6 +413,90 @@ class DigitalEarthImporter {
         };
       }
     }
+  }
+
+  async _enrichLinkedGeoJSONResources(decomposition = {}, resources = [], signal) {
+    const worldObjects = Array.isArray(decomposition.worldObjects)
+      ? decomposition.worldObjects
+      : (decomposition.worldObjects = []);
+    const existingSourceUrls = new Set(worldObjects
+      .map(object => object.attributes?.sourceUrl || object.provenance?.sourceUrl || object.provenance?.url)
+      .filter(Boolean)
+      .map(String));
+
+    const candidates = resources
+      .filter(resource => resource?.url && !existingSourceUrls.has(String(resource.url)))
+      .map(resource => ({ resource, connector: this.connectorRegistry.findConnector(resource.url) }))
+      .filter(pair => pair.connector?.getName?.() === 'GeoJSONConnector')
+      .slice(0, 2);
+
+    for (const { resource, connector } of candidates) {
+      if (signal?.aborted) throw new Error('Import cancelled');
+
+      try {
+        const linkedContent = await connector.fetch(resource.url);
+        const features = Array.isArray(linkedContent?.metadata?.geoFeatures)
+          ? linkedContent.metadata.geoFeatures.slice(0, 120)
+          : [];
+        if (features.length === 0) continue;
+
+        for (const [index, feature] of features.entries()) {
+          const featureId = feature.id || `feature-${index + 1}`;
+          worldObjects.push({
+            id: `linked-${this._slugifyResourceId(resource.url)}-${this._slugifyResourceId(featureId)}`,
+            type: feature.type || 'Region',
+            name: feature.name || feature.label || `Linked spatial feature ${index + 1}`,
+            attributes: {
+              geometry: feature.geometry || null,
+              bbox: feature.bbox || null,
+              displayPrimitive: feature.displayPrimitive || null,
+              sourceUrl: resource.url,
+              properties: feature.properties || {},
+              ...(feature.properties || {})
+            },
+            confidence: feature.confidence || 0.86,
+            provenance: {
+              method: 'linked-geojson-sample',
+              sourceUrl: resource.url,
+              sourceResource: resource.label || resource.url,
+              parentSource: decomposition.sourceObject?.id || decomposition.sourceObject?.name || null,
+              sampledAt: new Date().toISOString()
+            },
+            metadata: {
+              linkedResourceUrl: resource.url,
+              linkedResourceFormat: linkedContent?.metadata?.format || 'geojson'
+            }
+          });
+        }
+
+        resource.enrichment = {
+          source: 'linked-geojson-sample',
+          status: 'sampled',
+          sampledFeatureCount: features.length,
+          fullFeatureCount: linkedContent?.metadata?.featureCount || features.length,
+          checkedAt: new Date().toISOString()
+        };
+        resource.format = resource.format || 'geojson';
+        resource.dataFormat = resource.dataFormat || 'geojson';
+        resource.routeRelevance = resource.routeRelevance || `Linked GeoJSON sampled into ${features.length} map feature(s).`;
+        resource.verificationFocus = resource.verificationFocus || 'inspect sampled feature attributes and source provenance';
+        resource.reviewHint = `Linked GeoJSON sampled. ${features.length} feature(s) are map-ready; verify attributes before interpretation.`;
+      } catch (error) {
+        resource.enrichment = {
+          source: 'linked-geojson-sample',
+          status: 'unavailable',
+          error: error.message
+        };
+      }
+    }
+  }
+
+  _slugifyResourceId(value) {
+    return String(value || 'resource')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 56) || 'resource';
   }
 
   _resourceVerificationFocusFromReview(review = {}) {

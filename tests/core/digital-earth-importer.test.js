@@ -339,4 +339,67 @@ describe('DigitalEarthImporter', () => {
     assert.ok(resource.verificationFocus.includes('license'));
     assert.strictEqual(resource.enrichment.source, 'github-static-review');
   });
+
+  it('should sample linked GeoJSON resources into world objects without source-specific logic', async () => {
+    const importer = new DigitalEarthImporter(null, null, null, null);
+    importer.connectorRegistry = {
+      findConnector(url) {
+        if (url !== 'https://data.example.org/result.geojson') return null;
+        return {
+          getName() {
+            return 'GeoJSONConnector';
+          },
+          async fetch() {
+            return {
+              metadata: {
+                format: 'geojson',
+                featureCount: 2,
+                geoFeatures: [
+                  {
+                    id: 'region-a',
+                    name: 'Region A',
+                    type: 'Region',
+                    geometry: {
+                      type: 'Polygon',
+                      coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
+                    },
+                    displayPrimitive: 'region-layer',
+                    properties: {
+                      class: 'flooded',
+                      impactedPeople: 1200
+                    },
+                    confidence: 0.9
+                  }
+                ]
+              }
+            };
+          }
+        };
+      }
+    };
+
+    const decomposition = {
+      sourceObject: {
+        id: 'paper-1',
+        type: 'Paper',
+        name: 'Regional result paper'
+      },
+      worldObjects: [],
+      externalResources: [{
+        type: 'dataset',
+        label: 'Reported result layer',
+        url: 'https://data.example.org/result.geojson',
+        role: 'result data'
+      }]
+    };
+
+    await importer._enrichLinkedResources(decomposition);
+
+    assert.strictEqual(decomposition.worldObjects.length, 1);
+    assert.strictEqual(decomposition.worldObjects[0].name, 'Region A');
+    assert.strictEqual(decomposition.worldObjects[0].attributes.class, 'flooded');
+    assert.strictEqual(decomposition.worldObjects[0].provenance.method, 'linked-geojson-sample');
+    assert.strictEqual(decomposition.externalResources[0].enrichment.status, 'sampled');
+    assert.ok(decomposition.externalResources[0].reviewHint.includes('Linked GeoJSON sampled'));
+  });
 });

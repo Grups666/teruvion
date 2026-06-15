@@ -62,6 +62,43 @@ describe('GeoJSONConnector', () => {
     assert.ok(connector instanceof GeoJSONConnector);
   });
 
+  it('falls back to later source connectors when an earlier generic URL handler fails', async () => {
+    const registry = new ConnectorRegistry();
+    registry.connectors = [
+      {
+        canHandle() {
+          return true;
+        },
+        getName() {
+          return 'FirstConnector';
+        },
+        async fetch() {
+          throw new Error('not this source shape');
+        }
+      },
+      {
+        canHandle() {
+          return true;
+        },
+        getName() {
+          return 'FallbackConnector';
+        },
+        async fetch(input) {
+          return {
+            type: 'url',
+            url: input,
+            content: 'fallback content'
+          };
+        }
+      }
+    ];
+
+    const content = await registry.fetch('https://example.org/report');
+
+    assert.strictEqual(content.type, 'url');
+    assert.strictEqual(content.content, 'fallback content');
+  });
+
   it('preserves connector-provided geo features through decomposition and map recomposition', async () => {
     const normalized = GeoJSONConnector.normalizeGeoJSON('https://example.org/sample.geojson', {
       type: 'FeatureCollection',
