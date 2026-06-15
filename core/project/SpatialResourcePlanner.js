@@ -97,6 +97,7 @@ function chooseMapRelevance({ url, format, displayPrimitive, kind }) {
 }
 
 function chooseReadiness({ resource, format, displayPrimitive, url }) {
+  if (resource.samplingEligible === false) return 'requires-light-processing';
   if (
     ['linked-geojson-sample', 'linked-spatial-sample', 'direct-spatial-sample'].includes(resource.enrichment?.source) &&
     ['sampled', 'metadata-sampled'].includes(resource.enrichment?.status)

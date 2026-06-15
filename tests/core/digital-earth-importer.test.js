@@ -398,6 +398,80 @@ describe('DigitalEarthImporter', () => {
     assert.ok(decomposition.externalResources[0].reviewHint.includes('Linked geojson resource sampled'));
   });
 
+  it('should discover repository-hosted spatial files before bounded sampling', async () => {
+    const importer = new DigitalEarthImporter(null, null, null, null);
+    importer.spatialRepositoryDiscovery = {
+      canDiscover(resource) {
+        return resource.url === 'https://zenodo.org/records/4315647';
+      },
+      async discover() {
+        return {
+          status: 'discovered',
+          source: 'spatial-repository-discovery',
+          platform: 'zenodo',
+          diagnostics: { candidateCount: 1 },
+          resources: [{
+            type: 'dataset',
+            label: 'DDSA dams',
+            url: 'https://zenodo.org/api/records/4315647/files/6_ddsa_dams.zip/content',
+            format: 'shapefile',
+            dataFormat: 'shapefile',
+            samplingEligible: true,
+            provenance: {
+              method: 'repository-file-list',
+              parentResourceUrl: 'https://zenodo.org/records/4315647'
+            }
+          }]
+        };
+      }
+    };
+    importer.spatialSampler = {
+      canSample(url) {
+        return url.endsWith('/6_ddsa_dams.zip/content');
+      },
+      async sample() {
+        return {
+          status: 'sampled',
+          format: 'shapefile',
+          featureCount: 1,
+          sampledFeatureCount: 1,
+          geoFeatures: [{
+            id: 'dam-1',
+            name: 'Sample dam',
+            type: 'Observation',
+            geometry: { type: 'Point', coordinates: [-58.4, -34.6] },
+            displayPrimitive: 'point-layer',
+            properties: { purpose: 'irrigation', country: 'Argentina' },
+            confidence: 0.86
+          }]
+        };
+      }
+    };
+
+    const decomposition = {
+      sourceObject: {
+        id: 'paper-1',
+        type: 'Paper',
+        name: 'DDSA paper'
+      },
+      worldObjects: [],
+      externalResources: [{
+        type: 'dataset',
+        label: 'DDSA Zenodo archive',
+        url: 'https://zenodo.org/records/4315647'
+      }]
+    };
+
+    await importer._enrichLinkedResources(decomposition);
+
+    assert.strictEqual(decomposition.externalResources.length, 2);
+    assert.strictEqual(decomposition.externalResources[0].discovery.status, 'discovered');
+    assert.strictEqual(decomposition.worldObjects.length, 1);
+    assert.strictEqual(decomposition.worldObjects[0].name, 'Sample dam');
+    assert.strictEqual(decomposition.worldObjects[0].attributes.country, 'Argentina');
+    assert.strictEqual(decomposition.externalResources[1].enrichment.status, 'sampled');
+  });
+
   it('should preserve linked raster coverage as reviewable map metadata', async () => {
     const importer = new DigitalEarthImporter(null, null, null, null);
     importer.spatialSampler = {
@@ -444,5 +518,47 @@ describe('DigitalEarthImporter', () => {
     assert.strictEqual(decomposition.worldObjects[0].provenance.method, 'linked-spatial-metadata-sample');
     assert.strictEqual(decomposition.externalResources[0].enrichment.status, 'metadata-sampled');
     assert.ok(decomposition.externalResources[0].reviewHint.includes('metadata sampled'));
+  });
+
+  it('should geocode source-extracted named locations without fabricating unknown places', async () => {
+    const importer = new DigitalEarthImporter(null, null, null, null);
+    importer.namedLocationResolver = {
+      config: { maxLocations: 4 },
+      canResolve(object) {
+        return object.attributes?.location === 'Corydon, Indiana';
+      },
+      async resolve() {
+        return {
+          query: 'Corydon, Indiana',
+          displayName: 'Corydon, Harrison County, Indiana, United States',
+          coordinates: [-86.1219, 38.2120],
+          bbox: [-86.3, 38.1, -86.0, 38.3],
+          confidence: 0.65,
+          provider: 'nominatim',
+          rawType: 'town',
+          rawClass: 'place'
+        };
+      }
+    };
+
+    const decomposition = {
+      worldObjects: [{
+        id: 'event-1',
+        type: 'Hazard',
+        name: 'Flooding in Corydon',
+        attributes: {
+          location: 'Corydon, Indiana'
+        },
+        confidence: 0.8
+      }]
+    };
+
+    await importer._enrichNamedLocations(decomposition);
+
+    const event = decomposition.worldObjects[0];
+    assert.deepStrictEqual(event.attributes.coordinates, [-86.1219, 38.2120]);
+    assert.strictEqual(event.attributes.properties.geocodingProvider, 'nominatim');
+    assert.strictEqual(event.provenance.geocoding.method, 'external-geocoding');
+    assert.strictEqual(event.metadata.geocoding.status, 'resolved');
   });
 });

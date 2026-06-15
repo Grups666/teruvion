@@ -526,6 +526,32 @@ class DigitalEarthDecomposer {
       }
     }
 
+    const eventLocation = this._extractEventLocationFallback(content, admissionResult, sourceText);
+    if (eventLocation) {
+      result.worldObjects.push(this._createExtractedObject({
+        type: eventLocation.eventType,
+        idPrefix: 'event',
+        idSeed: eventLocation.name,
+        attributes: {
+          name: eventLocation.name,
+          locationName: eventLocation.locationName,
+          location: eventLocation.locationName,
+          description: eventLocation.description,
+          displayPrimitive: 'point-layer'
+        },
+        metadata: {
+          sourceDerived: true,
+          confidence: 0.46,
+          reviewState: 'needs-review'
+        },
+        provenance: this._createProvenance(eventLocation.section, eventLocation.sourceText, {
+          evidenceStrength: 'weak',
+          note: 'Event location fallback derived from explicit source/admission text; geocoding remains reviewable.'
+        })
+      }));
+      result.sections.eventLocationFallback = { count: 1, section: eventLocation.section };
+    }
+
     const evidenceSection = this._findSectionByRole(sections, [
       'results',
       'result',
@@ -4964,7 +4990,15 @@ Return JSON for the whole source packet.`;
   _classifyResourceUrl(url) {
     const value = String(url).toLowerCase();
     if (value.includes('github.com')) return 'repository';
-    if (value.includes('zenodo') || value.includes('figshare') || value.includes('dataverse')) return 'dataset';
+    if (
+      value.includes('zenodo') ||
+      value.includes('figshare') ||
+      value.includes('dataverse') ||
+      value.includes('dryad') ||
+      value.includes('pangaea') ||
+      value.includes('osf.io') ||
+      value.includes('huggingface.co/datasets')
+    ) return 'dataset';
     if (value.includes('doi.org') || /^10\./.test(value)) return 'doi';
     if (value.endsWith('.pdf')) return 'paper';
     return 'external';
@@ -5201,6 +5235,45 @@ Return JSON for the whole source packet.`;
 
   _hasScopeSignal(...texts) {
     return texts.some(text => typeof text === 'string' && /\bglobal\b/i.test(text));
+  }
+
+  _extractEventLocationFallback(content = {}, admissionResult = {}, sourceText = '') {
+    const eventScore = Number(admissionResult.sourceRoles?.event_signal || 0);
+    if (eventScore < 0.5) return null;
+
+    const metadata = content.metadata || {};
+    const candidateText = [
+      content.title,
+      metadata.title,
+      metadata.description,
+      content.abstract,
+      metadata.abstract,
+      ...(Array.isArray(admissionResult.transferReasons) ? admissionResult.transferReasons : []),
+      this._firstSentence(sourceText)
+    ].filter(Boolean).join(' ');
+
+    const locationName = this._extractExplicitPlacePair(candidateText);
+    if (!locationName) return null;
+
+    const title = content.title || metadata.title || 'Reported Earth event';
+    const description = metadata.description || this._firstSentence(sourceText) || `Source reports an event at ${locationName}.`;
+    return {
+      eventType: 'Event',
+      name: title,
+      locationName,
+      description: this._shortSourceText(description, 400),
+      section: 'event-location-fallback',
+      sourceText: this._shortSourceText(candidateText, 600)
+    };
+  }
+
+  _extractExplicitPlacePair(text = '') {
+    const normalized = this._shortSourceText(text, 1600) || '';
+    const pair = normalized.match(/\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}),\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3})\b/);
+    if (!pair) return null;
+    const place = `${pair[1]}, ${pair[2]}`.replace(/\s+/g, ' ').trim();
+    if (place.length < 4 || place.length > 80) return null;
+    return place;
   }
 
   _createSourceTextObject({ type, idPrefix, name, description, section, sourceText, role }) {

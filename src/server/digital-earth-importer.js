@@ -14,6 +14,8 @@ const DigitalEarthDecomposer = require('../../core/understanding/DigitalEarthDec
 const llm = require('../../core/utils/llm');
 const ConnectorRegistry = require('../../core/connectors/ConnectorRegistry');
 const SpatialResourceSampler = require('../../core/connectors/SpatialResourceSampler');
+const SpatialRepositoryDiscovery = require('../../core/connectors/SpatialRepositoryDiscovery');
+const NamedLocationResolver = require('../../core/connectors/NamedLocationResolver');
 const ontology = require('../../core/registry/ontology');
 const { summarizeSourceCoverage } = require('../../core/source/SourceCoverage');
 const {
@@ -36,7 +38,8 @@ class DigitalEarthImporter {
 
     // Initialize pipeline components
     this.admission = new SourceAdmission(llm);
-    this.decomposer = new DigitalEarthDecomposer(llm);
+    const useLLM = process.env.TERUVION_DISABLE_LLM !== 'true';
+    this.decomposer = new DigitalEarthDecomposer(llm, { useLLM });
     this.assetCache = new SourceAssetCache();
 
     // Connector registry for fetching
@@ -46,6 +49,8 @@ class DigitalEarthImporter {
     };
     this.connectorRegistry = new ConnectorRegistry(config);
     this.spatialSampler = new SpatialResourceSampler(config);
+    this.spatialRepositoryDiscovery = new SpatialRepositoryDiscovery(config);
+    this.namedLocationResolver = new NamedLocationResolver(config);
     this.paperIdentifierResolver = new PaperIdentifierResolver(config);
 
     // Active analyses for cancellation
@@ -149,6 +154,7 @@ class DigitalEarthImporter {
       const decomposition = await this.decomposer.decompose(input, content, admissionResult);
       await this.assetCache.cacheVisualEvidence(decomposition.visualEvidence);
       await this._enrichLinkedResources(decomposition, signal);
+      await this._enrichNamedLocations(decomposition, signal);
       await planMapExpression({ decomposition, llm: this.decomposer.options?.useLLM === false ? null : llm });
       console.log('[DigitalEarthImporter] Decomposition:', {
         capabilities: decomposition.capabilityObjects?.length || 0,
@@ -380,8 +386,114 @@ class DigitalEarthImporter {
 
   async _enrichLinkedResources(decomposition = {}, signal) {
     const resources = decomposition.externalResources || [];
+    await this._discoverLinkedSpatialRepositoryResources(resources, signal);
     await this._enrichLinkedSpatialResources(decomposition, resources, signal);
     await this._enrichRepositoryResources(resources, signal);
+  }
+
+  async _enrichNamedLocations(decomposition = {}, signal) {
+    const worldObjects = Array.isArray(decomposition.worldObjects)
+      ? decomposition.worldObjects
+      : (decomposition.worldObjects = []);
+    const candidates = worldObjects
+      .filter(object => this.namedLocationResolver.canResolve(object))
+      .slice(0, this.namedLocationResolver.config.maxLocations || 4);
+
+    for (const object of candidates) {
+      if (signal?.aborted) throw new Error('Import cancelled');
+      try {
+        const resolved = await this.namedLocationResolver.resolve(object);
+        if (!resolved) {
+          object.metadata = {
+            ...(object.metadata || {}),
+            geocoding: {
+              status: 'not-found',
+              query: object.attributes?.location || object.name || null,
+              checkedAt: new Date().toISOString()
+            }
+          };
+          continue;
+        }
+
+        object.attributes = {
+          ...(object.attributes || {}),
+          coordinates: resolved.coordinates,
+          bbox: object.attributes?.bbox || resolved.bbox || null,
+          locationName: object.attributes?.locationName || resolved.query,
+          geocodedDisplayName: resolved.displayName,
+          properties: {
+            ...(object.attributes?.properties || {}),
+            geocodedDisplayName: resolved.displayName,
+            geocodingProvider: resolved.provider
+          }
+        };
+        object.confidence = Math.min(object.confidence || 0.72, resolved.confidence);
+        object.provenance = {
+          ...(object.provenance || {}),
+          geocoding: {
+            method: 'external-geocoding',
+            provider: resolved.provider,
+            query: resolved.query,
+            displayName: resolved.displayName,
+            checkedAt: new Date().toISOString()
+          }
+        };
+        object.metadata = {
+          ...(object.metadata || {}),
+          geocoding: {
+            status: 'resolved',
+            provider: resolved.provider,
+            query: resolved.query,
+            rawType: resolved.rawType,
+            rawClass: resolved.rawClass
+          }
+        };
+      } catch (error) {
+        object.metadata = {
+          ...(object.metadata || {}),
+          geocoding: {
+            status: 'unavailable',
+            error: error.message,
+            checkedAt: new Date().toISOString()
+          }
+        };
+      }
+    }
+  }
+
+  async _discoverLinkedSpatialRepositoryResources(resources = [], signal) {
+    const discoveredUrls = new Set(resources.map(resource => String(resource.url || '')).filter(Boolean));
+    const candidates = resources
+      .filter(resource => resource?.url && this.spatialRepositoryDiscovery.canDiscover(resource))
+      .slice(0, 4);
+
+    for (const resource of candidates) {
+      if (signal?.aborted) throw new Error('Import cancelled');
+      try {
+        const discovery = await this.spatialRepositoryDiscovery.discover(resource);
+        resource.discovery = {
+          source: discovery.source || 'spatial-repository-discovery',
+          status: discovery.status,
+          platform: discovery.platform || null,
+          candidateCount: discovery.diagnostics?.candidateCount || 0,
+          returnedCount: discovery.resources?.length || 0,
+          checkedAt: new Date().toISOString()
+        };
+
+        for (const discovered of discovery.resources || []) {
+          if (!discovered?.url || discoveredUrls.has(String(discovered.url))) continue;
+          resources.push(discovered);
+          discoveredUrls.add(String(discovered.url));
+        }
+      } catch (error) {
+        resource.discovery = {
+          source: 'spatial-repository-discovery',
+          status: 'unavailable',
+          error: error.message,
+          checkedAt: new Date().toISOString()
+        };
+      }
+    }
   }
 
   async _enrichRepositoryResources(resources = [], signal) {
@@ -430,8 +542,9 @@ class DigitalEarthImporter {
 
     const candidates = resources
       .filter(resource => resource?.url && !existingSourceUrls.has(String(resource.url)))
+      .filter(resource => resource.samplingEligible !== false)
       .filter(resource => this.spatialSampler.canSample(resource.url, resource))
-      .slice(0, 2);
+      .slice(0, 4);
 
     for (const resource of candidates) {
       if (signal?.aborted) throw new Error('Import cancelled');

@@ -134,11 +134,13 @@ class SpatialResourceSampler {
     const entries = zip.getEntries();
     const shpEntry = entries.find(entry => /\.shp$/i.test(entry.entryName) && !entry.isDirectory);
     const dbfEntry = entries.find(entry => /\.dbf$/i.test(entry.entryName) && !entry.isDirectory);
+    const cpgEntry = entries.find(entry => /\.cpg$/i.test(entry.entryName) && !entry.isDirectory);
     if (!shpEntry) throw new Error('Shapefile zip did not contain a .shp member');
 
     const shp = bufferToArrayBuffer(shpEntry.getData());
     const dbf = dbfEntry ? bufferToArrayBuffer(dbfEntry.getData()) : undefined;
-    const source = await shapefile.open(shp, dbf);
+    const encoding = cpgEntry ? normalizeShapefileEncoding(cpgEntry.getData().toString('utf8')) : undefined;
+    const source = await shapefile.open(shp, dbf, encoding ? { encoding } : undefined);
     const geoFeatures = [];
     let fullCount = 0;
 
@@ -171,7 +173,9 @@ class SpatialResourceSampler {
       geoFeatures,
       diagnostics: {
         shpEntry: shpEntry.entryName,
-        dbfEntry: dbfEntry?.entryName || null
+        dbfEntry: dbfEntry?.entryName || null,
+        cpgEntry: cpgEntry?.entryName || null,
+        encoding: encoding || null
       }
     };
   }
@@ -362,10 +366,29 @@ function summarizeProperties(properties = {}) {
 }
 
 function readFeatureName(properties = {}, fallback) {
-  for (const key of ['name', 'Name', 'NAME', 'title', 'Title', 'TITLE', 'place', 'Place', 'id', 'ID']) {
-    if (properties[key]) return String(properties[key]);
+  for (const key of ['name', 'Name', 'NAME', 'title', 'Title', 'TITLE', 'place', 'Place']) {
+    if (properties[key]) return cleanDisplayString(properties[key]);
+  }
+  const semanticNameKey = Object.keys(properties).find(key => {
+    const lower = key.toLowerCase();
+    return /(name|title|label|place)/.test(lower) && !/(id|code|count|number|num)$/.test(lower);
+  });
+  if (semanticNameKey && properties[semanticNameKey]) return cleanDisplayString(properties[semanticNameKey]);
+  for (const key of ['id', 'ID']) {
+    if (properties[key]) return cleanDisplayString(properties[key]);
   }
   return fallback;
+}
+
+function cleanDisplayString(value) {
+  const text = String(value);
+  if (!/[ÃÂ]/.test(text)) return text;
+  try {
+    const repaired = Buffer.from(text, 'latin1').toString('utf8');
+    return repaired && !/[ÃÂ]/.test(repaired) ? repaired : text;
+  } catch {
+    return text;
+  }
 }
 
 function bboxFromFeatures(features = []) {
@@ -415,6 +438,15 @@ function normalizeFormat(value) {
   return normalized;
 }
 
+function normalizeShapefileEncoding(value = '') {
+  const normalized = String(value || '').trim().replace(/^\uFEFF/, '').toLowerCase();
+  if (!normalized) return null;
+  if (['utf8', 'utf-8', '65001'].includes(normalized)) return 'utf-8';
+  if (['latin1', 'latin-1', 'iso-8859-1', '8859-1'].includes(normalized)) return 'latin1';
+  if (['windows-1252', 'cp1252', '1252'].includes(normalized)) return 'windows-1252';
+  return normalized;
+}
+
 function isLikelyGeoJSONUrl(url) {
   if (typeof url !== 'string') return false;
   try {
@@ -449,3 +481,4 @@ function safeCall(fn) {
 module.exports = SpatialResourceSampler;
 module.exports.parseCsv = parseCsv;
 module.exports.detectCoordinateFields = detectCoordinateFields;
+module.exports.normalizeShapefileEncoding = normalizeShapefileEncoding;

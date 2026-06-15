@@ -1074,7 +1074,15 @@ class FullTextBroker {
   _classifyResource(url, label = '', context = '') {
     const value = `${url} ${label} ${context}`.toLowerCase();
     if (value.includes('github.com') || value.includes('gitlab.com') || value.includes('bitbucket.org')) return 'repository';
-    if (value.includes('zenodo') || value.includes('figshare') || value.includes('dataverse') || value.includes('dryad') || value.includes('pangaea')) return 'dataset';
+    if (
+      value.includes('zenodo') ||
+      value.includes('figshare') ||
+      value.includes('dataverse') ||
+      value.includes('dryad') ||
+      value.includes('pangaea') ||
+      value.includes('osf.io') ||
+      value.includes('huggingface.co/datasets')
+    ) return 'dataset';
     if (value.includes('supplement') || value.includes('supporting information') || value.includes('additional file')) return 'supplement';
     if (value.includes('data availability') || value.includes('dataset') || value.includes('data repository')) return 'dataset';
     if (value.includes('code availability') || value.includes('source code') || value.includes('software')) return 'code';

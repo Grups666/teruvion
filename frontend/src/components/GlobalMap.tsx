@@ -562,8 +562,7 @@ function categoricalValue(properties: Record<string, any>, viewPlan?: MapViewPla
     return ['class', 'category', 'status', 'group', 'type', 'cluster', 'region', 'continent'].some(token => text.includes(token))
       && typeof value !== 'object';
   });
-  const fallback = entries.find(([, value]) => typeof value === 'string' || typeof value === 'boolean');
-  const match = preferred || fallback;
+  const match = preferred;
   return match ? { label: match[0], value: String(match[1]) } : null;
 }
 
