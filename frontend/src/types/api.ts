@@ -210,6 +210,7 @@ export interface ProjectMapRecomposition {
       id: string;
       displayPrimitive: string;
       label: string;
+      story?: string;
       anchorCount?: number;
       resultCount?: number;
       anchorIds?: string[];
@@ -218,6 +219,17 @@ export interface ProjectMapRecomposition {
     }>;
     attachments?: Array<Record<string, any>>;
     results?: Array<Record<string, any>>;
+    narrative?: {
+      schemaVersion?: string;
+      headline?: string;
+      sentence?: string;
+      coverage?: string;
+      sourceLabel?: string;
+      evidenceLabel?: string;
+      objectBreakdown?: Array<{ label: string; count: number }>;
+      layerStories?: Array<{ id: string; label: string; story?: string; count?: number }>;
+      focus?: Record<string, any>;
+    };
     viewPlan?: {
       schemaVersion?: string;
       primaryVisual?: string;

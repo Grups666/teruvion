@@ -117,6 +117,7 @@ export default function GlobalMap({
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
   const diagnostics = mapRecomposition?.map?.diagnostics;
   const viewPlan = (mapRecomposition?.map as any)?.viewPlan as MapViewPlan | undefined;
+  const narrative = (mapRecomposition?.map as any)?.narrative as ProjectMapRecomposition['map']['narrative'] | undefined;
   const spatialResourcePlan = (mapRecomposition?.map as any)?.spatialResources as SpatialResourcePlan | undefined;
   const mapLayers = useMemo(
     () => buildDisplayLayers(mapRecomposition?.map?.layers || [], renderFeatures),
@@ -195,7 +196,7 @@ export default function GlobalMap({
 
     const featureSignature = renderFeatures.map(feature => feature.id).join('|');
     if (bounds.isValid() && featureSignature !== fittedFeatureSignatureRef.current) {
-      map.fitBounds(bounds.pad(0.16), { animate: false, maxZoom: 6 });
+      map.fitBounds(bounds.pad(0.16), { animate: false, maxZoom: fitMaxZoom(bounds, renderFeatures.length) });
       fittedFeatureSignatureRef.current = featureSignature;
     }
   }, [renderFeatures, selectedEntityId, selectedFeature, viewPlan, onSelectEntity]);
@@ -210,21 +211,21 @@ export default function GlobalMap({
         ) : (
           <>
             <div className="global-map-kicker">Global Map</div>
-            <h2>{formatPrimaryMode(viewPlan?.primaryVisual || mapRecomposition?.map?.primaryMode || 'global-source-overview')}</h2>
-            <p className="global-map-summary">{mapSummary.sentence}</p>
+            <h2>{narrative?.headline || formatPrimaryMode(viewPlan?.primaryVisual || mapRecomposition?.map?.primaryMode || 'global-source-overview')}</h2>
+            <p className="global-map-summary">{narrative?.sentence || mapSummary.sentence}</p>
             <MapLegend viewPlan={viewPlan} />
             <div className="global-map-metrics">
               <div>
-                <span>Features</span>
+                <span>Mapped</span>
                 <strong>{diagnostics?.renderableAnchorCount ?? renderFeatures.length}</strong>
               </div>
               <div>
-                <span>Geometry</span>
-                <strong>{mapSummary.geometryKinds.length}</strong>
+                <span>Coverage</span>
+                <strong>{shortMetricLabel(narrative?.coverage || mapSummary.coverageLabel)}</strong>
               </div>
               <div>
-                <span>Fields</span>
-                <strong>{mapSummary.fieldCount}</strong>
+                <span>Evidence</span>
+                <strong>{shortMetricLabel(narrative?.evidenceLabel || 'Source grounded')}</strong>
               </div>
             </div>
             <SpatialResourcePanel plan={spatialResourcePlan} />
@@ -234,7 +235,7 @@ export default function GlobalMap({
                   <span style={{ background: layerSwatch(layer.displayPrimitive) }} />
                   <div>
                     <strong>{layer.label}</strong>
-                    <small>{layer.resultCount || 0} results / {layer.anchorCount || 0} anchors</small>
+                    <small>{layer.story || layerSummary(layer)}</small>
                   </div>
                 </div>
               ))}
@@ -516,6 +517,7 @@ function buildDisplayLayers(layers: any[], features: RenderFeature[]) {
     id: primitive,
     displayPrimitive: primitive,
     label: formatPrimaryMode(primitive),
+    story: `${count} mapped ${count === 1 ? 'feature' : 'features'}.`,
     anchorCount: count,
     resultCount: 0,
   }));
@@ -531,10 +533,69 @@ function buildMapSummary(features: RenderFeature[]) {
   return {
     geometryKinds,
     fieldCount: fields.size,
+    coverageLabel: inferCoverageLabel(features),
     sentence: features.length > 0
       ? `${features.length} spatial features assembled from source-grounded objects${firstCategory ? `, including ${humanizeKey(firstCategory.label)} categories` : ''}. Click a feature to inspect its attached data.`
       : 'No spatial feature has been assembled yet.'
   };
+}
+
+function layerSummary(layer: any) {
+  const count = (layer.anchorCount || 0) + (layer.resultCount || 0);
+  return count > 0
+    ? `${count} mapped ${count === 1 ? 'feature' : 'features'} from source-grounded objects.`
+    : 'Layer available for review.';
+}
+
+function shortMetricLabel(value?: string) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return 'Ready';
+  const words = text.split(' ');
+  if (words.length <= 3 && text.length <= 22) return text;
+  if (/\d/.test(text)) {
+    const count = text.match(/\d+/)?.[0];
+    const noun = words.find(word => /resource|feature|source|candidate|attachment/i.test(word));
+    return [count, noun ? pluralFriendly(noun, Number(count)) : 'linked'].filter(Boolean).join(' ');
+  }
+  return words.slice(0, 2).join(' ');
+}
+
+function pluralFriendly(value: string, count: number) {
+  if (count === 1) return value.replace(/s$/i, '');
+  return value.endsWith('s') ? value : `${value}s`;
+}
+
+function inferCoverageLabel(features: RenderFeature[]) {
+  const text = features
+    .flatMap(feature => [
+      feature.label,
+      feature.sourceTitle,
+      feature.properties?.country,
+      feature.properties?.Country,
+      feature.properties?.region,
+      feature.properties?.Region,
+      feature.properties?.continent,
+      feature.properties?.Continent
+    ])
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (/argentina|chile|uruguay|paraguay|bolivia|brazil|south america/.test(text)) return 'South America';
+  if (/pennsylvania|lewistown|united states|usa|u\.s\./.test(text)) return 'United States';
+  if (/global|worldwide|world/.test(text)) return 'Global';
+  return features.length > 0 ? 'Mapped extent' : 'None';
+}
+
+function fitMaxZoom(bounds: L.LatLngBounds, featureCount: number) {
+  if (featureCount <= 1) return 8;
+  const spanLat = Math.abs(bounds.getNorth() - bounds.getSouth());
+  const spanLon = Math.abs(bounds.getEast() - bounds.getWest());
+  const span = Math.max(spanLat, spanLon);
+  if (span > 120) return 3;
+  if (span > 55) return 4;
+  if (span > 22) return 5;
+  if (span > 8) return 6;
+  return 8;
 }
 
 function featureColor(feature: RenderFeature, viewPlan?: MapViewPlan) {

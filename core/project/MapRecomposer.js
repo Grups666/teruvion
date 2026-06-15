@@ -70,6 +70,15 @@ function buildMapRecomposition(input = {}) {
   const visualizationHints = mapSources.flatMap(source => source.visualizationHints || []);
   const spatialResources = buildSpatialResourcePlan(attachments);
   const viewPlan = buildMapVisualizationStrategy({ anchors, results, attachments, layers, visualizationHints });
+  const narrative = buildMapNarrative({
+    sources: mapSources,
+    anchors,
+    results,
+    layers,
+    attachments,
+    viewPlan,
+    spatialResources
+  });
   const diagnostics = buildDiagnostics({
     anchors,
     results,
@@ -92,6 +101,7 @@ function buildMapRecomposition(input = {}) {
       results,
       spatialResources,
       viewPlan,
+      narrative,
       diagnostics
     }
   };
@@ -371,7 +381,8 @@ function buildLayers(anchors, results) {
     layers.push({
       id: primitive,
       displayPrimitive: primitive,
-      label: layerLabel(primitive),
+      label: layerLabel(primitive, [...layerAnchors, ...layerResults]),
+      story: layerStory(primitive, [...layerAnchors, ...layerResults]),
       anchorCount: layerAnchors.length,
       resultCount: layerResults.length,
       anchorIds: layerAnchors.map(anchor => anchor.id),
@@ -395,6 +406,128 @@ function buildLayers(anchors, results) {
   }
 
   return layers;
+}
+
+function buildMapNarrative({ sources, anchors, results, layers, attachments, viewPlan, spatialResources }) {
+  const renderableAnchors = anchors.filter(anchor => anchor.renderability === 'renderable-now');
+  const renderableResults = results.filter(result => result.renderability === 'renderable-now');
+  const features = [...renderableAnchors, ...renderableResults];
+  const sourceTitle = sources[0]?.summary?.title || 'Imported source';
+  const sourceType = sources[0]?.summary?.type || 'Source';
+  const sourceCount = sources.length;
+  const primaryLayer = layers
+    .slice()
+    .sort((a, b) => (b.anchorCount + b.resultCount) - (a.anchorCount + a.resultCount))[0] || null;
+  const objectBreakdown = summarizeFeatureObjects(features);
+  const coverage = summarizeCoverage(features);
+  const evidenceLabel = summarizeEvidenceState({ attachments, spatialResources });
+  const headline = chooseMapHeadline({ sourceTitle, sourceType, coverage, primaryLayer, objectBreakdown });
+  const sentence = chooseMapSentence({
+    sourceTitle,
+    sourceCount,
+    coverage,
+    objectBreakdown,
+    primaryLayer,
+    features,
+    viewPlan,
+    evidenceLabel
+  });
+
+  return {
+    schemaVersion: 'map-narrative-v1',
+    headline,
+    sentence,
+    coverage,
+    sourceLabel: sourceCount > 1 ? `${sourceCount} sources` : sourceTitle,
+    evidenceLabel,
+    objectBreakdown,
+    layerStories: layers.map(layer => ({
+      id: layer.id,
+      label: layer.label,
+      story: layer.story,
+      count: (layer.anchorCount || 0) + (layer.resultCount || 0)
+    })),
+    focus: {
+      featureCount: features.length,
+      primaryVisual: viewPlan?.primaryVisual || 'spatial-overview'
+    }
+  };
+}
+
+function summarizeFeatureObjects(features = []) {
+  const groups = new Map();
+  for (const feature of features) {
+    const label = semanticObjectLabel(feature);
+    groups.set(label, (groups.get(label) || 0) + 1);
+  }
+  return Array.from(groups.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([label, count]) => ({ label, count }));
+}
+
+function semanticObjectLabel(feature = {}) {
+  const text = `${feature.objectType || ''} ${feature.label || ''} ${Object.values(feature.properties || {}).slice(0, 12).join(' ')} ${Object.keys(feature.properties || {}).join(' ')}`.toLowerCase();
+  if (/(dam|reservoir)/.test(text)) return 'dams';
+  if (/(catchment|basin|watershed)/.test(text)) return 'catchments';
+  if (/(flood|storm|event|hazard)/.test(text)) return 'events';
+  if (/(station|gauge|site|point)/.test(text)) return 'observation sites';
+  if (feature.displayPrimitive === DISPLAY_PRIMITIVES.REGION_LAYER) return 'regions';
+  if (feature.displayPrimitive === DISPLAY_PRIMITIVES.POINT_LAYER) return 'locations';
+  return pluralizeHuman(feature.objectType || feature.category || 'objects');
+}
+
+function summarizeCoverage(features = []) {
+  const text = features
+    .flatMap(feature => [
+      feature.label,
+      feature.sourceTitle,
+      feature.spatial?.label,
+      feature.properties?.country,
+      feature.properties?.Country,
+      feature.properties?.region,
+      feature.properties?.Region,
+      feature.properties?.continent,
+      feature.properties?.Continent
+    ])
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (/(argentina|chile|uruguay|paraguay|bolivia|brazil|south america|southern america)/.test(text)) return 'South America';
+  if (/(pennsylvania|lewistown|united states|usa|u\.s\.)/.test(text)) return 'United States';
+  if (/(global|worldwide|world)/.test(text)) return 'Global';
+  return features.length > 0 ? 'Mapped extent' : 'No mapped extent';
+}
+
+function summarizeEvidenceState({ attachments = [], spatialResources = {} }) {
+  const sampled = attachments.filter(attachment => attachment.renderability === 'renderable-now' || attachment.renderability === 'renderable-with-light-processing').length;
+  const candidates = spatialResources?.candidateCount || 0;
+  if (sampled > 0 && candidates > 0) return `${sampled} linked resources reviewed`;
+  if (candidates > 0) return `${candidates} linked resources found`;
+  if (attachments.length > 0) return `${attachments.length} source attachments`;
+  return 'Source-grounded map';
+}
+
+function chooseMapHeadline({ sourceTitle, sourceType, coverage, primaryLayer, objectBreakdown }) {
+  const dominant = objectBreakdown[0]?.label;
+  if (dominant && coverage && coverage !== 'Mapped extent') {
+    return `${titleCase(coverage)} ${titleCase(dominant)}`;
+  }
+  if (primaryLayer?.label && coverage && coverage !== 'Mapped extent') {
+    return `${titleCase(coverage)} ${primaryLayer.label}`;
+  }
+  if (/news|event/i.test(sourceType) && coverage) return `${coverage} Event`;
+  return conciseTitle(sourceTitle, 6);
+}
+
+function chooseMapSentence({ sourceTitle, sourceCount, coverage, objectBreakdown, primaryLayer, features, viewPlan, evidenceLabel }) {
+  if (features.length === 0) {
+    return `${sourceCount > 1 ? `${sourceCount} sources` : sourceTitle} did not expose map-ready geometry yet.`;
+  }
+  const objects = objectBreakdown.map(item => `${item.count} ${item.label}`).join(', ');
+  const layer = primaryLayer?.label ? ` as ${primaryLayer.label.toLowerCase()}` : '';
+  const visual = viewPlan?.primaryVisual ? ` using a ${viewPlan.primaryVisual.replace(/[-_]+/g, ' ')}` : '';
+  return `${features.length} source-grounded spatial features${objects ? ` (${objects})` : ''} are shown for ${coverage}${layer}${visual}. ${evidenceLabel}.`;
 }
 
 function buildDiagnostics(input) {
@@ -809,8 +942,69 @@ function dedupeByKey(items, keyFn) {
   return deduped;
 }
 
-function layerLabel(primitive) {
-  return labelForDisplayPrimitive(primitive);
+function layerLabel(primitive, features = []) {
+  const base = labelForDisplayPrimitive(primitive);
+  const dominant = summarizeFeatureObjects(features)[0];
+  if (!dominant) return base;
+
+  const label = titleCase(dominant.label);
+  if (primitive === DISPLAY_PRIMITIVES.POINT_LAYER) {
+    if (/event/i.test(label)) return 'Event Locations';
+    if (/location/i.test(label)) return 'Point Locations';
+    if (/site/i.test(label)) return 'Observation Sites';
+    return `${singularizeTitle(label)} Locations`;
+  }
+  if (primitive === DISPLAY_PRIMITIVES.REGION_LAYER || primitive === DISPLAY_PRIMITIVES.CLASSIFIED_AREA_LAYER) {
+    if (/region/i.test(label)) return primitive === DISPLAY_PRIMITIVES.CLASSIFIED_AREA_LAYER ? 'Classified Regions' : 'Region Boundaries';
+    return `${singularizeTitle(label)} Boundaries`;
+  }
+  if (primitive === DISPLAY_PRIMITIVES.ROUTE_OR_FLOW_LAYER) {
+    return `${singularizeTitle(label)} Routes`;
+  }
+  return base;
+}
+
+function layerStory(primitive, features = []) {
+  const count = features.length;
+  if (count === 0) return 'No mapped feature is attached to this layer yet.';
+  const breakdown = summarizeFeatureObjects(features);
+  const objects = breakdown.map(item => `${item.count} ${item.label}`).join(', ');
+  const coverage = summarizeCoverage(features);
+  const visual = labelForDisplayPrimitive(primitive).toLowerCase();
+  return `${count} mapped ${count === 1 ? 'feature' : 'features'}${objects ? `: ${objects}` : ''}. Displayed as ${visual} for ${coverage}.`;
+}
+
+function titleCase(value) {
+  return String(value || '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function singularizeTitle(value) {
+  const words = titleCase(value).split(' ').filter(Boolean);
+  if (words.length === 0) return 'Feature';
+  const last = words[words.length - 1];
+  words[words.length - 1] = last.replace(/ies$/i, 'y').replace(/ches$/i, 'ch').replace(/s$/i, '');
+  return words.join(' ');
+}
+
+function pluralizeHuman(value) {
+  const text = titleCase(value).toLowerCase();
+  if (!text) return 'objects';
+  if (text.endsWith('s')) return text;
+  if (text.endsWith('y')) return `${text.slice(0, -1)}ies`;
+  return `${text}s`;
+}
+
+function conciseTitle(value, maxWords = 6) {
+  const words = titleCase(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(word => !/^(the|a|an|of|for|and|or|to|in|on|with|from|by)$/i.test(word));
+  const compact = words.slice(0, maxWords).join(' ');
+  return compact || 'Mapped Source';
 }
 
 module.exports = {

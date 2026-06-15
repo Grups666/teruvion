@@ -183,12 +183,6 @@ class DigitalEarthImporter {
         relations: stored.relations
       });
 
-      // Update project name from source object
-      if (decomposition.sourceObject?.name) {
-        project.name = decomposition.sourceObject.name.substring(0, 100);
-      } else if (decomposition.sourceObject?.title) {
-        project.name = decomposition.sourceObject.title.substring(0, 100);
-      }
       project.description = decomposition.sourceObject?.description || 'Imported source';
 
       // Store decomposition metadata
@@ -208,6 +202,11 @@ class DigitalEarthImporter {
       project.metadata.sourceCoverage = sourceCoverage;
       project.metadata.projectRecomposition = projectRecomposition;
       project.metadata.mapRecomposition = mapRecomposition;
+      project.name = chooseProjectDisplayName({
+        decomposition,
+        projectRecomposition,
+        mapRecomposition
+      });
       this._updateProjectImportProtocol(project, {
         status: project.analysis.status,
         sourceCoverage,
@@ -784,6 +783,40 @@ function linkedSpatialReviewHint(sample = {}, featureCount = 0) {
     return `Linked ${sample.format || 'raster'} metadata sampled. Coverage can be shown, but pixel values require a future raster preview/tile path.`;
   }
   return sample.diagnostics?.warning || 'Linked spatial resource was inspected, but no map-ready features were produced.';
+}
+
+function chooseProjectDisplayName({ decomposition = {}, projectRecomposition = {}, mapRecomposition = {} }) {
+  const mapNarrative = mapRecomposition?.map?.narrative;
+  const candidates = [
+    mapNarrative?.headline,
+    projectRecomposition?.aggregate?.brief?.title,
+    decomposition?.researchBrief?.title,
+    decomposition?.sourceObject?.name,
+    decomposition?.sourceObject?.title
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const compact = compactProjectName(candidate);
+    if (compact) return compact;
+  }
+  return 'Imported Source';
+}
+
+function compactProjectName(value, maxWords = 5) {
+  const text = String(value || '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return '';
+
+  const stopwords = new Set(['the', 'a', 'an', 'of', 'for', 'and', 'or', 'to', 'in', 'on', 'with', 'from', 'by', 'using', 'dataset', 'source']);
+  const words = text
+    .split(/\s+/)
+    .filter(word => word.length > 1)
+    .filter(word => !stopwords.has(word.toLowerCase()));
+  const compact = (words.length ? words : text.split(/\s+/)).slice(0, maxWords).join(' ');
+  return compact.replace(/\b\w/g, char => char.toUpperCase()).slice(0, 80);
 }
 
 module.exports = DigitalEarthImporter;

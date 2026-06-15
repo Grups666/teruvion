@@ -376,6 +376,92 @@ describe('MapRecomposer', () => {
     assert.strictEqual(recomposition.map.diagnostics.visualizationMode, 'classified-region-map');
   });
 
+  it('builds product-facing map narrative and semantic layer labels from normalized objects', () => {
+    const recomposition = buildMapRecomposition({
+      decomposition: {
+        sourceObject: {
+          id: 'ddsa-paper',
+          type: 'Paper',
+          name: 'A georeferenced database of dams in South America'
+        },
+        worldObjects: [
+          {
+            id: 'dam-1',
+            type: 'Infrastructure',
+            name: 'Valle Grande Dam',
+            attributes: {
+              coordinates: [-68.55, -34.84],
+              country: 'Argentina',
+              objectClass: 'dam',
+              storageHm3: 160
+            },
+            provenance: { sourceUrl: 'https://doi.org/10.5281/zenodo.example' }
+          },
+          {
+            id: 'dam-2',
+            type: 'Infrastructure',
+            name: 'Rapel Reservoir',
+            attributes: {
+              coordinates: [-71.58, -34.13],
+              country: 'Chile',
+              objectClass: 'reservoir',
+              storageHm3: 695
+            },
+            provenance: { sourceUrl: 'https://doi.org/10.5281/zenodo.example' }
+          },
+          {
+            id: 'catchment-1',
+            type: 'Region',
+            name: 'Rapel Catchment',
+            attributes: {
+              country: 'Chile',
+              objectClass: 'catchment',
+              geometry: {
+                type: 'Polygon',
+                coordinates: [[
+                  [-72, -35],
+                  [-70, -35],
+                  [-70, -33.5],
+                  [-72, -33.5],
+                  [-72, -35]
+                ]]
+              }
+            },
+            provenance: { sourceUrl: 'https://doi.org/10.5281/zenodo.example' }
+          }
+        ],
+        externalResources: [
+          {
+            type: 'dataset',
+            label: 'DDSA georeferenced dam data',
+            url: 'https://zenodo.org/records/example',
+            format: 'shapefile'
+          }
+        ]
+      }
+    });
+
+    assert.ok(recomposition.map.narrative, 'Should expose a product-facing map narrative');
+    assert.match(recomposition.map.narrative.headline, /South America/i);
+    assert.match(recomposition.map.narrative.sentence, /source-grounded spatial features/i);
+    assert.ok(
+      recomposition.map.narrative.objectBreakdown.some(item => item.label === 'dams'),
+      'Narrative should summarize dam-like objects from normalized object fields'
+    );
+    assert.ok(
+      recomposition.map.layers.some(layer => /Dam Locations/i.test(layer.label)),
+      'Point layer should use semantic product language'
+    );
+    assert.ok(
+      recomposition.map.layers.some(layer => /Catchment Boundaries/i.test(layer.label)),
+      'Region layer should use semantic product language'
+    );
+    assert.ok(
+      recomposition.map.layers.every(layer => typeof layer.story === 'string' && layer.story.length > 0),
+      'Each map layer should carry a readable layer story'
+    );
+  });
+
   it('uses grounded visualization hints without trusting unavailable fields', () => {
     const recomposition = buildMapRecomposition({
       decomposition: {
