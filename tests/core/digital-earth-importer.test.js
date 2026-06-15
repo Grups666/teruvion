@@ -340,40 +340,35 @@ describe('DigitalEarthImporter', () => {
     assert.strictEqual(resource.enrichment.source, 'github-static-review');
   });
 
-  it('should sample linked GeoJSON resources into world objects without source-specific logic', async () => {
+  it('should sample linked spatial resources into world objects without source-specific logic', async () => {
     const importer = new DigitalEarthImporter(null, null, null, null);
-    importer.connectorRegistry = {
-      findConnector(url) {
-        if (url !== 'https://data.example.org/result.geojson') return null;
+    importer.spatialSampler = {
+      canSample(url) {
+        return url === 'https://data.example.org/result.geojson';
+      },
+      async sample() {
         return {
-          getName() {
-            return 'GeoJSONConnector';
-          },
-          async fetch() {
-            return {
-              metadata: {
-                format: 'geojson',
-                featureCount: 2,
-                geoFeatures: [
-                  {
-                    id: 'region-a',
-                    name: 'Region A',
-                    type: 'Region',
-                    geometry: {
-                      type: 'Polygon',
-                      coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
-                    },
-                    displayPrimitive: 'region-layer',
-                    properties: {
-                      class: 'flooded',
-                      impactedPeople: 1200
-                    },
-                    confidence: 0.9
-                  }
-                ]
-              }
-            };
-          }
+          status: 'sampled',
+          format: 'geojson',
+          featureCount: 1,
+          sampledFeatureCount: 1,
+          geoFeatures: [
+            {
+              id: 'region-a',
+              name: 'Region A',
+              type: 'Region',
+              geometry: {
+                type: 'Polygon',
+                coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]
+              },
+              displayPrimitive: 'region-layer',
+              properties: {
+                class: 'flooded',
+                impactedPeople: 1200
+              },
+              confidence: 0.9
+            }
+          ]
         };
       }
     };
@@ -398,8 +393,56 @@ describe('DigitalEarthImporter', () => {
     assert.strictEqual(decomposition.worldObjects.length, 1);
     assert.strictEqual(decomposition.worldObjects[0].name, 'Region A');
     assert.strictEqual(decomposition.worldObjects[0].attributes.class, 'flooded');
-    assert.strictEqual(decomposition.worldObjects[0].provenance.method, 'linked-geojson-sample');
+    assert.strictEqual(decomposition.worldObjects[0].provenance.method, 'linked-spatial-sample');
     assert.strictEqual(decomposition.externalResources[0].enrichment.status, 'sampled');
-    assert.ok(decomposition.externalResources[0].reviewHint.includes('Linked GeoJSON sampled'));
+    assert.ok(decomposition.externalResources[0].reviewHint.includes('Linked geojson resource sampled'));
+  });
+
+  it('should preserve linked raster coverage as reviewable map metadata', async () => {
+    const importer = new DigitalEarthImporter(null, null, null, null);
+    importer.spatialSampler = {
+      canSample(url) {
+        return url === 'https://data.example.org/result.tif';
+      },
+      async sample() {
+        return {
+          status: 'metadata-sampled',
+          format: 'geotiff',
+          featureCount: 1,
+          sampledFeatureCount: 0,
+          geoFeatures: [],
+          rasterMetadata: {
+            width: 100,
+            height: 50,
+            samplesPerPixel: 1,
+            bbox: [-10, -5, 10, 5]
+          },
+          diagnostics: {}
+        };
+      }
+    };
+    const decomposition = {
+      sourceObject: {
+        id: 'paper-1',
+        type: 'Paper',
+        name: 'Raster result paper'
+      },
+      worldObjects: [],
+      externalResources: [{
+        type: 'dataset',
+        label: 'Reported raster',
+        url: 'https://data.example.org/result.tif',
+        role: 'raster result'
+      }]
+    };
+
+    await importer._enrichLinkedResources(decomposition);
+
+    assert.strictEqual(decomposition.worldObjects.length, 1);
+    assert.deepStrictEqual(decomposition.worldObjects[0].attributes.bbox, [-10, -5, 10, 5]);
+    assert.strictEqual(decomposition.worldObjects[0].attributes.displayPrimitive, 'raster-layer');
+    assert.strictEqual(decomposition.worldObjects[0].provenance.method, 'linked-spatial-metadata-sample');
+    assert.strictEqual(decomposition.externalResources[0].enrichment.status, 'metadata-sampled');
+    assert.ok(decomposition.externalResources[0].reviewHint.includes('metadata sampled'));
   });
 });

@@ -477,8 +477,12 @@ describe('MapRecomposer', () => {
       'Direct GeoJSON resources should be marked as sampleable'
     );
     assert.ok(
-      recomposition.map.spatialResources.candidates.some(candidate => candidate.readiness === 'requires-light-processing'),
-      'Raster resources should be visible but not falsely rendered'
+      recomposition.map.spatialResources.candidates.some(candidate =>
+        candidate.format === 'geotiff' &&
+        candidate.readiness === 'sampleable-now' &&
+        candidate.geometryIntent === 'raster-surface'
+      ),
+      'Raster resources should be visible as bounded metadata-sampleable raster candidates'
     );
     assert.strictEqual(recomposition.map.diagnostics.spatialResourceCount, 2);
     assert.strictEqual(recomposition.map.diagnostics.actionableSpatialResourceCount, 2);

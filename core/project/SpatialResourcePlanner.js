@@ -97,10 +97,13 @@ function chooseMapRelevance({ url, format, displayPrimitive, kind }) {
 }
 
 function chooseReadiness({ resource, format, displayPrimitive, url }) {
-  if (resource.enrichment?.source === 'linked-geojson-sample' && resource.enrichment?.status === 'sampled') {
+  if (
+    ['linked-geojson-sample', 'linked-spatial-sample', 'direct-spatial-sample'].includes(resource.enrichment?.source) &&
+    ['sampled', 'metadata-sampled'].includes(resource.enrichment?.status)
+  ) {
     return 'rendered-from-linked-resource';
   }
-  if (format === 'geojson' && url) return 'sampleable-now';
+  if (['geojson', 'csv', 'shapefile', 'geotiff'].includes(format) && url) return 'sampleable-now';
   if ([DISPLAY_PRIMITIVES.RASTER_LAYER, DISPLAY_PRIMITIVES.REGION_LAYER, DISPLAY_PRIMITIVES.ATTACHED_TABLE].includes(displayPrimitive)) {
     return 'requires-light-processing';
   }
@@ -122,7 +125,7 @@ function candidateReason({ readiness, format, displayPrimitive, resource }) {
     const count = resource.enrichment?.sampledFeatureCount;
     return count ? `${count} linked spatial features were sampled into the map contract.` : 'Linked spatial features were sampled into the map contract.';
   }
-  if (readiness === 'sampleable-now') return 'Direct GeoJSON resource can be bounded-sampled without executing code.';
+  if (readiness === 'sampleable-now') return 'Direct open spatial resource can be bounded-sampled without executing code.';
   if (readiness === 'requires-light-processing') {
     return `${format || labelForDisplayPrimitive(displayPrimitive)} needs a bounded parser or server-side sampler before display.`;
   }
@@ -132,7 +135,7 @@ function candidateReason({ readiness, format, displayPrimitive, resource }) {
 
 function processingSteps({ readiness, format, displayPrimitive }) {
   if (readiness === 'rendered-from-linked-resource') return ['inspect feature attributes', 'style by semantic fields', 'preserve linked-resource provenance'];
-  if (readiness === 'sampleable-now') return ['fetch with GeoJSON connector', 'sample bounded features', 'normalize properties', 'render as map layer'];
+  if (readiness === 'sampleable-now') return ['fetch with bounded spatial sampler', 'sample features or raster metadata', 'normalize properties', 'render as map layer'];
   if (format === 'geotiff' || displayPrimitive === DISPLAY_PRIMITIVES.RASTER_LAYER) return ['download bounded metadata', 'tile or sample raster', 'derive legend', 'render clipped preview'];
   if (format === 'shapefile' || format === 'gpkg') return ['download archive metadata', 'extract bounded vector sample', 'normalize properties', 'render as region/line layer'];
   if (displayPrimitive === DISPLAY_PRIMITIVES.ATTACHED_TABLE) return ['inspect columns', 'detect coordinates or region keys', 'sample rows', 'join or geocode with explicit provenance'];

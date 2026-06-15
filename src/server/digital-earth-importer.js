@@ -13,6 +13,7 @@ const { SourceAdmission } = require('../../core/admission/SourceAdmission');
 const DigitalEarthDecomposer = require('../../core/understanding/DigitalEarthDecomposer');
 const llm = require('../../core/utils/llm');
 const ConnectorRegistry = require('../../core/connectors/ConnectorRegistry');
+const SpatialResourceSampler = require('../../core/connectors/SpatialResourceSampler');
 const ontology = require('../../core/registry/ontology');
 const { summarizeSourceCoverage } = require('../../core/source/SourceCoverage');
 const {
@@ -22,6 +23,7 @@ const {
 } = require('../../core/project/ProjectDiagnostics');
 const { buildProjectRecomposition } = require('../../core/project/ProjectRecomposer');
 const { buildMapRecomposition } = require('../../core/project/MapRecomposer');
+const { planMapExpression } = require('../../core/project/MapExpressionPlanner');
 const PaperIdentifierResolver = require('../../core/connectors/PaperIdentifierResolver');
 const SourceAssetCache = require('../../core/source/SourceAssetCache');
 
@@ -43,6 +45,7 @@ class DigitalEarthImporter {
       openAlexKey: llm.getOpenAlexKey()
     };
     this.connectorRegistry = new ConnectorRegistry(config);
+    this.spatialSampler = new SpatialResourceSampler(config);
     this.paperIdentifierResolver = new PaperIdentifierResolver(config);
 
     // Active analyses for cancellation
@@ -146,6 +149,7 @@ class DigitalEarthImporter {
       const decomposition = await this.decomposer.decompose(input, content, admissionResult);
       await this.assetCache.cacheVisualEvidence(decomposition.visualEvidence);
       await this._enrichLinkedResources(decomposition, signal);
+      await planMapExpression({ decomposition, llm: this.decomposer.options?.useLLM === false ? null : llm });
       console.log('[DigitalEarthImporter] Decomposition:', {
         capabilities: decomposition.capabilityObjects?.length || 0,
         world: decomposition.worldObjects?.length || 0,
@@ -376,7 +380,7 @@ class DigitalEarthImporter {
 
   async _enrichLinkedResources(decomposition = {}, signal) {
     const resources = decomposition.externalResources || [];
-    await this._enrichLinkedGeoJSONResources(decomposition, resources, signal);
+    await this._enrichLinkedSpatialResources(decomposition, resources, signal);
     await this._enrichRepositoryResources(resources, signal);
   }
 
@@ -415,7 +419,7 @@ class DigitalEarthImporter {
     }
   }
 
-  async _enrichLinkedGeoJSONResources(decomposition = {}, resources = [], signal) {
+  async _enrichLinkedSpatialResources(decomposition = {}, resources = [], signal) {
     const worldObjects = Array.isArray(decomposition.worldObjects)
       ? decomposition.worldObjects
       : (decomposition.worldObjects = []);
@@ -426,19 +430,17 @@ class DigitalEarthImporter {
 
     const candidates = resources
       .filter(resource => resource?.url && !existingSourceUrls.has(String(resource.url)))
-      .map(resource => ({ resource, connector: this.connectorRegistry.findConnector(resource.url) }))
-      .filter(pair => pair.connector?.getName?.() === 'GeoJSONConnector')
+      .filter(resource => this.spatialSampler.canSample(resource.url, resource))
       .slice(0, 2);
 
-    for (const { resource, connector } of candidates) {
+    for (const resource of candidates) {
       if (signal?.aborted) throw new Error('Import cancelled');
 
       try {
-        const linkedContent = await connector.fetch(resource.url);
-        const features = Array.isArray(linkedContent?.metadata?.geoFeatures)
-          ? linkedContent.metadata.geoFeatures.slice(0, 120)
+        const sample = await this.spatialSampler.sample(resource.url, resource);
+        const features = Array.isArray(sample?.geoFeatures)
+          ? sample.geoFeatures.slice(0, 120)
           : [];
-        if (features.length === 0) continue;
 
         for (const [index, feature] of features.entries()) {
           const featureId = feature.id || `feature-${index + 1}`;
@@ -456,34 +458,69 @@ class DigitalEarthImporter {
             },
             confidence: feature.confidence || 0.86,
             provenance: {
-              method: 'linked-geojson-sample',
+              method: 'linked-spatial-sample',
               sourceUrl: resource.url,
               sourceResource: resource.label || resource.url,
+              sourceFormat: sample.format || resource.format || resource.dataFormat || null,
               parentSource: decomposition.sourceObject?.id || decomposition.sourceObject?.name || null,
               sampledAt: new Date().toISOString()
             },
             metadata: {
               linkedResourceUrl: resource.url,
-              linkedResourceFormat: linkedContent?.metadata?.format || 'geojson'
+              linkedResourceFormat: sample.format || resource.format || resource.dataFormat || null
+            }
+          });
+        }
+
+        if (features.length === 0 && sample?.rasterMetadata?.bbox) {
+          worldObjects.push({
+            id: `linked-${this._slugifyResourceId(resource.url)}-coverage`,
+            type: 'Region',
+            name: `${resource.label || sample.title || 'Linked raster'} coverage`,
+            attributes: {
+              bbox: sample.rasterMetadata.bbox,
+              displayPrimitive: 'raster-layer',
+              sourceUrl: resource.url,
+              properties: {
+                format: sample.format || 'geotiff',
+                width: sample.rasterMetadata.width,
+                height: sample.rasterMetadata.height,
+                samplesPerPixel: sample.rasterMetadata.samplesPerPixel
+              }
+            },
+            confidence: 0.76,
+            provenance: {
+              method: 'linked-spatial-metadata-sample',
+              sourceUrl: resource.url,
+              sourceResource: resource.label || resource.url,
+              sourceFormat: sample.format || resource.format || resource.dataFormat || null,
+              parentSource: decomposition.sourceObject?.id || decomposition.sourceObject?.name || null,
+              sampledAt: new Date().toISOString()
+            },
+            metadata: {
+              linkedResourceUrl: resource.url,
+              linkedResourceFormat: sample.format || resource.format || resource.dataFormat || null,
+              rasterMetadata: sample.rasterMetadata
             }
           });
         }
 
         resource.enrichment = {
-          source: 'linked-geojson-sample',
-          status: 'sampled',
+          source: 'linked-spatial-sample',
+          status: sample?.status || (features.length > 0 ? 'sampled' : 'needs-review'),
           sampledFeatureCount: features.length,
-          fullFeatureCount: linkedContent?.metadata?.featureCount || features.length,
+          fullFeatureCount: sample?.featureCount || features.length,
+          rasterMetadata: sample?.rasterMetadata || null,
           checkedAt: new Date().toISOString()
         };
-        resource.format = resource.format || 'geojson';
-        resource.dataFormat = resource.dataFormat || 'geojson';
-        resource.routeRelevance = resource.routeRelevance || `Linked GeoJSON sampled into ${features.length} map feature(s).`;
+        resource.format = resource.format || sample?.format || null;
+        resource.dataFormat = resource.dataFormat || sample?.format || null;
+        resource.routeRelevance = resource.routeRelevance || linkedSpatialRouteRelevance(sample, features.length);
         resource.verificationFocus = resource.verificationFocus || 'inspect sampled feature attributes and source provenance';
-        resource.reviewHint = `Linked GeoJSON sampled. ${features.length} feature(s) are map-ready; verify attributes before interpretation.`;
+        resource.reviewHint = linkedSpatialReviewHint(sample, features.length);
       } catch (error) {
         resource.enrichment = {
-          source: 'linked-geojson-sample',
+          source: 'linked-spatial-sample',
           status: 'unavailable',
           error: error.message
         };
@@ -614,6 +651,26 @@ class DigitalEarthImporter {
     if (this.paperIdentifierResolver.isURL(input)) return 'url';
     return 'text';
   }
+}
+
+function linkedSpatialRouteRelevance(sample = {}, featureCount = 0) {
+  if (featureCount > 0) {
+    return `Linked ${sample.format || 'spatial'} resource sampled into ${featureCount} map feature(s).`;
+  }
+  if (sample.rasterMetadata?.bbox) {
+    return `Linked ${sample.format || 'raster'} resource exposes bounded raster coverage metadata.`;
+  }
+  return `Linked ${sample.format || 'spatial'} resource needs review before map rendering.`;
+}
+
+function linkedSpatialReviewHint(sample = {}, featureCount = 0) {
+  if (featureCount > 0) {
+    return `Linked ${sample.format || 'spatial'} resource sampled. ${featureCount} feature(s) are map-ready; verify attributes before interpretation.`;
+  }
+  if (sample.rasterMetadata?.bbox) {
+    return `Linked ${sample.format || 'raster'} metadata sampled. Coverage can be shown, but pixel values require a future raster preview/tile path.`;
+  }
+  return sample.diagnostics?.warning || 'Linked spatial resource was inspected, but no map-ready features were produced.';
 }
 
 module.exports = DigitalEarthImporter;

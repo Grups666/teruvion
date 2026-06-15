@@ -5,6 +5,7 @@
 const PaperConnector = require('./PaperConnector');
 const GitHubConnector = require('./GitHubConnector');
 const GeoJSONConnector = require('./GeoJSONConnector');
+const SpatialDataConnector = require('./SpatialDataConnector');
 const URLConnector = require('./URLConnector');
 
 class ConnectorRegistry {
@@ -15,6 +16,7 @@ class ConnectorRegistry {
     // Register connectors (order matters - first match wins)
     this.registerConnector(new GitHubConnector(config));
     this.registerConnector(new GeoJSONConnector(config));
+    this.registerConnector(new SpatialDataConnector(config));
     this.registerConnector(new PaperConnector(config));
     this.registerConnector(new URLConnector(config));
   }
