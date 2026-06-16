@@ -42,13 +42,21 @@ class PaperIdentifierResolver {
   }
 
   async resolveMetadata(input) {
+    const direct = this.resolveFromText(input);
+    if (direct) {
+      return { doi: direct, title: null, source: 'input' };
+    }
+
     if (!this.isURL(input)) {
-      return { doi: this.resolveFromText(input), title: null, source: 'input' };
+      return { doi: null, title: null, source: 'input' };
     }
 
     try {
       const html = await this.fetchHTML(input);
-      if (!html) return { doi: null, title: null, source: 'none' };
+      if (!html) {
+        const external = await this.resolveFromExternalMetadata(input);
+        return external || { doi: null, title: null, source: 'none' };
+      }
       return {
         doi: this.resolveFromHTML(html),
         title: this.resolveTitleFromHTML(html),
@@ -56,7 +64,8 @@ class PaperIdentifierResolver {
       };
     } catch (err) {
       console.warn('[PaperIdentifierResolver] Metadata discovery failed:', err.message);
-      return { doi: null, title: null, source: 'none' };
+      const external = await this.resolveFromExternalMetadata(input);
+      return external || { doi: null, title: null, source: 'none' };
     }
   }
 
@@ -138,6 +147,67 @@ class PaperIdentifierResolver {
     }
 
     return null;
+  }
+
+  async resolveFromExternalMetadata(input) {
+    const citation = this.citationQueryFromURL(input);
+    if (!citation) return null;
+
+    try {
+      const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(citation.query)}&rows=3`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': this.config.crossrefUserAgent || 'Teruvion/0.12.89 (mailto:research@teruvion.org)'
+        },
+        signal: AbortSignal.timeout(this.config.crossrefTimeout || 12000)
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      const match = this.pickCrossrefMatch(data.message?.items || [], citation);
+      if (!match?.DOI) return null;
+      return {
+        doi: match.DOI,
+        title: Array.isArray(match.title) ? match.title[0] : null,
+        source: 'crossref_bibliographic'
+      };
+    } catch (err) {
+      console.warn('[PaperIdentifierResolver] External metadata lookup failed:', err.message);
+      return null;
+    }
+  }
+
+  citationQueryFromURL(input) {
+    try {
+      const url = new URL(input);
+      const parts = url.pathname.split('/').filter(Boolean);
+      const articleIndex = parts.findIndex(part => part.toLowerCase() === 'article');
+      if (articleIndex === -1 || parts.length < articleIndex + 4) return null;
+      const numeric = parts.slice(articleIndex + 1).filter(part => /^\d+[A-Za-z]?$/.test(part));
+      if (numeric.length < 3) return null;
+      const [volume, issue, firstPage] = numeric;
+      const hostTokens = url.hostname
+        .replace(/^www\./, '')
+        .split('.')
+        .filter(part => !['com', 'org', 'net', 'online'].includes(part));
+      const pathTokens = parts.slice(0, articleIndex).filter(part => /^[a-z]{2,}$/i.test(part));
+      return {
+        query: [...hostTokens, ...pathTokens, volume, issue, firstPage].join(' '),
+        volume,
+        issue,
+        firstPage
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  pickCrossrefMatch(items, citation) {
+    const pageMatches = item => String(item.page || '').toLowerCase().split('-')[0] === String(citation.firstPage).toLowerCase();
+    const volumeMatches = item => String(item.volume || '').toLowerCase() === String(citation.volume).toLowerCase();
+    const issueMatches = item => !citation.issue || String(item.issue || '').toLowerCase() === String(citation.issue).toLowerCase();
+    return items
+      .filter(item => pageMatches(item) && volumeMatches(item) && issueMatches(item))
+      .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0] || null;
   }
 
   cleanTitle(title) {

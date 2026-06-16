@@ -22,6 +22,14 @@ describe('PaperIdentifierResolver', () => {
     assert.strictEqual(result.source, 'input');
   });
 
+  it('should resolve DOI URL metadata without fetching the DOI landing page', async () => {
+    const resolver = new PaperIdentifierResolver();
+    const result = await resolver.resolveMetadata('https://doi.org/10.2166/hydro.2023.006');
+
+    assert.strictEqual(result.doi, '10.2166/hydro.2023.006');
+    assert.strictEqual(result.source, 'input');
+  });
+
   it('should discover DOI from standard citation metadata', () => {
     const resolver = new PaperIdentifierResolver();
     const doi = resolver.resolveFromHTML(`

@@ -140,6 +140,7 @@ class LLM {
 
     const apiUrl = config.apiUrl || config.baseUrl;
     const model = params.model || config.models?.engineering || 'glm-5.1';
+    const modelCandidates = this._modelCandidates(model, config);
     const maxTokens = params.max_tokens || 4000;
     const temperature = params.temperature ?? 0.2;
 
@@ -150,28 +151,14 @@ class LLM {
     // Convert messages to prompt if needed by the API
     const messages = params.messages || [];
 
-    const response = await fetch(`${apiUrl}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        temperature,
-        messages
-      }),
-      signal: AbortSignal.timeout(params.timeout || 180000)
+    const data = await this._postMessagesWithFallback({
+      apiUrl,
+      modelCandidates,
+      maxTokens,
+      temperature,
+      messages,
+      timeout: params.timeout || 180000
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`LLM API error ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
 
     // Return in standard format
     return {
@@ -205,33 +192,20 @@ class LLM {
 
     const apiUrl = config.apiUrl || config.baseUrl;
     const model = options.model || config.models?.engineering || 'AWS-Claude-Opus-4.7';
+    const modelCandidates = this._modelCandidates(model, config);
     const maxTokens = options.maxTokens || 4000;
 
     if (!config.apiKey) {
       throw new Error('LLM API key not configured');
     }
 
-    const response = await fetch(`${apiUrl}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        messages: [{ role: 'user', content: prompt }]
-      }),
-      signal: AbortSignal.timeout(options.timeout || 180000)
+    const data = await this._postMessagesWithFallback({
+      apiUrl,
+      modelCandidates,
+      maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+      timeout: options.timeout || 180000
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`LLM API error ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
 
     if (!data.content || !data.content[0] || !data.content[0].text) {
       throw new Error('Unexpected LLM response format');
@@ -243,6 +217,62 @@ class LLM {
     text = this.cleanJSON(text);
 
     return text;
+  }
+
+  _modelCandidates(primary, config) {
+    const raw = [
+      primary,
+      ...(Array.isArray(config.models?.fallbacks) ? config.models.fallbacks : []),
+      config.models?.fallback,
+      config.models?.default,
+      config.models?.engineering
+    ].filter(Boolean);
+    return Array.from(new Set(raw.map(String)));
+  }
+
+  async _postMessagesWithFallback({ apiUrl, modelCandidates, maxTokens, temperature, messages, timeout }) {
+    const errors = [];
+
+    for (const model of modelCandidates) {
+      const response = await fetch(`${apiUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.loadConfig().apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          ...(temperature !== undefined ? { temperature } : {}),
+          messages
+        }),
+        signal: AbortSignal.timeout(timeout)
+      });
+
+      if (response.ok) {
+        return response.json();
+      }
+
+      const errorText = await response.text();
+      const errorMessage = `LLM API error ${response.status}: ${errorText}`;
+      errors.push(`${model}: ${errorMessage}`);
+
+      if (!this._isRetryableModelCapacityError(response.status, errorText)) {
+        throw new Error(errorMessage);
+      }
+    }
+
+    throw new Error(`LLM API model fallback exhausted: ${errors.join('; ')}`);
+  }
+
+  _isRetryableModelCapacityError(status, text) {
+    const normalized = String(text || '').toLowerCase();
+    return status === 429
+      || normalized.includes('model is at capacity')
+      || normalized.includes('selected model is at capacity')
+      || normalized.includes('try a different model')
+      || normalized.includes('overloaded');
   }
 
   /**

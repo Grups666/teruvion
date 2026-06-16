@@ -98,6 +98,7 @@ const PRIMITIVE_STYLES: Record<string, { fill: string; stroke: string; weight: n
 const DEFAULT_STYLE = PRIMITIVE_STYLES['spatial-anchor'];
 const DEFAULT_MARKER_COLOR = LAYER_MARKER_COLORS.foundation;
 const QUALITATIVE_PALETTE = ['#5ecad3', '#f2c85b', '#d98ac3', '#ee8b83', '#7fbf7a', '#7fa6df', '#8d949e', '#c78de0'];
+const WORLD_VISUAL_BOUNDS = L.latLngBounds([[-85.05112878, -180], [85.05112878, 180]]);
 
 export default function GlobalMap({
   entities,
@@ -128,6 +129,7 @@ export default function GlobalMap({
     [renderFeatures, selectedFeatureId, selectedEntityId]
   );
   const mapSummary = useMemo(() => buildMapSummary(renderFeatures), [renderFeatures]);
+  const hasMapIntelligence = renderFeatures.length > 0 || Boolean(selectedFeature);
 
   useEffect(() => {
     if (!containerRef.current || initializedRef.current) return;
@@ -136,11 +138,13 @@ export default function GlobalMap({
     const map = L.map(containerRef.current, {
       center: [18, 8],
       zoom: 2,
-      minZoom: 2,
+      minZoom: 1,
       maxZoom: 12,
       worldCopyJump: true,
       zoomControl: true,
       attributionControl: false,
+      maxBounds: WORLD_VISUAL_BOUNDS,
+      maxBoundsViscosity: 1,
     });
 
     const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -160,7 +164,10 @@ export default function GlobalMap({
     layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
 
-    setTimeout(() => map.invalidateSize(), 100);
+    setTimeout(() => {
+      map.invalidateSize();
+      lockWorldVerticalBounds(map);
+    }, 100);
 
     return () => {
       mapRef.current?.remove();
@@ -171,7 +178,11 @@ export default function GlobalMap({
   }, []);
 
   useEffect(() => {
-    const handleResize = () => mapRef.current?.invalidateSize();
+    const handleResize = () => {
+      if (!mapRef.current) return;
+      mapRef.current.invalidateSize();
+      lockWorldVerticalBounds(mapRef.current);
+    };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -205,6 +216,7 @@ export default function GlobalMap({
     <div className="global-map-root">
       <div ref={containerRef} className="global-map-canvas" />
 
+      {hasMapIntelligence ? (
       <section className="global-map-intelligence" aria-label="Global map intelligence summary">
         {selectedFeature ? (
           <FeatureInspector feature={selectedFeature} viewPlan={viewPlan} onClose={() => setSelectedFeatureId(null)} />
@@ -246,6 +258,7 @@ export default function GlobalMap({
           </>
         )}
       </section>
+      ) : null}
 
       {diagnostics?.warnings?.length ? (
         <section className="global-map-review" aria-label="Map review notice">
@@ -596,6 +609,19 @@ function fitMaxZoom(bounds: L.LatLngBounds, featureCount: number) {
   if (span > 22) return 5;
   if (span > 8) return 6;
   return 8;
+}
+
+function lockWorldVerticalBounds(map: L.Map) {
+  const fittedWorldZoom = map.getBoundsZoom(WORLD_VISUAL_BOUNDS, true);
+  const minZoom = Math.max(1, Math.min(3, fittedWorldZoom));
+  if (Math.abs(map.getMinZoom() - minZoom) > 0.001) {
+    map.setMinZoom(minZoom);
+  }
+  if (map.getZoom() < minZoom) {
+    map.setZoom(minZoom, { animate: false });
+  }
+  map.setMaxBounds(WORLD_VISUAL_BOUNDS);
+  map.panInsideBounds(WORLD_VISUAL_BOUNDS, { animate: false });
 }
 
 function featureColor(feature: RenderFeature, viewPlan?: MapViewPlan) {

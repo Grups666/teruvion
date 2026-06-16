@@ -334,7 +334,6 @@ export default function Home() {
             if (p.id === projectId) {
               return {
                 ...p,
-                name: phase ? `Processing: ${phase}` : 'Importing...',
                 analysis: {
                   ...p.analysis,
                   status: (projectStatus || 'importing') as AnalysisProgress['status'],
