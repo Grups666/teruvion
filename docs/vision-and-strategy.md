@@ -57,14 +57,16 @@ Teruvion should become the intelligence layer that connects source material, Ear
 
 ## Product Thesis
 
-Advanced Digital Earth products should move beyond static maps and isolated dashboards. They should provide:
+Advanced Digital Earth products should move beyond static maps and isolated dashboards. A flagship Digital Earth intelligence platform should provide eight capabilities:
 
-- **World objectization**: regions, datasets, models, events, resources, figures, claims, and workflows become inspectable objects, not anonymous files or map marks.
-- **Multi-source fusion**: papers, news, reports, repositories, data portals, sensors, and model outputs can be connected into one project state.
-- **Reasoning on maps**: users can ask where, when, why, what changed, what may happen next, and what evidence supports the answer.
-- **Reproducible workflows**: results retain source URLs, data versions, parameters, code references, model versions, execution state, and uncertainty.
-- **Agent-assisted research**: agents can help find data, read papers, construct routes, explain figures, compare evidence, and plan visualizations, but must remain bounded by source contracts, schema validation, provenance, and safe execution rules.
-- **Personalized intelligence push**: users can watch regions, risks, datasets, variables, models, resources, or claims and receive updates when new evidence changes the situation.
+1. **World objectization**: regions, datasets, models, events, resources, figures, claims, and workflows become inspectable objects, not anonymous files or map marks.
+2. **Multi-source real-time fusion**: papers, news, reports, repositories, data portals, sensors, model outputs, and monitoring feeds can be connected into one project state.
+3. **Reasoning on maps**: users can ask where, when, why, what changed, what may happen next, and what evidence supports the answer.
+4. **Reproducible workflows**: results retain source URLs, data versions, parameters, code references, model versions, execution state, uncertainty, and review history.
+5. **Agent-assisted research execution**: agents can help find data, read papers, construct routes, explain figures, compare evidence, plan visualizations, and assemble reports, while remaining bounded by source contracts, schema validation, provenance, permissions, and safe execution rules.
+6. **Personalized intelligence push**: users can watch regions, risks, datasets, variables, models, resources, or claims and receive updates when new evidence changes the situation.
+7. **Spatial-temporal-causal intelligence**: the system should connect where something happens, when it changes, why it matters, what it affects, and what actions or scenarios may follow.
+8. **Multi-modal interaction**: web workspaces, map views, notebooks, reports, agent conversation, and future VR/AR interfaces should share the same source-grounded object graph instead of becoming separate product silos.
 
 The long-term value is not a single import, summary, or visualization. It is persistent Earth intelligence state that becomes more useful as the user, team, or institution works inside it.
 
