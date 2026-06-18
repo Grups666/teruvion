@@ -2,7 +2,7 @@
 
 ## Current System
 
-Teruvion currently implements a source-to-object-graph foundation.
+Teruvion currently implements a source-to-object-graph foundation for a broader Digital Earth intelligence platform. The object graph is the shared method that lets research workspace views, map/regional visualization, comparison, reporting, and future monitoring reuse the same source-grounded state.
 
 ```text
 Input
@@ -105,6 +105,7 @@ Claude Code should be treated as a deep-analysis harness, not as a trusted sourc
 ## Design Principles
 
 - **Object-centric**: sources become typed objects and relations.
+- **Mission-driven foundation**: decomposition and object graphs are implementation methods. The product goal is integrated research, reviewable intelligence, and future active monitoring/push workflows.
 - **Evidence-first**: preserve source, provenance, confidence, coverage, and verification state.
 - **Single decomposition, multiple recompositions**: source decomposition is the shared base. Project detail views, map visualizations, lenses, and future panels should be independent recomposition modules over the same ontology-grounded objects rather than separate extraction paths.
 - **Shared recomposition language**: detail, map, and future recomposition modules may assemble different views, but they must reuse the same stable terms for display primitives, evidence state, source identity, and provenance boundaries.

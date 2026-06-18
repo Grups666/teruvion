@@ -1,10 +1,15 @@
 # Teruvion
 
-Teruvion is a Digital Earth foundation engine for turning research sources into inspectable object graphs.
+Teruvion is a Digital Earth intelligence platform for research integration and active world monitoring.
 
-Current focus: import papers, paper titles, DOI references, and GitHub repositories; decompose them into ontology-grounded entities and relations; then inspect the results through project, entity, relation, and lens APIs.
+Its long-term purpose is twofold:
 
-Teruvion is not trying to replace Google Earth, Cesium, ArcGIS, QGIS, Zotero, or literature summarizers. Its core difference is objectization: sources become traceable research objects, evidence chains, workflows, spatial entities, and comparisons that can be inspected and recomposed.
+- provide a unified research workspace for papers, data, code, models, maps, workflows, figures, evidence, and conclusions;
+- provide an active intelligence engine that monitors regions, resources, risks, datasets, models, events, and claims, then pushes evidence-backed updates to users.
+
+The current foundation method is source-to-object-graph decomposition and recomposition. Sources become traceable Digital Earth objects that can be inspected, visualized, compared, verified, and reused across project views.
+
+Teruvion is not trying to replace Google Earth, Cesium, ArcGIS, QGIS, Zotero, or literature summarizers. It should connect to those ecosystems while owning the source-grounded Digital Earth intelligence state between them.
 
 ## Documentation Map
 

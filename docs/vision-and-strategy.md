@@ -2,13 +2,20 @@
 
 ## One-Line Positioning
 
-Teruvion productizes general intelligence for Digital Earth.
+Teruvion is a Digital Earth intelligence platform for research integration and active world monitoring.
 
-It turns papers, repositories, datasets, reports, and future monitoring feeds into persistent Digital Earth objects, evidence chains, workflows, and user-specific intelligence state.
+It turns papers, repositories, datasets, reports, maps, models, events, and future monitoring feeds into persistent Digital Earth objects, evidence chains, workflows, and user-specific intelligence state.
 
 ## Mission
 
-Build a living Digital Earth intelligence workspace for understanding, exploring, and governing Earth systems.
+Teruvion's mission is to build a living Digital Earth intelligence platform that helps people understand, research, monitor, and act on complex Earth-system problems.
+
+There are two product missions:
+
+1. **Research integration**: provide a unified workspace where users can organize papers, data, code, models, maps, workflows, figures, evidence, and conclusions without constantly switching between GIS tools, notebooks, document editors, reference managers, and data portals.
+2. **Active intelligence push**: run continuous monitoring and analysis over regions, resources, risks, models, datasets, events, and claims, then push evidence-backed updates to users based on their interests and responsibilities.
+
+The source-to-object graph is the method, not the final purpose. The purpose is to make Digital Earth research and monitoring more integrated, explainable, reproducible, and actionable.
 
 Current product focus is narrower:
 
@@ -22,13 +29,16 @@ The project must not jump directly to a complete Digital Earth operating layer b
 
 Teruvion is:
 
-- a Digital Earth object graph platform
+- a Digital Earth research workspace
 - a source decomposition and recomposition engine
-- an evidence and provenance workspace
+- a persistent object graph and provenance layer
+- a map, evidence, workflow, and comparison workspace
 - a workflow and model/data/region alignment layer
-- a future monitoring and watchlist system for Earth-related change
+- a future monitoring, watchlist, and intelligence-push system for Earth-related change
 
 It should manage objects and their relationships, not only documents or chat responses.
+
+The platform should eventually let a user move from question to source collection, data discovery, map visualization, workflow assembly, evidence review, report generation, and monitoring without losing provenance or context.
 
 ## What Teruvion Is Not
 
@@ -42,6 +52,21 @@ Teruvion should not become:
 - a cloud data warehouse or map rendering infrastructure company
 
 Those platforms should be connected to and orchestrated, not duplicated.
+
+Teruvion should become the intelligence layer that connects source material, Earth data systems, models, maps, workflows, reports, and user intent.
+
+## Product Thesis
+
+Advanced Digital Earth products should move beyond static maps and isolated dashboards. They should provide:
+
+- **World objectization**: regions, datasets, models, events, resources, figures, claims, and workflows become inspectable objects, not anonymous files or map marks.
+- **Multi-source fusion**: papers, news, reports, repositories, data portals, sensors, and model outputs can be connected into one project state.
+- **Reasoning on maps**: users can ask where, when, why, what changed, what may happen next, and what evidence supports the answer.
+- **Reproducible workflows**: results retain source URLs, data versions, parameters, code references, model versions, execution state, and uncertainty.
+- **Agent-assisted research**: agents can help find data, read papers, construct routes, explain figures, compare evidence, and plan visualizations, but must remain bounded by source contracts, schema validation, provenance, and safe execution rules.
+- **Personalized intelligence push**: users can watch regions, risks, datasets, variables, models, resources, or claims and receive updates when new evidence changes the situation.
+
+The long-term value is not a single import, summary, or visualization. It is persistent Earth intelligence state that becomes more useful as the user, team, or institution works inside it.
 
 ## Why Not OpenAI Or Anthropic
 
@@ -82,6 +107,8 @@ Teruvion should own:
 - **Orchestration logic**: when to call external APIs, models, repositories, data platforms, email, reports, or future execution systems.
 - **Product experience**: project panels, inspectors, lenses, review flows, monitoring views, and team workflows.
 
+The durable product asset is the Digital Earth intelligence state: a source-grounded, provenance-aware, user-specific graph that can be recomposed for research, visualization, reporting, comparison, and monitoring.
+
 ## Infrastructure To Externalize
 
 Teruvion should generally externalize:
@@ -103,6 +130,8 @@ Lead with:
 - decompose research into Digital Earth objects
 - inspect provenance and uncertainty
 - compare objects and workflows
+- visualize source-grounded spatial results
+- integrate research materials into one project workspace
 - track regions, risks, resources, datasets, models, and claims
 - deliver evidence-backed updates
 
@@ -170,6 +199,7 @@ Current focus:
 - ontology-grounded decomposition
 - source coverage and fallback visibility
 - project, entity, graph, and lens exploration
+- figures, tables, resources, and map/regional recomposition
 - alpha application and admin workflow
 
 ### Stage 2: Earth Research Workspace
@@ -182,6 +212,8 @@ Likely capabilities:
 - multi-source aggregation
 - object comparison
 - richer evidence chains
+- integrated figures, tables, maps, workflows, and source briefs
+- research writing and report assembly
 - source update detection
 - user watchlists
 - recurring research digests
@@ -194,6 +226,7 @@ Likely capabilities:
 
 - monitoring by region, resource, risk, dataset, model, and claim
 - private data and model connectors
+- active intelligence push by user interest graph
 - team workflows and review permissions
 - report and alert generation
 - scenario and decision-support workflows
